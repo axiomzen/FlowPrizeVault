@@ -5,6 +5,12 @@
 			"aliases": {
 				"mainnet": "262cf58c0b9fbcff"
 			}
+		},
+		"PrizeVaultIncrement": {
+			"source": "cadence/contracts/PrizeVaultIncrement.cdc",
+			"aliases": {
+				"mainnet": "262cf58c0b9fbcff"
+			}
 		}
 	},
 	"deployments": {
@@ -23,7 +29,8 @@
 							"value": "fe8189a3016cb6a3668b8ccdac520ce572d4287a"
 						}
 					]
-				}
+				},
+				"PrizeVaultIncrement"
 			]
 		}
 	},
@@ -68,6 +75,20 @@
 				"emulator": "0xf8d6e0586b0a20c7",
 				"mainnet": "0x45caec600164c9e6",
 				"testing": "0x0000000000000010"
+			}
+		},
+		"stFlowToken": {
+			"source": "mainnet://d6f80565193ad727.stFlowToken",
+			"aliases": {
+				"mainnet": "0xd6f80565193ad727",
+				"testnet": "0xd6f80565193ad727"
+			}
+		},
+		"LiquidStaking": {
+			"source": "mainnet://d6f80565193ad727.LiquidStaking",
+			"aliases": {
+				"mainnet": "0xd6f80565193ad727",
+				"testnet": "0xd6f80565193ad727"
 			}
 		}
 	},
