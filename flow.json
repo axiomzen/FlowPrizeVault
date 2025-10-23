@@ -1,0 +1,96 @@
+{
+	"contracts": {
+		"PrizeVaultV3": {
+			"source": "cadence/contracts/PrizeVaultV3.cdc",
+			"aliases": {
+				"mainnet": "262cf58c0b9fbcff"
+			}
+		}
+	},
+	"deployments": {
+		"emulator": {
+			"emulator-account": [
+				"PrizeVaultV3"
+			]
+		},
+		"mainnet": {
+			"azsavings": [
+				{
+					"name": "PrizeVaultV3",
+					"args": [
+						{
+							"type": "String",
+							"value": "fe8189a3016cb6a3668b8ccdac520ce572d4287a"
+						}
+					]
+				}
+			]
+		}
+	},
+	"dependencies": {
+		"FungibleToken": {
+			"source": "mainnet://f233dcee88fe0abe.FungibleToken",
+			"aliases": {
+				"emulator": "0xee82856bf20e2aa6",
+				"mainnet": "0xf233dcee88fe0abe",
+				"testnet": "0x9a0766d93b6608b7",
+				"testing": "0x0000000000000002"
+			}
+		},
+		"FlowToken": {
+			"source": "mainnet://1654653399040a61.FlowToken",
+			"aliases": {
+				"emulator": "0x0ae53cb6e3f42a79",
+				"mainnet": "0x1654653399040a61",
+				"testnet": "0x7e60df042a9c0868",
+				"testing": "0x0000000000000003"
+			}
+		},
+		"FlowStakingCollection": {
+			"source": "mainnet://8d0e87b65159ae63.FlowStakingCollection",
+			"aliases": {
+				"emulator": "0xf8d6e0586b0a20c7",
+				"mainnet": "0x8d0e87b65159ae63",
+				"testing": "0x0000000000000008"
+			}
+		},
+		"StakingManager": {
+			"source": "mainnet://70466175fbacfb56.StakingManager",
+			"aliases": {
+				"emulator": "0xf8d6e0586b0a20c7",
+				"mainnet": "0x70466175fbacfb56",
+				"testing": "0x0000000000000009"
+			}
+		},
+		"RandomConsumer": {
+			"source": "mainnet://45caec600164c9e6.RandomConsumer",
+			"aliases": {
+				"emulator": "0xf8d6e0586b0a20c7",
+				"mainnet": "0x45caec600164c9e6",
+				"testing": "0x0000000000000010"
+			}
+		}
+	},
+	"networks": {
+		"emulator": "127.0.0.1:3569",
+		"mainnet": "access.mainnet.nodes.onflow.org:9000",
+		"testing": "127.0.0.1:3569",
+		"testnet": "access.devnet.nodes.onflow.org:9000"
+	},
+	"accounts": {
+		"azsavings": {
+			"address": "262cf58c0b9fbcff",
+			"key": {
+				"type": "file",
+				"location": "azsavings.pkey"
+			}
+		},
+		"emulator-account": {
+			"address": "f8d6e0586b0a20c7",
+			"key": {
+				"type": "file",
+				"location": "emulator-account.pkey"
+			}
+		}
+	}
+}
