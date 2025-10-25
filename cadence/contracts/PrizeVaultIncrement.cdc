@@ -24,6 +24,11 @@ import RandomConsumer from 0x45caec600164c9e6
 import stFlowToken from 0xd6f80565193ad727
 import LiquidStaking from 0xd6f80565193ad727
 
+// Increment Finance Swap Contracts
+import SwapConfig from 0xb78ef7afa52ff906
+import SwapInterfaces from 0xb78ef7afa52ff906
+import SwapFactory from 0xb063c16cac85dbd1
+
 access(all) contract PrizeVaultIncrement {
     
     // Constants
@@ -33,6 +38,7 @@ access(all) contract PrizeVaultIncrement {
     access(all) event Deposited(address: Address, amount: UFix64)
     access(all) event WithdrawalRequested(address: Address, amount: UFix64, withdrawalType: String)
     access(all) event Withdrawn(address: Address, amount: UFix64)
+    access(all) event InstantWithdrawn(address: Address, stFlowAmount: UFix64, flowReceived: UFix64)
     access(all) event Staked(amount: UFix64, stFlowReceived: UFix64)
     access(all) event UnstakeRequested(amount: UFix64, voucherUUID: UInt64, unlockEpoch: UInt64)
     access(all) event PrizeDrawCommitted(prizeAmount: UFix64, commitBlock: UInt64, receiptID: UInt64)
@@ -135,6 +141,7 @@ access(all) contract PrizeVaultIncrement {
         access(all) fun requestDepositWithdrawal(amount: UFix64)
         access(all) fun requestPrizeWithdrawal(amount: UFix64)
         access(all) fun completeWithdrawal(): @{FungibleToken.Vault}
+        access(all) fun instantWithdrawDeposit(amount: UFix64, minFlowOut: UFix64): @{FungibleToken.Vault}
         access(all) fun getBalance(): UFix64  // Total balance (deposits + prizes)
         access(all) fun getDepositBalance(): UFix64  // Deposits only
         access(all) fun getPrizeBalance(): UFix64  // Prizes only
@@ -257,6 +264,54 @@ access(all) contract PrizeVaultIncrement {
             return <- withdrawn
         }
         
+        // Instant withdrawal: Swap stFLOW for FLOW using Increment Finance swap
+        // This allows users to withdraw immediately without waiting for unstaking period
+        // Note: May incur slippage depending on swap pool liquidity
+        access(all) fun instantWithdrawDeposit(amount: UFix64, minFlowOut: UFix64): @{FungibleToken.Vault} {
+            let ownerAddress = self.owner?.address ?? panic("No owner address")
+            
+            let userDeposit = PrizeVaultIncrement.userDeposits[ownerAddress] ?? 0.0
+            assert(userDeposit >= amount, message: "Insufficient deposit balance. Your deposit: ".concat(userDeposit.toString()))
+            
+            let existingPending = PrizeVaultIncrement.pendingWithdrawals[ownerAddress] ?? 0.0
+            assert(existingPending == 0.0, message: "You already have a pending withdrawal. Complete it first.")
+            
+            // Verify totalStaked accounting (safety check to prevent underflow)
+            assert(PrizeVaultIncrement.totalStaked >= amount, message: "Internal error: insufficient totalStaked")
+            
+            // Calculate how much stFLOW we need to withdraw
+            let stFlowToWithdraw = LiquidStaking.calcStFlowFromFlow(flowAmount: amount)
+            
+            // Verify we have enough stFLOW
+            assert(PrizeVaultIncrement.stFlowVault.balance >= stFlowToWithdraw, 
+                   message: "Insufficient stFLOW in vault. stFLOW needed: ".concat(stFlowToWithdraw.toString()))
+            
+            // Withdraw stFLOW from contract's vault
+            let stFlowVault <- PrizeVaultIncrement.stFlowVault.withdraw(amount: stFlowToWithdraw) as! @stFlowToken.Vault
+            
+            // Perform the swap: stFLOW -> FLOW
+            let flowVault <- PrizeVaultIncrement.swapStFlowForFlow(
+                stFlowVault: <- stFlowVault, 
+                minFlowOut: minFlowOut
+            )
+            
+            let flowReceived = flowVault.balance
+            
+            // Update user's deposit balance
+            PrizeVaultIncrement.userDeposits[ownerAddress] = userDeposit - amount
+            
+            // Update totals
+            PrizeVaultIncrement.totalDeposited = PrizeVaultIncrement.totalDeposited - amount
+            PrizeVaultIncrement.totalStaked = PrizeVaultIncrement.totalStaked - amount
+            
+            // Update local balance
+            self.balance = PrizeVaultIncrement.userDeposits[ownerAddress]! + (PrizeVaultIncrement.userPrizes[ownerAddress] ?? 0.0)
+            
+            emit InstantWithdrawn(address: ownerAddress, stFlowAmount: stFlowToWithdraw, flowReceived: flowReceived)
+            
+            return <- flowVault
+        }
+        
         // Get total balance (deposits + prizes) for display
         access(all) fun getBalance(): UFix64 {
             let ownerAddress = self.owner?.address ?? panic("No owner address")
@@ -330,6 +385,53 @@ access(all) contract PrizeVaultIncrement {
         self.voucherCollection.deposit(voucher: <- voucher)
         
         emit UnstakeRequested(amount: amount, voucherUUID: voucherUUID, unlockEpoch: unlockEpoch)
+    }
+    
+    // Internal function to swap stFLOW for FLOW using Increment Finance
+    // This enables instant withdrawals without waiting for the unstaking period
+    access(contract) fun swapStFlowForFlow(stFlowVault: @stFlowToken.Vault, minFlowOut: UFix64): @FlowToken.Vault {
+        let stFlowAmount = stFlowVault.balance
+        
+        // Get token keys for identifying which token is which in the pair
+        let stFlowKey = SwapConfig.SliceTokenTypeIdentifierFromVaultType(
+            vaultTypeIdentifier: Type<@stFlowToken.Vault>().identifier
+        )
+        let flowKey = SwapConfig.SliceTokenTypeIdentifierFromVaultType(
+            vaultTypeIdentifier: Type<@FlowToken.Vault>().identifier
+        )
+        
+        // Get the stFLOW/FLOW pair address from SwapFactory
+        let pairAddress = SwapFactory.getPairAddress(token0Key: stFlowKey, token1Key: flowKey)
+            ?? panic("stFLOW/FLOW swap pair not found in SwapFactory. The pair may not exist or tokens may need to be swapped in reverse order.")
+        
+        // Borrow the swap pair public interface
+        let swapPairPublicRef = getAccount(pairAddress)
+            .capabilities.get<&{SwapInterfaces.PairPublic}>(/public/increment_swap_pair)
+            .borrow()
+            ?? panic("Could not borrow swap pair public reference. Pair address: ".concat(pairAddress.toString()))
+        
+        // Calculate expected output amount (for validation)
+        let expectedFlowOut = swapPairPublicRef.getAmountOut(amountIn: stFlowAmount, tokenInKey: stFlowKey)
+        
+        // Verify minimum output (slippage protection)
+        assert(expectedFlowOut >= minFlowOut, 
+               message: "Slippage too high. Expected: ".concat(expectedFlowOut.toString())
+                       .concat(", Minimum: ").concat(minFlowOut.toString()))
+        
+        // Perform the swap
+        // Cast the stFlowVault to FungibleToken.Vault for the swap
+        let tokenIn <- stFlowVault as @{FungibleToken.Vault}
+        
+        // Execute the swap (exactAmountOut: nil means we get all output from input)
+        let tokenOut <- swapPairPublicRef.swap(
+            vaultIn: <- tokenIn,
+            exactAmountOut: nil
+        )
+        
+        // Cast the output back to FlowToken.Vault
+        let flowVault <- tokenOut as! @FlowToken.Vault
+        
+        return <- flowVault
     }
     
     // Process all mature vouchers and deposit FLOW into vault
