@@ -1,9 +1,9 @@
 {
 	"contracts": {
-		"PrizeVaultV3": {
-			"source": "cadence/contracts/PrizeVaultV3.cdc",
+		"PrizeVault": {
+			"source": "cadence/contracts/PrizeVault.cdc",
 			"aliases": {
-				"mainnet": "262cf58c0b9fbcff"
+				"testing": "0000000000000007"
 			}
 		},
 		"PrizeVaultIncrement": {
@@ -11,84 +11,206 @@
 			"aliases": {
 				"mainnet": "262cf58c0b9fbcff"
 			}
-		}
-	},
-	"deployments": {
-		"emulator": {
-			"emulator-account": [
-				"PrizeVaultV3"
-			]
 		},
-		"mainnet": {
-			"azsavings": [
-				{
-					"name": "PrizeVaultV3",
-					"args": [
-						{
-							"type": "String",
-							"value": "fe8189a3016cb6a3668b8ccdac520ce572d4287a"
-						}
-					]
-				},
-				"PrizeVaultIncrement"
-			]
+		"PrizeVaultV3": {
+			"source": "cadence/contracts/PrizeVaultV3.cdc",
+			"aliases": {
+				"mainnet": "262cf58c0b9fbcff"
+			}
+		},
+		"Xorshift128plus": {
+			"source": "cadence/contracts/Xorshift128plus.cdc",
+			"aliases": {
+				"testing": "0000000000000007"
+			}
 		}
 	},
 	"dependencies": {
-		"FungibleToken": {
-			"source": "mainnet://f233dcee88fe0abe.FungibleToken",
+		"Burner": {
+			"source": "mainnet://f233dcee88fe0abe.Burner",
+			"hash": "71af18e227984cd434a3ad00bb2f3618b76482842bae920ee55662c37c8bf331",
 			"aliases": {
-				"emulator": "0xee82856bf20e2aa6",
-				"mainnet": "0xf233dcee88fe0abe",
-				"testnet": "0x9a0766d93b6608b7",
-				"testing": "0x0000000000000002"
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "f233dcee88fe0abe",
+				"testnet": "9a0766d93b6608b7"
 			}
 		},
-		"FlowToken": {
-			"source": "mainnet://1654653399040a61.FlowToken",
+		"DeFiActions": {
+			"source": "mainnet://92195d814edf9cb0.DeFiActions",
+			"hash": "67175b2a2569bdff79c221ec7ac823c79dd59c83bce07582cfc3b675dfbe6207",
 			"aliases": {
-				"emulator": "0x0ae53cb6e3f42a79",
-				"mainnet": "0x1654653399040a61",
-				"testnet": "0x7e60df042a9c0868",
-				"testing": "0x0000000000000003"
+				"mainnet": "92195d814edf9cb0"
+			}
+		},
+		"DeFiActionsMathUtils": {
+			"source": "mainnet://92195d814edf9cb0.DeFiActionsMathUtils",
+			"hash": "f2ae511846ea9a545380968837f47a4198447c008e575047f3ace3b7cf782067",
+			"aliases": {
+				"mainnet": "92195d814edf9cb0"
+			}
+		},
+		"DeFiActionsUtils": {
+			"source": "mainnet://92195d814edf9cb0.DeFiActionsUtils",
+			"hash": "d01ab8cd8a57aee3e35ca8a9038f98de2321d6246e03285e0107ef6b4191bff1",
+			"aliases": {
+				"mainnet": "92195d814edf9cb0"
+			}
+		},
+		"EVM": {
+			"source": "mainnet://e467b9dd11fa00df.EVM",
+			"hash": "df2065d3eebc1e690e0b52a3f293bdf6c22780c7a9e7ef48a708a651b87abdf0",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "e467b9dd11fa00df",
+				"testnet": "8c5303eaa26202d6"
 			}
 		},
 		"FlowStakingCollection": {
 			"source": "mainnet://8d0e87b65159ae63.FlowStakingCollection",
+			"hash": "",
 			"aliases": {
-				"emulator": "0xf8d6e0586b0a20c7",
-				"mainnet": "0x8d0e87b65159ae63",
-				"testing": "0x0000000000000008"
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "8d0e87b65159ae63",
+				"testing": "0000000000000008"
 			}
 		},
-		"StakingManager": {
-			"source": "mainnet://70466175fbacfb56.StakingManager",
+		"FlowToken": {
+			"source": "mainnet://1654653399040a61.FlowToken",
+			"hash": "cefb25fd19d9fc80ce02896267eb6157a6b0df7b1935caa8641421fe34c0e67a",
 			"aliases": {
-				"emulator": "0xf8d6e0586b0a20c7",
-				"mainnet": "0x70466175fbacfb56",
-				"testing": "0x0000000000000009"
+				"emulator": "0ae53cb6e3f42a79",
+				"mainnet": "1654653399040a61",
+				"testnet": "7e60df042a9c0868"
 			}
 		},
-		"RandomConsumer": {
-			"source": "mainnet://45caec600164c9e6.RandomConsumer",
+		"FungibleToken": {
+			"source": "mainnet://f233dcee88fe0abe.FungibleToken",
+			"hash": "23c1159cf99b2b039b6b868d782d57ae39b8d784045d81597f100a4782f0285b",
 			"aliases": {
-				"emulator": "0xf8d6e0586b0a20c7",
-				"mainnet": "0x45caec600164c9e6",
-				"testing": "0x0000000000000010"
+				"emulator": "ee82856bf20e2aa6",
+				"mainnet": "f233dcee88fe0abe",
+				"testnet": "9a0766d93b6608b7"
 			}
 		},
-		"stFlowToken": {
-			"source": "mainnet://d6f80565193ad727.stFlowToken",
+		"FungibleTokenConnectors": {
+			"source": "mainnet://1d9a619393e9fb53.FungibleTokenConnectors",
+			"hash": "01dd4a81d57f079316ff27e3980de1b895e2c50002e47d3c20f68bbf694e54b0",
 			"aliases": {
-				"mainnet": "0xd6f80565193ad727",
-				"testnet": "0xd6f80565193ad727"
+				"mainnet": "1d9a619393e9fb53"
+			}
+		},
+		"FungibleTokenMetadataViews": {
+			"source": "mainnet://f233dcee88fe0abe.FungibleTokenMetadataViews",
+			"hash": "dff704a6e3da83997ed48bcd244aaa3eac0733156759a37c76a58ab08863016a",
+			"aliases": {
+				"emulator": "ee82856bf20e2aa6",
+				"mainnet": "f233dcee88fe0abe",
+				"testnet": "9a0766d93b6608b7"
+			}
+		},
+		"IncrementFiStakingConnectors": {
+			"source": "mainnet://efa9bd7d1b17f1ed.IncrementFiStakingConnectors",
+			"hash": "ad0fafe9446d59018bcf2091fa11fa15ce34e7bb1f1ad660b3c7ce0068be6c6b",
+			"aliases": {
+				"mainnet": "efa9bd7d1b17f1ed"
 			}
 		},
 		"LiquidStaking": {
 			"source": "mainnet://d6f80565193ad727.LiquidStaking",
+			"hash": "",
 			"aliases": {
-				"mainnet": "0xd6f80565193ad727",
-				"testnet": "0xd6f80565193ad727"
+				"mainnet": "d6f80565193ad727",
+				"testnet": "d6f80565193ad727"
+			}
+		},
+		"MetadataViews": {
+			"source": "mainnet://1d7e57aa55817448.MetadataViews",
+			"hash": "9032f46909e729d26722cbfcee87265e4f81cd2912e936669c0e6b510d007e81",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "1d7e57aa55817448",
+				"testnet": "631e88ae7f1d7c20"
+			}
+		},
+		"NonFungibleToken": {
+			"source": "mainnet://1d7e57aa55817448.NonFungibleToken",
+			"hash": "b63f10e00d1a814492822652dac7c0574428a200e4c26cb3c832c4829e2778f0",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "1d7e57aa55817448",
+				"testnet": "631e88ae7f1d7c20"
+			}
+		},
+		"RandomBeaconHistory": {
+			"source": "mainnet://e467b9dd11fa00df.RandomBeaconHistory",
+			"hash": "fe7f11c46dd54446bd60d88015ffe5057d7245c4b77374e11db2adf0a8156167",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "e467b9dd11fa00df",
+				"testnet": "8c5303eaa26202d6"
+			}
+		},
+		"RandomConsumer": {
+			"source": "mainnet://45caec600164c9e6.RandomConsumer",
+			"hash": "",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "45caec600164c9e6",
+				"testing": "0000000000000010"
+			}
+		},
+		"Staking": {
+			"source": "mainnet://1b77ba4b414de352.Staking",
+			"hash": "2faa0180c406f783165d6b2e3370076f126ac6a0e8b800ace55707e838147811",
+			"aliases": {
+				"mainnet": "1b77ba4b414de352"
+			}
+		},
+		"StakingError": {
+			"source": "mainnet://1b77ba4b414de352.StakingError",
+			"hash": "f76be3a19f8b640149fa0860316a34058b96c4ac2154486e337fd449306c730e",
+			"aliases": {
+				"mainnet": "1b77ba4b414de352"
+			}
+		},
+		"StakingManager": {
+			"source": "mainnet://70466175fbacfb56.StakingManager",
+			"hash": "",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "70466175fbacfb56",
+				"testing": "0000000000000009"
+			}
+		},
+		"SwapConfig": {
+			"source": "mainnet://b78ef7afa52ff906.SwapConfig",
+			"hash": "ccafdb89804887e4e39a9b8fdff5c0ff0d0743505282f2a8ecf86c964e691c82",
+			"aliases": {
+				"mainnet": "b78ef7afa52ff906"
+			}
+		},
+		"SwapInterfaces": {
+			"source": "mainnet://b78ef7afa52ff906.SwapInterfaces",
+			"hash": "570bb4b9c8da8e0caa8f428494db80779fb906a66cc1904c39a2b9f78b89c6fa",
+			"aliases": {
+				"mainnet": "b78ef7afa52ff906"
+			}
+		},
+		"ViewResolver": {
+			"source": "mainnet://1d7e57aa55817448.ViewResolver",
+			"hash": "374a1994046bac9f6228b4843cb32393ef40554df9bd9907a702d098a2987bde",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "1d7e57aa55817448",
+				"testnet": "631e88ae7f1d7c20"
+			}
+		},
+		"stFlowToken": {
+			"source": "mainnet://d6f80565193ad727.stFlowToken",
+			"hash": "",
+			"aliases": {
+				"mainnet": "d6f80565193ad727",
+				"testnet": "d6f80565193ad727"
 			}
 		}
 	},
@@ -112,6 +234,35 @@
 				"type": "file",
 				"location": "emulator-account.pkey"
 			}
+		}
+	},
+	"deployments": {
+		"emulator": {
+			"emulator-account": [
+				"PrizeVault",
+				"Xorshift128plus",
+				"RandomConsumer",
+				"RandomBeaconHistory",
+				"DeFiActions",
+				"DeFiActionsUtils",
+				"DeFiActionsMathUtils",
+				"FungibleTokenConnectors",
+				"IncrementFiStakingConnectors"
+			]
+		},
+		"mainnet": {
+			"azsavings": [
+				{
+					"name": "PrizeVaultV3",
+					"args": [
+						{
+							"value": "fe8189a3016cb6a3668b8ccdac520ce572d4287a",
+							"type": "String"
+						}
+					]
+				},
+				"PrizeVaultIncrement"
+			]
 		}
 	}
 }
