@@ -5,3 +5,4 @@ emulator-account.pkey
 # Pay attention to imports directory
 !imports
 azsavings.pkey
+.pkey
