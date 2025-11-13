@@ -792,7 +792,7 @@ access(all) contract PrizeVaultModular {
         access(all) let priceOracle: {DeFiActions.PriceOracle}?
         access(all) let instantSwapper: {DeFiActions.Swapper}?
         access(all) let minimumDeposit: UFix64
-        access(all) let blocksPerDraw: UInt64
+        access(all) let drawIntervalSeconds: UFix64
         access(all) var distributionStrategy: {DistributionStrategy}  // Made mutable for strategy updates
         access(all) var winnerSelectionStrategy: {WinnerSelectionStrategy}  // Made mutable for strategy updates
         access(all) var winnerTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?  // Made mutable for tracker updates
@@ -804,7 +804,7 @@ access(all) contract PrizeVaultModular {
             priceOracle: {DeFiActions.PriceOracle}?,
             instantSwapper: {DeFiActions.Swapper}?,
             minimumDeposit: UFix64,
-            blocksPerDraw: UInt64,
+            drawIntervalSeconds: UFix64,
             distributionStrategy: {DistributionStrategy},
             winnerSelectionStrategy: {WinnerSelectionStrategy},
             winnerTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?
@@ -815,7 +815,7 @@ access(all) contract PrizeVaultModular {
             self.priceOracle = priceOracle
             self.instantSwapper = instantSwapper
             self.minimumDeposit = minimumDeposit
-            self.blocksPerDraw = blocksPerDraw
+            self.drawIntervalSeconds = drawIntervalSeconds
             self.distributionStrategy = distributionStrategy
             self.winnerSelectionStrategy = winnerSelectionStrategy
             self.winnerTrackerCap = winnerTrackerCap
@@ -867,7 +867,7 @@ access(all) contract PrizeVaultModular {
         // Pool state
         access(all) var totalDeposited: UFix64
         access(all) var totalStaked: UFix64
-        access(all) var lastDrawBlock: UInt64
+        access(all) var lastDrawTimestamp: UFix64
         
         // Modular components
         access(self) let rewardAggregator: @RewardAggregator
@@ -893,7 +893,7 @@ access(all) contract PrizeVaultModular {
             self.registeredReceivers = {}
             self.totalDeposited = 0.0
             self.totalStaked = 0.0
-            self.lastDrawBlock = 0
+            self.lastDrawTimestamp = getCurrentBlock().timestamp
             
             // Initialize modular components
             self.rewardAggregator <- create RewardAggregator(vaultType: config.assetType)
@@ -1103,7 +1103,7 @@ access(all) contract PrizeVaultModular {
             )
             
             self.pendingDrawReceipt <-! receipt
-            self.lastDrawBlock = getCurrentBlock().height
+            self.lastDrawTimestamp = getCurrentBlock().timestamp
         }
         
         access(all) fun completeDraw() {
@@ -1304,7 +1304,7 @@ access(all) contract PrizeVaultModular {
         // ========================================
         
         access(all) fun canDrawNow(): Bool {
-            return (getCurrentBlock().height - self.lastDrawBlock) >= self.config.blocksPerDraw
+            return (getCurrentBlock().timestamp - self.lastDrawTimestamp) >= self.config.drawIntervalSeconds
         }
         
         access(all) fun getReceiverDeposit(receiverID: UInt64): UFix64 {

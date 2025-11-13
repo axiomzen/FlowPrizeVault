@@ -25,6 +25,13 @@
 				"testing": "0000000000000007"
 			}
 		},
+		"PrizeVaultScheduler": {
+			"source": "cadence/contracts/PrizeVaultScheduler.cdc",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"testing": "0000000000000007"
+			}
+		},
 		"PrizeVaultV3": {
 			"source": "cadence/contracts/PrizeVaultV3.cdc",
 			"aliases": {
@@ -64,8 +71,7 @@
 			"source": "mainnet://92195d814edf9cb0.DeFiActions",
 			"hash": "67175b2a2569bdff79c221ec7ac823c79dd59c83bce07582cfc3b675dfbe6207",
 			"aliases": {
-				"mainnet": "92195d814edf9cb0",
-				"testnet": "d27920b6384e2a78"
+				"mainnet": "92195d814edf9cb0"
 			}
 		},
 		"DeFiActionsMathUtils": {
@@ -170,20 +176,22 @@
 				"testnet": "7e60df042a9c0868"
 			}
 		},
-		"FlowVaults": {
-			"source": "testnet://3bda2f90274dbc9b.FlowVaults",
-			"hash": "",
+		"FlowTransactionScheduler": {
+			"source": "mainnet://e467b9dd11fa00df.FlowTransactionScheduler",
+			"hash": "312885f5fa3bc70327dfb59edc5da6d30b826002c322db8c566ddf17099310ac",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
-				"testnet": "3bda2f90274dbc9b"
+				"mainnet": "e467b9dd11fa00df",
+				"testnet": "8c5303eaa26202d6"
 			}
 		},
-		"FlowVaultsClosedBeta": {
-			"source": "testnet://3bda2f90274dbc9b.FlowVaultsClosedBeta",
-			"hash": "",
+		"FlowTransactionSchedulerUtils": {
+			"source": "mainnet://e467b9dd11fa00df.FlowTransactionSchedulerUtils",
+			"hash": "2e26d0bf8e6278b79880a47cb3cd55c499777fb96d76bde3f647b546805bc470",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
-				"testnet": "3bda2f90274dbc9b"
+				"mainnet": "e467b9dd11fa00df",
+				"testnet": "8c5303eaa26202d6"
 			}
 		},
 		"FungibleToken": {
@@ -327,20 +335,6 @@
 				"mainnet": "b78ef7afa52ff906"
 			}
 		},
-		"TidalYield": {
-			"source": "testnet://d27920b6384e2a78.TidalYield",
-			"hash": "",
-			"aliases": {
-				"testnet": "d27920b6384e2a78"
-			}
-		},
-		"TidalYieldClosedBeta": {
-			"source": "testnet://d27920b6384e2a78.TidalYieldClosedBeta",
-			"hash": "",
-			"aliases": {
-				"testnet": "d27920b6384e2a78"
-			}
-		},
 		"ViewResolver": {
 			"source": "mainnet://1d7e57aa55817448.ViewResolver",
 			"hash": "374a1994046bac9f6228b4843cb32393ef40554df9bd9907a702d098a2987bde",
@@ -371,18 +365,6 @@
 		"testnet": "access.devnet.nodes.onflow.org:9000"
 	},
 	"accounts": {
-		"": {
-			"address": "e03daebed8ca0615",
-			"key": "401a9f558120ef1838c2113ed5bce161649b171e5c9e0d443a0bc740e12964a1"
-		},
-		"az-emulator": {
-			"address": "179b6b1cb6755e31",
-			"key": "26363cc2bbfde0f09752c12383505617ab9ae5416933ed094c0f3149ec849d52"
-		},
-		"az-emulator2": {
-			"address": "179b6b1cb6755e31",
-			"key": "e77e0068fea41f05d209bbdcf0cf994816fe25ae4083a76923a6b2905541e8b5"
-		},
 		"azsavings": {
 			"address": "262cf58c0b9fbcff",
 			"key": {
@@ -402,14 +384,17 @@
 		"emulator": {
 			"emulator-account": [
 				"PrizeVault",
-				"PrizeVaultModular",
-				"PrizeWinnerTracker",
-				"TestHelpers",
 				"Xorshift128plus",
 				"RandomConsumer",
+				"RandomBeaconHistory",
 				"DeFiActions",
 				"DeFiActionsUtils",
-				"DeFiActionsMathUtils"
+				"DeFiActionsMathUtils",
+				"FungibleTokenConnectors",
+				"PrizeVaultModular",
+				"PrizeVaultScheduler",
+				"PrizeWinnerTracker",
+				"TestHelpers"
 			]
 		},
 		"mainnet": {

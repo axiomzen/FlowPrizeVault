@@ -1,7 +1,23 @@
 #!/bin/bash
 
 # PrizeVaultModular Testing Script
-# Usage: ./test_flow.sh [--skip-setup] [--skip-deploy] [--admin-account ACCOUNT] [--user-account ACCOUNT] [--network NETWORK]
+# 
+# Usage: ./test_flow.sh [OPTIONS]
+#
+# Options:
+#   --skip-setup           Skip admin setup (if already configured)
+#   --skip-deploy          Skip contract deployment (if already deployed)
+#   --skip-manual-draw     Skip manual draw test
+#   --admin-account ACCT   Admin account name (default: emulator-account)
+#   --user-account ACCT    User account name (default: az-emulator)
+#   --network NETWORK      Network to use (default: emulator)
+#
+# Examples:
+#   ./test_flow.sh                          # Full test including manual draws
+#   ./test_flow.sh --skip-manual-draw       # Skip draw testing
+#   ./test_flow.sh --skip-setup --skip-deploy  # Quick test with existing setup
+#
+# Note: For scheduler testing, use test_scheduler.sh instead
 
 set +e
 
@@ -17,12 +33,14 @@ USER_ACCOUNT="az-emulator"
 NETWORK="emulator"
 SKIP_SETUP=false
 SKIP_DEPLOY=false
+SKIP_MANUAL_DRAW=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --skip-setup) SKIP_SETUP=true; shift ;;
         --skip-deploy) SKIP_DEPLOY=true; shift ;;
+        --skip-manual-draw) SKIP_MANUAL_DRAW=true; shift ;;
         --admin-account) ADMIN_ACCOUNT="$2"; shift 2 ;;
         --user-account) USER_ACCOUNT="$2"; shift 2 ;;
         --network) NETWORK="$2"; shift 2 ;;
@@ -63,21 +81,21 @@ print_step() {
 }
 
 print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}[OK] $1${NC}"
 }
 
 print_warn() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    echo -e "${YELLOW}[WARN] $1${NC}"
 }
 
 print_error() {
-    echo -e "${RED}❌ $1${NC}"
+    echo -e "${RED}[ERROR] $1${NC}"
 }
 
 # Main script
-echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║  PrizeVaultModular Testing Script     ║${NC}"
-echo -e "${BLUE}╚════════════════════════════════════════╝${NC}\n"
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}  PrizeVaultModular Testing Script     ${NC}"
+echo -e "${BLUE}========================================${NC}\n"
 
 # Check emulator
 if ! curl -s http://localhost:8080/health > /dev/null 2>&1; then
@@ -170,7 +188,8 @@ echo ""
 
 # Step 6: Create pool
 print_step "6" "Creating pool (60% savings, 40% lottery)"
-POOL_OUTPUT=$(run_tx cadence/transactions/prize-vault-modular/create_pool.cdc 0.6 0.4 0.0 1.0 10 $ADMIN_ADDR --signer $ADMIN_ACCOUNT --include logs)
+# Note: autoSchedule is false - this test doesn't use the scheduler
+POOL_OUTPUT=$(run_tx cadence/transactions/prize-vault-modular/create_pool.cdc 0.6 0.4 0.0 1.0 10.0 $ADMIN_ADDR false --signer $ADMIN_ACCOUNT --include logs)
 echo "$POOL_OUTPUT" | grep -q "Winner tracking: Enabled" && print_success "Winner tracking enabled" || \
     print_warn "Winner tracking disabled"
 
@@ -303,74 +322,80 @@ if [ -n "$USER_ADDR" ] && [ "$USER_ADDR" != "$ADMIN_ADDR" ] && [ -n "$USER_ACCT"
 fi
 echo ""
 
-# Step 15: Start lottery draw
-print_step "15" "Starting lottery draw"
-LOTTERY_BALANCE=$(run_script cadence/scripts/prize-vault-modular/get_pool_stats.cdc $POOL_ID | \
-    grep -oE '"totalStaked":\s*[0-9.]+' | grep -oE '[0-9.]+' || echo "0")
-[ "$LOTTERY_BALANCE" = "0" ] && print_warn "Warning: No funds in lottery pool. Draw may fail."
+# Step 15-17: Manual lottery draw (optional)
+if [ "$SKIP_MANUAL_DRAW" = false ]; then
+    # Step 15: Start lottery draw
+    print_step "15" "Starting lottery draw (manual test)"
+    LOTTERY_BALANCE=$(run_script cadence/scripts/prize-vault-modular/get_pool_stats.cdc $POOL_ID | \
+        grep -oE '"totalStaked":\s*[0-9.]+' | grep -oE '[0-9.]+' || echo "0")
+    [ "$LOTTERY_BALANCE" = "0" ] && print_warn "Warning: No funds in lottery pool. Draw may fail."
 
-# Ensure USER_ACCOUNT exists
-if ! account_exists "$USER_ACCOUNT"; then
-    USER_ACCOUNT=$ADMIN_ACCOUNT
-fi
-START_DRAW_OUTPUT=$(run_tx cadence/transactions/prize-vault-modular/start_draw.cdc $POOL_ID --signer $USER_ACCOUNT)
-if check_error "$START_DRAW_OUTPUT"; then
-    echo "$START_DRAW_OUTPUT" | grep -E "(Transaction ID|PrizeDrawCommitted)" || true
-    print_success "Draw started"
+    # Ensure USER_ACCOUNT exists
+    if ! account_exists "$USER_ACCOUNT"; then
+        USER_ACCOUNT=$ADMIN_ACCOUNT
+    fi
+    START_DRAW_OUTPUT=$(run_tx cadence/transactions/prize-vault-modular/start_draw.cdc $POOL_ID --signer $USER_ACCOUNT)
+    if check_error "$START_DRAW_OUTPUT"; then
+        echo "$START_DRAW_OUTPUT" | grep -E "(Transaction ID|PrizeDrawCommitted)" || true
+        print_success "Draw started"
+    else
+        print_error "Start draw failed"
+        echo "$START_DRAW_OUTPUT" | grep -E "(error|panic)" | head -10
+    fi
+    echo ""
+
+    # Step 16: Complete draw
+    print_step "16" "Completing lottery draw (manual test)"
+    sleep 1
+    # Ensure USER_ACCOUNT exists
+    if ! account_exists "$USER_ACCOUNT"; then
+        USER_ACCOUNT=$ADMIN_ACCOUNT
+    fi
+    COMPLETE_DRAW_OUTPUT=$(run_tx cadence/transactions/prize-vault-modular/complete_draw.cdc $POOL_ID --signer $USER_ACCOUNT)
+    if check_error "$COMPLETE_DRAW_OUTPUT"; then
+        echo "$COMPLETE_DRAW_OUTPUT" | grep -E "(Transaction ID|PrizesAwarded|winners)" || true
+        print_success "Draw completed"
+    else
+        print_error "Complete draw failed"
+        echo "$COMPLETE_DRAW_OUTPUT" | grep -E "(error|panic)" | head -10
+    fi
+    echo ""
+
+    # Step 17: Check winners
+    print_step "17" "Checking winners and prizes"
+    echo -e "${YELLOW}  $ADMIN_ACCOUNT:${NC}"
+    run_script cadence/scripts/prize-vault-modular/get_pool_balance.cdc $ADMIN_ADDR $POOL_ID | \
+        grep -E "(Result:|prizes|deposits|totalClaimedSavings)" || true
+
+    if [ -n "$USER_ADDR" ] && [ "$USER_ADDR" != "$ADMIN_ADDR" ] && [ -n "$USER_ACCT" ] && account_exists "$USER_ACCT"; then
+        echo -e "\n${YELLOW}  $USER_ACCT:${NC}"
+        run_script cadence/scripts/prize-vault-modular/get_pool_balance.cdc $USER_ADDR $POOL_ID | \
+            grep -E "(Result:|prizes|deposits|totalClaimedSavings)" || \
+            print_warn "Account not registered with pool"
+    fi
+    echo ""
 else
-    print_error "Start draw failed"
-    echo "$START_DRAW_OUTPUT" | grep -E "(error|panic)" | head -10
+    echo -e "${YELLOW}⏭️  Skipping manual draw steps\n${NC}"
 fi
-echo ""
-
-# Step 16: Complete draw
-print_step "16" "Completing lottery draw"
-sleep 1
-# Ensure USER_ACCOUNT exists
-if ! account_exists "$USER_ACCOUNT"; then
-    USER_ACCOUNT=$ADMIN_ACCOUNT
-fi
-COMPLETE_DRAW_OUTPUT=$(run_tx cadence/transactions/prize-vault-modular/complete_draw.cdc $POOL_ID --signer $USER_ACCOUNT)
-if check_error "$COMPLETE_DRAW_OUTPUT"; then
-    echo "$COMPLETE_DRAW_OUTPUT" | grep -E "(Transaction ID|PrizesAwarded|winners)" || true
-    print_success "Draw completed"
-else
-    print_error "Complete draw failed"
-    echo "$COMPLETE_DRAW_OUTPUT" | grep -E "(error|panic)" | head -10
-fi
-echo ""
-
-# Step 17: Check winners
-print_step "17" "Checking winners and prizes"
-echo -e "${YELLOW}  $ADMIN_ACCOUNT:${NC}"
-run_script cadence/scripts/prize-vault-modular/get_pool_balance.cdc $ADMIN_ADDR $POOL_ID | \
-    grep -E "(Result:|prizes|deposits|totalClaimedSavings)" || true
-
-if [ -n "$USER_ADDR" ] && [ "$USER_ADDR" != "$ADMIN_ADDR" ] && [ -n "$USER_ACCT" ] && account_exists "$USER_ACCT"; then
-    echo -e "\n${YELLOW}  $USER_ACCT:${NC}"
-    run_script cadence/scripts/prize-vault-modular/get_pool_balance.cdc $USER_ADDR $POOL_ID | \
-        grep -E "(Result:|prizes|deposits|totalClaimedSavings)" || \
-        print_warn "Account not registered with pool"
-fi
-echo ""
 
 # Final Summary
-echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ✅ Testing Complete!                   ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════╝${NC}\n"
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}  Testing Complete!                     ${NC}"
+echo -e "${GREEN}========================================${NC}\n"
 
-echo -e "${BLUE}════════════════════════════════════════${NC}"
-echo -e "${BLUE}📊 Final Summary${NC}"
-echo -e "${BLUE}════════════════════════════════════════${NC}\n"
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE} Final Summary${NC}"
+echo -e "${BLUE}========================================${NC}\n"
 
 echo -e "${YELLOW}Pool Information:${NC}"
 echo "  Pool ID: $POOL_ID"
 echo "  Admin Account: $ADMIN_ACCOUNT"
-echo "  User Account: $USER_ACCOUNT\n"
+echo "  User Account: $USER_ACCOUNT"
+echo ""
 
 echo -e "${YELLOW}Pool Stats:${NC}"
 run_script cadence/scripts/prize-vault-modular/get_pool_stats.cdc $POOL_ID | \
-    grep -E "(Result:|poolID|totalDeposited|totalStaked|distributionStrategy|blocksPerDraw|canDrawNow)" || true
+    grep -E "(Result:|poolID|totalDeposited|totalStaked|distributionStrategy|drawIntervalSeconds|canDrawNow)" || true
 echo ""
 
 echo -e "${YELLOW}User Balances:${NC}"
@@ -407,9 +432,12 @@ else
 fi
 echo ""
 
-echo -e "${BLUE}════════════════════════════════════════${NC}\n"
+echo -e "${BLUE}========================================${NC}\n"
+
 echo -e "${YELLOW}Next steps:${NC}"
 echo "  - Check events in emulator logs"
 echo "  - Test strategy updates with admin account"
 echo "  - Test multi-winner selection strategy"
-echo "  - Run more advanced scenarios from TESTING_GUIDE.md"
+echo "  - For production, use --skip-setup and --skip-deploy to speed up testing"
+echo "  - For automated draw testing, use ./test_scheduler.sh"
+echo ""
