@@ -7,6 +7,19 @@
 				"testnet": "3bda2f90274dbc9b"
 			}
 		},
+	"FlowVaultsConnector": {
+		"source": "cadence/contracts/FlowVaultsConnector.cdc",
+		"aliases": {
+			"emulator": "f8d6e0586b0a20c7",
+			"testnet": "8f7109e18153bfb3"
+		}
+	},
+	"FlowVaultsConnectorTestnet": {
+		"source": "cadence/contracts/FlowVaultsConnectorTestnet.cdc",
+		"aliases": {
+			"testnet": "8f7109e18153bfb3"
+		}
+	},
 		"PrizeVault": {
 			"source": "cadence/contracts/PrizeVault.cdc",
 			"aliases": {
@@ -19,43 +32,58 @@
 				"mainnet": "262cf58c0b9fbcff"
 			}
 		},
-		"PrizeVaultModular": {
-			"source": "cadence/contracts/PrizeVaultModular.cdc",
-			"aliases": {
-				"testing": "0000000000000007"
-			}
-		},
-		"PrizeVaultScheduler": {
-			"source": "cadence/contracts/PrizeVaultScheduler.cdc",
-			"aliases": {
-				"emulator": "f8d6e0586b0a20c7",
-				"testing": "0000000000000007"
-			}
-		},
+	"PrizeVaultModular": {
+		"source": "cadence/contracts/PrizeVaultModular.cdc",
+		"aliases": {
+			"emulator": "f8d6e0586b0a20c7",
+			"testnet": "8f7109e18153bfb3",
+			"testing": "0000000000000007"
+		}
+	},
+	"PrizeVaultScheduler": {
+		"source": "cadence/contracts/PrizeVaultScheduler.cdc",
+		"aliases": {
+			"emulator": "f8d6e0586b0a20c7",
+			"testnet": "8f7109e18153bfb3",
+			"testing": "0000000000000007"
+		}
+	},
 		"PrizeVaultV3": {
 			"source": "cadence/contracts/PrizeVaultV3.cdc",
 			"aliases": {
 				"mainnet": "262cf58c0b9fbcff"
 			}
 		},
-		"PrizeWinnerTracker": {
-			"source": "cadence/contracts/PrizeWinnerTracker.cdc",
-			"aliases": {
-				"testing": "0000000000000007"
-			}
-		},
-		"TestHelpers": {
-			"source": "cadence/contracts/TestHelpers.cdc",
-			"aliases": {
-				"emulator": "f8d6e0586b0a20c7"
-			}
-		},
-		"Xorshift128plus": {
-			"source": "cadence/contracts/Xorshift128plus.cdc",
-			"aliases": {
-				"testing": "0000000000000007"
-			}
+	"PrizeWinnerTracker": {
+		"source": "cadence/contracts/PrizeWinnerTracker.cdc",
+		"aliases": {
+			"emulator": "f8d6e0586b0a20c7",
+			"testnet": "8f7109e18153bfb3",
+			"testing": "0000000000000007"
 		}
+	},
+	"SimpleNFT": {
+		"source": "cadence/contracts/SimpleNFT.cdc",
+		"aliases": {
+			"emulator": "f8d6e0586b0a20c7",
+			"testnet": "8f7109e18153bfb3"
+		}
+	},
+	"TestHelpers": {
+		"source": "cadence/contracts/TestHelpers.cdc",
+		"aliases": {
+			"emulator": "f8d6e0586b0a20c7",
+			"testnet": "8f7109e18153bfb3"
+		}
+	},
+	"Xorshift128plus": {
+		"source": "cadence/contracts/Xorshift128plus.cdc",
+		"aliases": {
+			"emulator": "f8d6e0586b0a20c7",
+			"testnet": "8f7109e18153bfb3",
+			"testing": "0000000000000007"
+		}
+	}
 	},
 	"dependencies": {
 		"Burner": {
@@ -71,21 +99,24 @@
 			"source": "mainnet://92195d814edf9cb0.DeFiActions",
 			"hash": "67175b2a2569bdff79c221ec7ac823c79dd59c83bce07582cfc3b675dfbe6207",
 			"aliases": {
-				"mainnet": "92195d814edf9cb0"
+				"mainnet": "92195d814edf9cb0",
+				"testnet": "4c2ff9dd03ab442f"
 			}
 		},
 		"DeFiActionsMathUtils": {
 			"source": "mainnet://92195d814edf9cb0.DeFiActionsMathUtils",
 			"hash": "f2ae511846ea9a545380968837f47a4198447c008e575047f3ace3b7cf782067",
 			"aliases": {
-				"mainnet": "92195d814edf9cb0"
+				"mainnet": "92195d814edf9cb0",
+				"testnet": "4c2ff9dd03ab442f"
 			}
 		},
 		"DeFiActionsUtils": {
 			"source": "mainnet://92195d814edf9cb0.DeFiActionsUtils",
 			"hash": "d01ab8cd8a57aee3e35ca8a9038f98de2321d6246e03285e0107ef6b4191bff1",
 			"aliases": {
-				"mainnet": "92195d814edf9cb0"
+				"mainnet": "92195d814edf9cb0",
+				"testnet": "4c2ff9dd03ab442f"
 			}
 		},
 		"DelegatorManager": {
@@ -174,6 +205,20 @@
 				"emulator": "0ae53cb6e3f42a79",
 				"mainnet": "1654653399040a61",
 				"testnet": "7e60df042a9c0868"
+			}
+		},
+		"FlowVaults": {
+			"source": "testnet://3bda2f90274dbc9b.FlowVaults",
+			"hash": "",
+			"aliases": {
+				"testnet": "3bda2f90274dbc9b"
+			}
+		},
+		"FlowVaultsClosedBeta": {
+			"source": "testnet://3bda2f90274dbc9b.FlowVaultsClosedBeta",
+			"hash": "",
+			"aliases": {
+				"testnet": "3bda2f90274dbc9b"
 			}
 		},
 		"FlowTransactionScheduler": {
@@ -288,6 +333,7 @@
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "45caec600164c9e6",
+				"testnet": "ed24dbe901028c5c",
 				"testing": "0000000000000010"
 			}
 		},
@@ -365,6 +411,30 @@
 		"testnet": "access.devnet.nodes.onflow.org:9000"
 	},
 	"accounts": {
+		"": {
+			"address": "f3fcd2c1a78f5eee",
+			"key": "6432fad42638472d88191b513dbbd06c71b1b54824a341a544ff65f16a00c0c0"
+		},
+		"az-emulator": {
+			"address": "179b6b1cb6755e31",
+			"key": "26363cc2bbfde0f09752c12383505617ab9ae5416933ed094c0f3149ec849d52"
+		},
+		"az-emulator2": {
+			"address": "179b6b1cb6755e31",
+			"key": "e77e0068fea41f05d209bbdcf0cf994816fe25ae4083a76923a6b2905541e8b5"
+		},
+		"az-emulator3": {
+			"address": "179b6b1cb6755e31",
+			"key": "dcfa29cbd9e322003c295fd7e6b490b04babb0abc05c28bc3e1d4dbc9b8fccd4"
+		},
+		"az-emulator4": {
+			"address": "f3fcd2c1a78f5eee",
+			"key": "99a8bc1ae7f72fb29fef26dc6bb744a08074e62ec9ee029075ba9f48175308a7"
+		},
+		"az-emulator5": {
+			"address": "179b6b1cb6755e31",
+			"key": "fce67783e75c43c094e3070b7bf9ee8845e4b3c3994fb82a5a199c7ef90184a0"
+		},
 		"azsavings": {
 			"address": "262cf58c0b9fbcff",
 			"key": {
@@ -378,7 +448,14 @@
 				"type": "file",
 				"location": "emulator-account.pkey"
 			}
+		},
+	"testnet-account": {
+		"address": "0x8f7109e18153bfb3",
+		"key": {
+			"type": "file",
+			"location": "testnet-account-new.pkey"
 		}
+	}
 	},
 	"deployments": {
 		"emulator": {
@@ -394,7 +471,19 @@
 				"PrizeVaultModular",
 				"PrizeVaultScheduler",
 				"PrizeWinnerTracker",
-				"TestHelpers"
+				"TestHelpers",
+				"SimpleNFT"
+			]
+		},
+		"testnet": {
+			"testnet-account": [
+				"Xorshift128plus",
+				"TestHelpers",
+				"PrizeVaultModular",
+				"PrizeVaultScheduler",
+				"PrizeWinnerTracker",
+				"SimpleNFT",
+				"FlowVaultsConnectorTestnet"
 			]
 		},
 		"mainnet": {

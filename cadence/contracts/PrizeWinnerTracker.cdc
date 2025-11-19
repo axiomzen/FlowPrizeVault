@@ -29,6 +29,7 @@ access(all) contract PrizeWinnerTracker {
         round: UInt64,
         winnerReceiverID: UInt64,
         amount: UFix64,
+        nftIDs: [UInt64],
         timestamp: UFix64,
         blockHeight: UInt64
     )
@@ -42,6 +43,7 @@ access(all) contract PrizeWinnerTracker {
         access(all) let round: UInt64
         access(all) let winnerReceiverID: UInt64
         access(all) let amount: UFix64
+        access(all) let nftIDs: [UInt64]
         access(all) let timestamp: UFix64
         access(all) let blockHeight: UInt64
         
@@ -50,6 +52,7 @@ access(all) contract PrizeWinnerTracker {
             round: UInt64,
             winnerReceiverID: UInt64,
             amount: UFix64,
+            nftIDs: [UInt64],
             timestamp: UFix64,
             blockHeight: UInt64
         ) {
@@ -57,6 +60,7 @@ access(all) contract PrizeWinnerTracker {
             self.round = round
             self.winnerReceiverID = winnerReceiverID
             self.amount = amount
+            self.nftIDs = nftIDs
             self.timestamp = timestamp
             self.blockHeight = blockHeight
         }
@@ -72,13 +76,16 @@ access(all) contract PrizeWinnerTracker {
             poolID: UInt64,
             round: UInt64,
             winnerReceiverID: UInt64,
-            amount: UFix64
+            amount: UFix64,
+            nftIDs: [UInt64]
         )
         
         access(all) fun getRecentWinners(poolID: UInt64, limit: Int): [WinnerRecord]
         access(all) fun getAllRecentWinners(limit: Int): [WinnerRecord]
         access(all) fun getWinnerCount(poolID: UInt64): Int
         access(all) fun getTotalWinnerCount(): Int
+        access(all) fun getNFTWinnersCount(poolID: UInt64): Int
+        access(all) fun getAllNFTWinnersCount(): Int
     }
     
     // ========================================
@@ -106,13 +113,15 @@ access(all) contract PrizeWinnerTracker {
             poolID: UInt64,
             round: UInt64,
             winnerReceiverID: UInt64,
-            amount: UFix64
+            amount: UFix64,
+            nftIDs: [UInt64]
         ) {
             let record = WinnerRecord(
                 poolID: poolID,
                 round: round,
                 winnerReceiverID: winnerReceiverID,
                 amount: amount,
+                nftIDs: nftIDs,
                 timestamp: getCurrentBlock().timestamp,
                 blockHeight: getCurrentBlock().height
             )
@@ -127,7 +136,7 @@ access(all) contract PrizeWinnerTracker {
             
             // Keep only last maxSize winners per pool
             if poolWinners.length > self.maxSize {
-                poolWinners.remove(at: 0)
+                let _ = poolWinners.remove(at: 0)
             }
             
             self.winnersByPool[poolID] = poolWinners
@@ -147,6 +156,7 @@ access(all) contract PrizeWinnerTracker {
                 round: round,
                 winnerReceiverID: winnerReceiverID,
                 amount: amount,
+                nftIDs: nftIDs,
                 timestamp: record.timestamp,
                 blockHeight: record.blockHeight
             )
@@ -196,6 +206,27 @@ access(all) contract PrizeWinnerTracker {
         
         access(all) fun getTotalWinnerCount(): Int {
             return self.allWinners.length
+        }
+        
+        access(all) fun getNFTWinnersCount(poolID: UInt64): Int {
+            let winners = self.winnersByPool[poolID] ?? []
+            var count = 0
+            for winner in winners {
+                if winner.nftIDs.length > 0 {
+                    count = count + 1
+                }
+            }
+            return count
+        }
+        
+        access(all) fun getAllNFTWinnersCount(): Int {
+            var count = 0
+            for winner in self.allWinners {
+                if winner.nftIDs.length > 0 {
+                    count = count + 1
+                }
+            }
+            return count
         }
     }
     
