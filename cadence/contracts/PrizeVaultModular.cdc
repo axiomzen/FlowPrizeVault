@@ -1,15 +1,29 @@
 /*
-PrizeVaultModular - Modular Prize-Linked Savings System
+PrizeVaultModular - Prize-Linked Savings Protocol
 
-A no-loss lottery where users deposit tokens to earn:
-1. Savings Interest - Distributed proportionally to all depositors
-2. Lottery Prizes - Random weighted draws for bonus rewards
+A no-loss lottery system where users deposit tokens to earn both guaranteed savings 
+interest and lottery prizes. Rewards are automatically compounded into deposits.
 
-Key Features:
-- Multiple reward sources (yield, contributions, sponsorships)
-- Configurable distribution strategies (savings/lottery split)
-- Time-weighted interest distribution (O(1) gas complexity)
-- Flexible yield generation via DeFi Actions
+Architecture:
+- Modular yield sources via DeFi Actions interface
+- Configurable distribution strategies (savings/lottery/treasury split)
+- O(1) gas complexity for interest distribution using accumulator pattern
+- Emergency mode with multi-sig support, configurable withdrawal limits, and auto-recovery
+- NFT prize support with pending claims system
+- Direct funding capabilities for external sponsors
+- Batch event emission for scalability (100k+ users)
+
+Core Components:
+- SavingsDistributor: Manages proportional interest distribution with O(1) gas
+- LotteryDistributor: Prize pool management and winner payouts
+- TreasuryDistributor: Protocol reserves, fee collection, and rounding dust
+- FundingPolicy: Rate limits and caps for direct funding
+
+Security Features:
+- Contract-only authorized pool access (prevents unauthorized manipulation)
+- Dust handling to prevent yield source imbalance
+- Emergency mode with configurable policies per pool
+- Scalable compounding with batch event summaries
 */
 
 import "FungibleToken"
@@ -29,12 +43,11 @@ access(all) contract PrizeVaultModular {
     access(all) event Deposited(poolID: UInt64, receiverID: UInt64, amount: UFix64)
     access(all) event Withdrawn(poolID: UInt64, receiverID: UInt64, amount: UFix64)
     
-    access(all) event RewardsCollected(poolID: UInt64, sourceID: String, amount: UFix64)
     access(all) event RewardsProcessed(poolID: UInt64, totalAmount: UFix64, savingsAmount: UFix64, lotteryAmount: UFix64)
-    access(all) event RewardContributed(poolID: UInt64, contributor: Address, amount: UFix64)
     
     access(all) event SavingsInterestDistributed(poolID: UInt64, amount: UFix64, interestPerShare: UFix64)
     access(all) event SavingsInterestCompounded(poolID: UInt64, receiverID: UInt64, amount: UFix64)
+    access(all) event SavingsInterestCompoundedBatch(poolID: UInt64, userCount: Int, totalAmount: UFix64, avgAmount: UFix64)
     access(all) event SavingsRoundingDustToTreasury(poolID: UInt64, amount: UFix64)
     
     access(all) event PrizeDrawCommitted(poolID: UInt64, prizeAmount: UFix64, commitBlock: UInt64)
@@ -46,8 +59,6 @@ access(all) contract PrizeVaultModular {
     access(all) event WinnerTrackerUpdated(poolID: UInt64, hasOldTracker: Bool, hasNewTracker: Bool, updatedBy: Address)
     access(all) event DrawIntervalUpdated(poolID: UInt64, oldInterval: UFix64, newInterval: UFix64, updatedBy: Address)
     access(all) event MinimumDepositUpdated(poolID: UInt64, oldMinimum: UFix64, newMinimum: UFix64, updatedBy: Address)
-    access(all) event RewardSourceRegistered(poolID: UInt64, sourceID: String, sourceName: String, updatedBy: Address)
-    access(all) event RewardSourceRemoved(poolID: UInt64, sourceID: String, updatedBy: Address)
     access(all) event PoolCreatedByAdmin(poolID: UInt64, assetType: String, strategy: String, createdBy: Address)
     
     access(all) event PoolPaused(poolID: UInt64, pausedBy: Address, reason: String)
@@ -65,10 +76,32 @@ access(all) contract PrizeVaultModular {
     access(all) event NFTPrizeClaimed(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String)
     access(all) event NFTPrizeWithdrawn(poolID: UInt64, nftID: UInt64, nftType: String, withdrawnBy: Address)
     
+    access(all) event PoolEmergencyEnabled(poolID: UInt64, reason: String, enabledBy: Address, timestamp: UFix64)
+    access(all) event PoolEmergencyDisabled(poolID: UInt64, disabledBy: Address, timestamp: UFix64)
+    access(all) event PoolPartialModeEnabled(poolID: UInt64, reason: String, setBy: Address, timestamp: UFix64)
+    access(all) event EmergencyModeAutoTriggered(poolID: UInt64, reason: String, healthScore: UFix64, timestamp: UFix64)
+    access(all) event EmergencyModeAutoRecovered(poolID: UInt64, reason: String, healthScore: UFix64?, duration: UFix64?, timestamp: UFix64)
+    access(all) event EmergencyConfigUpdated(poolID: UInt64, updatedBy: Address)
+    access(all) event WithdrawalFailure(poolID: UInt64, receiverID: UInt64, amount: UFix64, consecutiveFailures: Int, yieldAvailable: UFix64)
+    
+    access(all) event DirectFundingReceived(poolID: UInt64, destination: UInt8, destinationName: String, amount: UFix64, sponsor: Address, purpose: String, metadata: {String: String})
+    
     access(self) var pools: @{UInt64: Pool}
     access(self) var nextPoolID: UInt64
     
-    // Bonus lottery weight tracking
+    access(all) enum PoolEmergencyState: UInt8 {
+        access(all) case Normal
+        access(all) case Paused
+        access(all) case EmergencyMode
+        access(all) case PartialMode
+    }
+    
+    access(all) enum PoolFundingDestination: UInt8 {
+        access(all) case Savings
+        access(all) case Lottery
+        access(all) case Treasury
+    }
+    
     access(all) struct BonusWeightRecord {
         access(all) let bonusWeight: UFix64
         access(all) let reason: String
@@ -83,7 +116,97 @@ access(all) contract PrizeVaultModular {
         }
     }
     
-    // Admin resource can only be created by contract at init
+    /// Emergency configuration for pool safety mechanisms
+    /// Authorization and multi-sig are handled at the Flow account level via Admin resource
+    access(all) struct EmergencyConfig {
+        access(all) let maxEmergencyDuration: UFix64?        // Max time pool can stay in emergency mode
+        access(all) let autoRecoveryEnabled: Bool             // Auto-recover to normal after duration
+        access(all) let minYieldSourceHealth: UFix64          // Health threshold (0.0-1.0)
+        access(all) let maxWithdrawFailures: Int              // Max consecutive withdraw failures before emergency
+        access(all) let partialModeDepositLimit: UFix64?      // Max deposit allowed in partial mode
+        access(all) let minBalanceThreshold: UFix64           // Min balance as % of totalStaked (0.8-1.0, default 0.95)
+        
+        init(
+            maxEmergencyDuration: UFix64?,
+            autoRecoveryEnabled: Bool,
+            minYieldSourceHealth: UFix64,
+            maxWithdrawFailures: Int,
+            partialModeDepositLimit: UFix64?,
+            minBalanceThreshold: UFix64
+        ) {
+            pre {
+                minYieldSourceHealth >= 0.0 && minYieldSourceHealth <= 1.0: "Health must be between 0.0 and 1.0"
+                maxWithdrawFailures > 0: "Must allow at least 1 withdrawal failure"
+                minBalanceThreshold >= 0.8 && minBalanceThreshold <= 1.0: "Balance threshold must be between 0.8 and 1.0"
+            }
+            self.maxEmergencyDuration = maxEmergencyDuration
+            self.autoRecoveryEnabled = autoRecoveryEnabled
+            self.minYieldSourceHealth = minYieldSourceHealth
+            self.maxWithdrawFailures = maxWithdrawFailures
+            self.partialModeDepositLimit = partialModeDepositLimit
+            self.minBalanceThreshold = minBalanceThreshold
+        }
+    }
+    
+    access(all) struct FundingPolicy {
+        access(all) let maxDirectLottery: UFix64?
+        access(all) let maxDirectTreasury: UFix64?
+        access(all) let maxDirectSavings: UFix64?
+        access(all) var totalDirectLottery: UFix64
+        access(all) var totalDirectTreasury: UFix64
+        access(all) var totalDirectSavings: UFix64
+        
+        init(maxDirectLottery: UFix64?, maxDirectTreasury: UFix64?, maxDirectSavings: UFix64?) {
+            self.maxDirectLottery = maxDirectLottery
+            self.maxDirectTreasury = maxDirectTreasury
+            self.maxDirectSavings = maxDirectSavings
+            self.totalDirectLottery = 0.0
+            self.totalDirectTreasury = 0.0
+            self.totalDirectSavings = 0.0
+        }
+        
+        access(contract) fun recordDirectFunding(destination: PoolFundingDestination, amount: UFix64) {
+            switch destination {
+                case PoolFundingDestination.Lottery:
+                    self.totalDirectLottery = self.totalDirectLottery + amount
+                    if self.maxDirectLottery != nil {
+                        assert(self.totalDirectLottery <= self.maxDirectLottery!, message: "Direct lottery funding limit exceeded")
+                    }
+                case PoolFundingDestination.Treasury:
+                    self.totalDirectTreasury = self.totalDirectTreasury + amount
+                    if self.maxDirectTreasury != nil {
+                        assert(self.totalDirectTreasury <= self.maxDirectTreasury!, message: "Direct treasury funding limit exceeded")
+                    }
+                case PoolFundingDestination.Savings:
+                    self.totalDirectSavings = self.totalDirectSavings + amount
+                    if self.maxDirectSavings != nil {
+                        assert(self.totalDirectSavings <= self.maxDirectSavings!, message: "Direct savings funding limit exceeded")
+                    }
+            }
+        }
+    }
+    
+    /// Creates default emergency config with reasonable safety limits
+    /// Authorization is handled by Admin resource ownership (Flow account level)
+    access(all) fun createDefaultEmergencyConfig(): EmergencyConfig {
+        return EmergencyConfig(
+            maxEmergencyDuration: 86400.0,      // 24 hours
+            autoRecoveryEnabled: true,
+            minYieldSourceHealth: 0.5,          // 50% health threshold
+            maxWithdrawFailures: 3,
+            partialModeDepositLimit: 100.0,
+            minBalanceThreshold: 0.95           // 95% of totalStaked
+        )
+    }
+    
+    access(all) fun createDefaultFundingPolicy(): FundingPolicy {
+        return FundingPolicy(
+            maxDirectLottery: nil,
+            maxDirectTreasury: nil,
+            maxDirectSavings: nil
+        )
+    }
+    
     access(all) resource Admin {
         access(contract) init() {}
         
@@ -189,12 +312,86 @@ access(all) contract PrizeVaultModular {
             )
         }
         
+        /// Enable emergency mode for a pool
+        /// Authorization is enforced by Admin resource ownership (Flow account multi-sig)
+        access(all) fun enableEmergencyMode(poolID: UInt64, reason: String, enabledBy: Address) {
+            let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID) ?? panic("Pool does not exist")
+            poolRef.setEmergencyMode(reason: reason)
+            emit PoolEmergencyEnabled(poolID: poolID, reason: reason, enabledBy: enabledBy, timestamp: getCurrentBlock().timestamp)
+        }
+        
+        /// Disable emergency mode for a pool
+        /// Authorization is enforced by Admin resource ownership (Flow account multi-sig)
+        access(all) fun disableEmergencyMode(poolID: UInt64, disabledBy: Address) {
+            let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID) ?? panic("Pool does not exist")
+            poolRef.clearEmergencyMode()
+            emit PoolEmergencyDisabled(poolID: poolID, disabledBy: disabledBy, timestamp: getCurrentBlock().timestamp)
+        }
+        
+        /// Set pool to partial emergency mode (deposits limited, withdrawals work)
+        /// Authorization is enforced by Admin resource ownership (Flow account multi-sig)
+        access(all) fun setEmergencyPartialMode(poolID: UInt64, reason: String, setBy: Address) {
+            let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID) ?? panic("Pool does not exist")
+            poolRef.setPartialMode(reason: reason)
+            emit PoolPartialModeEnabled(poolID: poolID, reason: reason, setBy: setBy, timestamp: getCurrentBlock().timestamp)
+        }
+        
+        access(all) fun updateEmergencyConfig(poolID: UInt64, newConfig: EmergencyConfig, updatedBy: Address) {
+            let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID) ?? panic("Pool does not exist")
+            poolRef.setEmergencyConfig(config: newConfig)
+            emit EmergencyConfigUpdated(poolID: poolID, updatedBy: updatedBy)
+        }
+        
+        access(all) fun fundPoolDirect(
+            poolID: UInt64,
+            destination: PoolFundingDestination,
+            from: @{FungibleToken.Vault},
+            sponsor: Address,
+            purpose: String,
+            metadata: {String: String}?
+        ) {
+            let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID) ?? panic("Pool does not exist")
+            let amount = from.balance
+            poolRef.fundDirectInternal(destination: destination, from: <- from, sponsor: sponsor, purpose: purpose, metadata: metadata ?? {})
+            
+            emit DirectFundingReceived(
+                poolID: poolID,
+                destination: destination.rawValue,
+                destinationName: self.getDestinationName(destination),
+                amount: amount,
+                sponsor: sponsor,
+                purpose: purpose,
+                metadata: metadata ?? {}
+            )
+        }
+        
+        access(self) fun getDestinationName(_ destination: PoolFundingDestination): String {
+            switch destination {
+                case PoolFundingDestination.Savings: return "Savings"
+                case PoolFundingDestination.Lottery: return "Lottery"
+                case PoolFundingDestination.Treasury: return "Treasury"
+                default: return "Unknown"
+            }
+        }
+        
         // Yield connector immutable per pool for security - create new pool for different yield protocol
         access(all) fun createPool(
             config: PoolConfig,
+            emergencyConfig: EmergencyConfig?,
+            fundingPolicy: FundingPolicy?,
             createdBy: Address
         ): UInt64 {
-            let poolID = PrizeVaultModular.createPool(config: config)
+            // Use provided configs or create defaults
+            let finalEmergencyConfig = emergencyConfig 
+                ?? PrizeVaultModular.createDefaultEmergencyConfig()
+            let finalFundingPolicy = fundingPolicy 
+                ?? PrizeVaultModular.createDefaultFundingPolicy()
+            
+            let poolID = PrizeVaultModular.createPool(
+                config: config,
+                emergencyConfig: finalEmergencyConfig,
+                fundingPolicy: finalFundingPolicy
+            )
             
             emit PoolCreatedByAdmin(
                 poolID: poolID,
@@ -213,30 +410,22 @@ access(all) contract PrizeVaultModular {
             poolRef.processRewards()
         }
         
-        // Withdrawals not blocked during pause - users can always exit
-        access(all) fun pausePool(poolID: UInt64, pausedBy: Address, reason: String) {
+        access(all) fun setPoolState(poolID: UInt64, state: PoolEmergencyState, reason: String?, setBy: Address) {
             let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID)
                 ?? panic("Pool does not exist")
             
-            poolRef.pause()
+            poolRef.setState(state: state, reason: reason)
             
-            emit PoolPaused(
-                poolID: poolID,
-                pausedBy: pausedBy,
-                reason: reason
-            )
-        }
-        
-        access(all) fun unpausePool(poolID: UInt64, unpausedBy: Address) {
-            let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID)
-                ?? panic("Pool does not exist")
-            
-            poolRef.unpause()
-            
-            emit PoolUnpaused(
-                poolID: poolID,
-                unpausedBy: unpausedBy
-            )
+            switch state {
+                case PoolEmergencyState.Normal:
+                    emit PoolUnpaused(poolID: poolID, unpausedBy: setBy)
+                case PoolEmergencyState.Paused:
+                    emit PoolPaused(poolID: poolID, pausedBy: setBy, reason: reason ?? "Manual pause")
+                case PoolEmergencyState.EmergencyMode:
+                    emit PoolEmergencyEnabled(poolID: poolID, reason: reason ?? "Emergency", enabledBy: setBy, timestamp: getCurrentBlock().timestamp)
+                case PoolEmergencyState.PartialMode:
+                    emit PoolPartialModeEnabled(poolID: poolID, reason: reason ?? "Partial mode", setBy: setBy, timestamp: getCurrentBlock().timestamp)
+            }
         }
         
         // All treasury withdrawals recorded on-chain for transparency
@@ -268,43 +457,6 @@ access(all) contract PrizeVaultModular {
             )
             
             return <- treasuryVault
-        }
-        
-        access(all) fun registerPoolRewardSource(
-            poolID: UInt64,
-            sourceID: String,
-            source: @{RewardSource},
-            updatedBy: Address
-        ) {
-            let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID)
-                ?? panic("Pool does not exist")
-            
-            let sourceName = source.getSourceName()
-            poolRef.registerRewardSource(id: sourceID, source: <- source)
-            
-            emit RewardSourceRegistered(
-                poolID: poolID,
-                sourceID: sourceID,
-                sourceName: sourceName,
-                updatedBy: updatedBy
-            )
-        }
-        
-        access(all) fun removePoolRewardSource(
-            poolID: UInt64,
-            sourceID: String,
-            updatedBy: Address
-        ) {
-            let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID)
-                ?? panic("Pool does not exist")
-            
-            poolRef.removeRewardSource(id: sourceID)
-            
-            emit RewardSourceRemoved(
-                poolID: poolID,
-                sourceID: sourceID,
-                updatedBy: updatedBy
-            )
         }
         
         // Bonus lottery weight management
@@ -444,119 +596,6 @@ access(all) contract PrizeVaultModular {
                 .concat(" savings, ")
                 .concat(self.lotteryPercent.toString())
                 .concat(" lottery")
-        }
-    }
-    
-    // Reward Sources
-    access(all) resource interface RewardSource {
-        access(all) fun getAvailableRewards(): UFix64
-        access(all) fun collectRewards(): @{FungibleToken.Vault}
-        access(all) fun getSourceName(): String
-    }
-    
-    // Yield handled directly in Pool via yieldConnector
-    access(all) resource DirectContributionSource: RewardSource {
-        access(self) var contributionVault: @{FungibleToken.Vault}
-        access(self) let contributions: {Address: UFix64}
-        access(all) var totalContributed: UFix64
-        
-        init(vaultType: Type) {
-            self.contributionVault <- DeFiActionsUtils.getEmptyVault(vaultType)
-            self.contributions = {}
-            self.totalContributed = 0.0
-        }
-        
-        access(contract) fun contribute(from: @{FungibleToken.Vault}, contributor: Address) {
-            let amount = from.balance
-            self.contributionVault.deposit(from: <- from)
-            
-            let current = self.contributions[contributor] ?? 0.0
-            self.contributions[contributor] = current + amount
-            self.totalContributed = self.totalContributed + amount
-        }
-        
-        access(all) fun getAvailableRewards(): UFix64 {
-            return self.contributionVault.balance
-        }
-        
-        access(all) fun collectRewards(): @{FungibleToken.Vault} {
-            let amount = self.contributionVault.balance
-            if amount == 0.0 {
-                return <- DeFiActionsUtils.getEmptyVault(self.contributionVault.getType())
-            }
-            return <- self.contributionVault.withdraw(amount: amount)
-        }
-        
-        access(all) fun getSourceName(): String {
-            return "Direct Contributions"
-        }
-        
-        access(all) fun getContributorAmount(address: Address): UFix64 {
-            return self.contributions[address] ?? 0.0
-        }
-    }
-    
-    // Reward Aggregator
-    access(all) resource RewardAggregator {
-        access(self) let sources: @{String: {RewardSource}}
-        access(self) var collectedVault: @{FungibleToken.Vault}
-        
-        init(vaultType: Type) {
-            self.sources <- {}
-            self.collectedVault <- DeFiActionsUtils.getEmptyVault(vaultType)
-        }
-        
-        access(contract) fun registerSource(id: String, source: @{RewardSource}) {
-            pre {
-                self.sources[id] == nil: "Source already registered"
-            }
-            self.sources[id] <-! source
-        }
-        
-        access(contract) fun removeSource(id: String) {
-            pre {
-                self.sources[id] != nil: "Source not registered"
-            }
-            destroy self.sources.remove(key: id)!
-        }
-        
-        access(contract) fun borrowSource(id: String): &{RewardSource}? {
-            return &self.sources[id]
-        }
-        
-        access(contract) fun collectAllRewards() {
-            for id in self.sources.keys {
-                let sourceRef = &self.sources[id] as &{RewardSource}?
-                if sourceRef != nil {
-                    let available = sourceRef!.getAvailableRewards()
-                    if available > 0.0 {
-                        let rewards <- sourceRef!.collectRewards()
-                        self.collectedVault.deposit(from: <- rewards)
-                    }
-                }
-            }
-        }
-        
-        access(all) fun getCollectedBalance(): UFix64 {
-            return self.collectedVault.balance
-        }
-        
-        access(contract) fun withdrawCollected(amount: UFix64): @{FungibleToken.Vault} {
-            return <- self.collectedVault.withdraw(amount: amount)
-        }
-        
-        access(all) fun getSourceIDs(): [String] {
-            return self.sources.keys
-        }
-        
-        access(all) fun getAvailableFromSource(id: String): UFix64 {
-            let sourceRef = &self.sources[id] as &{RewardSource}?
-            return sourceRef?.getAvailableRewards() ?? 0.0
-        }
-        
-        access(all) fun getSourceName(id: String): String? {
-            let sourceRef = &self.sources[id] as &{RewardSource}?
-            return sourceRef?.getSourceName()
         }
     }
     
@@ -796,11 +835,7 @@ access(all) contract PrizeVaultModular {
         access(all) fun borrowNFTPrize(nftID: UInt64): &{NonFungibleToken.NFT}? {
             return &self.nftPrizeVault[nftID]
         }
-        
-        // Note: Cannot borrow pending NFTs directly due to Cadence limitations with nested resource references
-        // Pending NFTs must be claimed first, then viewed in user's collection
-        // Use getPendingNFTIDs() to get IDs, and display details after claiming
-        
+
         access(contract) fun claimPendingNFT(receiverID: UInt64, nftIndex: Int): @{NonFungibleToken.NFT} {
             pre {
                 self.pendingNFTClaims[receiverID] != nil: "No pending NFTs for this receiver"
@@ -866,7 +901,6 @@ access(all) contract PrizeVaultModular {
         }
     }
     
-    // Prize Draw Receipt
     access(all) resource PrizeDrawReceipt {
         access(all) let prizeAmount: UFix64
         access(self) var request: @RandomConsumer.Request?
@@ -892,7 +926,6 @@ access(all) contract PrizeVaultModular {
         }
     }
     
-    // Winner Selection Strategy
     access(all) struct WinnerSelectionResult {
         access(all) let winners: [UInt64]
         access(all) let amounts: [UFix64]
@@ -1002,7 +1035,7 @@ access(all) contract PrizeVaultModular {
         
         init(winnerCount: Int, prizeSplits: [UFix64], nftIDsPerWinner: [UInt64]) {
             pre {
-                winnerCount > 0 && winnerCount <= 10: "Winner count must be 1-10"
+                winnerCount > 0: "Must have at least one winner"
                 prizeSplits.length == winnerCount: "Prize splits must match winner count"
             }
             
@@ -1232,7 +1265,6 @@ access(all) contract PrizeVaultModular {
         init(tiers: [PrizeTier]) {
             pre {
                 tiers.length > 0: "Must have at least one prize tier"
-                tiers.length <= 10: "Maximum 10 prize tiers"
             }
             self.tiers = tiers
         }
@@ -1440,7 +1472,14 @@ access(all) contract PrizeVaultModular {
     access(all) resource Pool {
         access(self) var config: PoolConfig
         access(self) var poolID: UInt64
-        access(self) var paused: Bool
+        
+        access(self) var emergencyState: PoolEmergencyState
+        access(self) var emergencyReason: String?
+        access(self) var emergencyActivatedAt: UFix64?
+        access(self) var emergencyConfig: EmergencyConfig
+        access(self) var consecutiveWithdrawFailures: Int
+        
+        access(self) var fundingPolicy: FundingPolicy
         
         access(contract) fun setPoolID(id: UInt64) {
             self.poolID = id
@@ -1457,7 +1496,6 @@ access(all) contract PrizeVaultModular {
         access(all) var totalStaked: UFix64
         access(all) var lotteryStaked: UFix64
         access(all) var lastDrawTimestamp: UFix64
-        access(self) let rewardAggregator: @RewardAggregator
         access(self) let savingsDistributor: @SavingsDistributor
         access(self) let lotteryDistributor: @LotteryDistributor
         access(self) let treasuryDistributor: @TreasuryDistributor
@@ -1467,7 +1505,12 @@ access(all) contract PrizeVaultModular {
         access(self) var pendingDrawReceipt: @PrizeDrawReceipt?
         access(self) let randomConsumer: @RandomConsumer.Consumer
         
-        init(config: PoolConfig, initialVault: @{FungibleToken.Vault}) {
+        init(
+            config: PoolConfig, 
+            initialVault: @{FungibleToken.Vault},
+            emergencyConfig: EmergencyConfig?,
+            fundingPolicy: FundingPolicy?
+        ) {
             pre {
                 initialVault.getType() == config.assetType: "Vault type mismatch"
                 initialVault.balance == 0.0: "Initial vault must be empty"
@@ -1475,7 +1518,15 @@ access(all) contract PrizeVaultModular {
             
             self.config = config
             self.poolID = 0
-            self.paused = false
+            
+            self.emergencyState = PoolEmergencyState.Normal
+            self.emergencyReason = nil
+            self.emergencyActivatedAt = nil
+            self.emergencyConfig = emergencyConfig ?? PrizeVaultModular.createDefaultEmergencyConfig()
+            self.consecutiveWithdrawFailures = 0
+            
+            self.fundingPolicy = fundingPolicy ?? PrizeVaultModular.createDefaultFundingPolicy()
+            
             self.receiverDeposits = {}
             self.receiverTotalEarnedSavings = {}
             self.receiverTotalEarnedPrizes = {}
@@ -1487,8 +1538,6 @@ access(all) contract PrizeVaultModular {
             self.lotteryStaked = 0.0
             self.lastDrawTimestamp = 0.0
             
-            // Initialize modular components
-            self.rewardAggregator <- create RewardAggregator(vaultType: config.assetType)
             self.savingsDistributor <- create SavingsDistributor(vaultType: config.assetType)
             self.lotteryDistributor <- create LotteryDistributor(vaultType: config.assetType)
             self.treasuryDistributor <- create TreasuryDistributor(vaultType: config.assetType)
@@ -1496,9 +1545,6 @@ access(all) contract PrizeVaultModular {
             self.liquidVault <- initialVault
             self.pendingDrawReceipt <- nil
             self.randomConsumer <- RandomConsumer.createConsumer()
-            
-            let contributionSource <- create DirectContributionSource(vaultType: config.assetType)
-            self.rewardAggregator.registerSource(id: "contributions", source: <- contributionSource)
         }
         
         access(all) fun registerReceiver(receiverID: UInt64) {
@@ -1508,30 +1554,272 @@ access(all) contract PrizeVaultModular {
             self.registeredReceivers[receiverID] = true
         }
         
-        access(all) view fun isPaused(): Bool {
-            return self.paused
+        
+        access(all) view fun getEmergencyState(): PoolEmergencyState {
+            return self.emergencyState
         }
         
-        access(contract) fun pause() {
-            pre {
-                !self.paused: "Pool is already paused"
-            }
-            self.paused = true
+        access(all) view fun getEmergencyConfig(): EmergencyConfig {
+            return self.emergencyConfig
         }
         
-        access(contract) fun unpause() {
-            pre {
-                self.paused: "Pool is not paused"
+        access(contract) fun setState(state: PoolEmergencyState, reason: String?) {
+            self.emergencyState = state
+            if state != PoolEmergencyState.Normal {
+                self.emergencyReason = reason
+                self.emergencyActivatedAt = getCurrentBlock().timestamp
+            } else {
+                self.emergencyReason = nil
+                self.emergencyActivatedAt = nil
+                self.consecutiveWithdrawFailures = 0
             }
-            self.paused = false
+        }
+        
+        access(contract) fun setEmergencyMode(reason: String) {
+            self.emergencyState = PoolEmergencyState.EmergencyMode
+            self.emergencyReason = reason
+            self.emergencyActivatedAt = getCurrentBlock().timestamp
+        }
+        
+        access(contract) fun setPartialMode(reason: String) {
+            self.emergencyState = PoolEmergencyState.PartialMode
+            self.emergencyReason = reason
+            self.emergencyActivatedAt = getCurrentBlock().timestamp
+        }
+        
+        access(contract) fun clearEmergencyMode() {
+            self.emergencyState = PoolEmergencyState.Normal
+            self.emergencyReason = nil
+            self.emergencyActivatedAt = nil
+            self.consecutiveWithdrawFailures = 0
+        }
+        
+        access(contract) fun setEmergencyConfig(config: EmergencyConfig) {
+            self.emergencyConfig = config
+        }
+        
+        access(all) view fun isEmergencyMode(): Bool {
+            return self.emergencyState == PoolEmergencyState.EmergencyMode
+        }
+        
+        access(all) view fun isPartialMode(): Bool {
+            return self.emergencyState == PoolEmergencyState.PartialMode
+        }
+        
+        access(all) fun getEmergencyInfo(): {String: AnyStruct}? {
+            if self.emergencyState != PoolEmergencyState.Normal {
+                let duration = getCurrentBlock().timestamp - (self.emergencyActivatedAt ?? 0.0)
+                let health = self.checkYieldSourceHealth()
+                return {
+                    "state": self.emergencyState.rawValue,
+                    "reason": self.emergencyReason ?? "Unknown",
+                    "activatedAt": self.emergencyActivatedAt ?? 0.0,
+                    "durationSeconds": duration,
+                    "yieldSourceHealth": health,
+                    "canAutoRecover": self.emergencyConfig.autoRecoveryEnabled,
+                    "maxDuration": self.emergencyConfig.maxEmergencyDuration
+                }
+            }
+            return nil
+        }
+        
+        access(contract) fun checkYieldSourceHealth(): UFix64 {
+            let yieldSource = &self.config.yieldConnector as &{DeFiActions.Source}
+            let balance = yieldSource.minimumAvailable()
+            let threshold = self.getEmergencyConfig().minBalanceThreshold
+            let balanceHealthy = balance >= self.totalStaked * threshold
+            let withdrawSuccessRate = self.consecutiveWithdrawFailures == 0 ? 1.0 : 
+                (1.0 / UFix64(self.consecutiveWithdrawFailures + 1))
+            
+            var health: UFix64 = 0.0
+            if balanceHealthy { health = health + 0.5 }
+            health = health + (withdrawSuccessRate * 0.5)
+            return health
+        }
+        
+        access(contract) fun checkAndAutoTriggerEmergency(): Bool {
+            if self.emergencyState != PoolEmergencyState.Normal {
+                return false
+            }
+            
+            let health = self.checkYieldSourceHealth()
+            if health < self.emergencyConfig.minYieldSourceHealth {
+                self.setEmergencyMode(reason: "Auto-triggered: Yield source health below threshold (".concat(health.toString()).concat(")"))
+                emit EmergencyModeAutoTriggered(poolID: self.poolID, reason: "Low yield source health", healthScore: health, timestamp: getCurrentBlock().timestamp)
+                return true
+            }
+            
+            if self.consecutiveWithdrawFailures >= self.emergencyConfig.maxWithdrawFailures {
+                self.setEmergencyMode(reason: "Auto-triggered: Multiple consecutive withdrawal failures")
+                emit EmergencyModeAutoTriggered(poolID: self.poolID, reason: "Withdrawal failures", healthScore: health, timestamp: getCurrentBlock().timestamp)
+                return true
+            }
+            
+            return false
+        }
+        
+        access(contract) fun checkAndAutoRecover(): Bool {
+            if self.emergencyState != PoolEmergencyState.EmergencyMode {
+                return false
+            }
+            
+            if !self.emergencyConfig.autoRecoveryEnabled {
+                return false
+            }
+            
+            if let maxDuration = self.emergencyConfig.maxEmergencyDuration {
+                let duration = getCurrentBlock().timestamp - (self.emergencyActivatedAt ?? 0.0)
+                if duration > maxDuration {
+                    self.clearEmergencyMode()
+                    emit EmergencyModeAutoRecovered(poolID: self.poolID, reason: "Max duration exceeded", healthScore: nil, duration: duration, timestamp: getCurrentBlock().timestamp)
+                    return true
+                }
+            }
+            
+            let health = self.checkYieldSourceHealth()
+            if health >= 0.9 {
+                self.clearEmergencyMode()
+                emit EmergencyModeAutoRecovered(poolID: self.poolID, reason: "Yield source recovered", healthScore: health, duration: nil, timestamp: getCurrentBlock().timestamp)
+                return true
+            }
+            
+            return false
+        }
+        
+        
+        /// Distribute savings interest to all users
+        /// This is the core savings distribution logic used by both direct funding and process rewards
+        /// 
+        /// Flow:
+        /// 1. Snapshot totalDeposited BEFORE compounding (prevents dilution)
+        /// 2. Compound any existing pending interest
+        /// 3. Distribute new interest based on snapshot
+        /// 4. Compound the newly distributed interest
+        /// 5. Send any rounding dust to treasury
+        access(contract) fun distributeSavingsInterest(vault: @{FungibleToken.Vault}) {
+            let amount = vault.balance
+            
+            let totalDepositedSnapshot = self.totalDeposited
+            
+            self.compoundAllPendingSavings()
+            
+            // Distribute new interest based on snapshot
+            let interestPerShare = self.savingsDistributor.distributeInterestAndReinvest(
+                vault: <- vault,
+                totalDeposited: totalDepositedSnapshot,
+                yieldSink: &self.config.yieldConnector as &{DeFiActions.Sink}
+            )
+            
+            // Compound the newly distributed interest (updates totalDeposited and totalStaked)
+            let totalCompounded = self.compoundAllPendingSavings()
+            
+            // Handle rounding dust: send to treasury to prevent yield source imbalance
+            if totalCompounded < amount {
+                let dust = amount - totalCompounded
+                let dustVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: dust)
+                self.treasuryDistributor.deposit(vault: <- dustVault)
+                
+                emit SavingsRoundingDustToTreasury(poolID: self.poolID, amount: dust)
+            }
+            
+            emit SavingsInterestDistributed(poolID: self.poolID, amount: amount, interestPerShare: interestPerShare)
+        }
+        
+        access(contract) fun compoundAllPendingSavings(): UFix64 {
+            let receiverIDs = self.getRegisteredReceiverIDs()
+            var totalCompounded: UFix64 = 0.0
+            var usersCompounded: Int = 0
+            
+            for receiverID in receiverIDs {
+                let currentDeposit = self.receiverDeposits[receiverID] ?? 0.0
+                if currentDeposit > 0.0 {
+                    let pending = self.savingsDistributor.claimInterest(receiverID: receiverID, deposit: currentDeposit)
+                    
+                    if pending > 0.0 {
+                        let newDeposit = currentDeposit + pending
+                        self.receiverDeposits[receiverID] = newDeposit
+                        self.totalDeposited = self.totalDeposited + pending
+                        totalCompounded = totalCompounded + pending
+                        self.totalStaked = self.totalStaked + pending
+                        self.savingsDistributor.updateAfterBalanceChange(receiverID: receiverID, newDeposit: newDeposit)
+                        
+                        let currentSavings = self.receiverTotalEarnedSavings[receiverID] ?? 0.0
+                        self.receiverTotalEarnedSavings[receiverID] = currentSavings + pending
+                        
+                        usersCompounded = usersCompounded + 1
+                    }
+                }
+            }
+            
+            if usersCompounded > 0 {
+                let avgAmount = totalCompounded / UFix64(usersCompounded)
+                emit SavingsInterestCompoundedBatch(
+                    poolID: self.poolID,
+                    userCount: usersCompounded,
+                    totalAmount: totalCompounded,
+                    avgAmount: avgAmount
+                )
+            }
+            
+            return totalCompounded
+        }
+        
+        access(contract) fun fundDirectInternal(
+            destination: PoolFundingDestination,
+            from: @{FungibleToken.Vault},
+            sponsor: Address,
+            purpose: String,
+            metadata: {String: String}
+        ) {
+            pre {
+                self.emergencyState == PoolEmergencyState.Normal: "Direct funding only in normal state"
+                from.getType() == self.config.assetType: "Invalid vault type"
+            }
+            
+            let amount = from.balance
+            self.fundingPolicy.recordDirectFunding(destination: destination, amount: amount)
+            
+            switch destination {
+                case PoolFundingDestination.Lottery:
+                    self.lotteryDistributor.fundPrizePool(vault: <- from)
+                case PoolFundingDestination.Treasury:
+                    self.treasuryDistributor.deposit(vault: <- from)
+                case PoolFundingDestination.Savings:
+                    self.distributeSavingsInterest(vault: <- from)
+                default:
+                    panic("Unsupported funding destination")
+            }
+        }
+        
+        access(all) fun getFundingStats(): {String: UFix64} {
+            return {
+                "totalDirectLottery": self.fundingPolicy.totalDirectLottery,
+                "totalDirectTreasury": self.fundingPolicy.totalDirectTreasury,
+                "totalDirectSavings": self.fundingPolicy.totalDirectSavings,
+                "maxDirectLottery": self.fundingPolicy.maxDirectLottery ?? 0.0,
+                "maxDirectTreasury": self.fundingPolicy.maxDirectTreasury ?? 0.0,
+                "maxDirectSavings": self.fundingPolicy.maxDirectSavings ?? 0.0
+            }
         }
         
         access(all) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64) {
             pre {
-                !self.paused: "Pool is paused - deposits are temporarily disabled"
+                from.balance > 0.0: "Deposit amount must be positive"
                 from.getType() == self.config.assetType: "Invalid vault type"
-                from.balance >= self.config.minimumDeposit: "Below minimum deposit"
                 self.registeredReceivers[receiverID] == true: "Receiver not registered"
+            }
+            
+            switch self.emergencyState {
+                case PoolEmergencyState.Normal:
+                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit of ".concat(self.config.minimumDeposit.toString()))
+                case PoolEmergencyState.PartialMode:
+                    let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
+                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured")
+                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit of ".concat(depositLimit.toString()))
+                case PoolEmergencyState.EmergencyMode:
+                    panic("Deposits disabled in emergency mode. Withdrawals only.")
+                case PoolEmergencyState.Paused:
+                    panic("Pool is paused. No operations allowed.")
             }
             
             let amount = from.balance
@@ -1542,7 +1830,6 @@ access(all) contract PrizeVaultModular {
                 let currentDeposit = self.receiverDeposits[receiverID]!
                 let pending = self.savingsDistributor.claimInterest(receiverID: receiverID, deposit: currentDeposit)
                 if pending > 0.0 {
-                    // Add pending to the user's deposit and totalStaked
                     self.receiverDeposits[receiverID] = currentDeposit + pending
                     pendingCompounded = pending
                     self.totalDeposited = self.totalDeposited + pending
@@ -1571,195 +1858,128 @@ access(all) contract PrizeVaultModular {
         
         access(all) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Vault} {
             pre {
+                amount > 0.0: "Withdrawal amount must be positive"
                 self.registeredReceivers[receiverID] == true: "Receiver not registered"
+            }
+            
+            assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed")
+            
+            if self.emergencyState == PoolEmergencyState.EmergencyMode {
+                self.checkAndAutoRecover()
             }
             
             let receiverDeposit = self.receiverDeposits[receiverID] ?? 0.0
             assert(receiverDeposit >= amount, message: "Insufficient deposit. You have ".concat(receiverDeposit.toString()).concat(" but trying to withdraw ").concat(amount.toString()))
             
-            // Compound any pending savings first
-            let pending = self.savingsDistributor.claimInterest(receiverID: receiverID, deposit: receiverDeposit)
-            if pending > 0.0 {
-                let newDepositWithPending = receiverDeposit + pending
-                self.receiverDeposits[receiverID] = newDepositWithPending
-                self.totalDeposited = self.totalDeposited + pending
-                self.totalStaked = self.totalStaked + pending
-                
-                self.savingsDistributor.updateAfterBalanceChange(receiverID: receiverID, newDeposit: newDepositWithPending)
-                
-                let currentSavings = self.receiverTotalEarnedSavings[receiverID] ?? 0.0
-                self.receiverTotalEarnedSavings[receiverID] = currentSavings + pending
-                emit SavingsInterestCompounded(poolID: self.poolID, receiverID: receiverID, amount: pending)
+            if self.emergencyState == PoolEmergencyState.EmergencyMode {
+                log("⚠️  Emergency withdrawal - skipping interest compounding")
+            } else {
+                let pending = self.savingsDistributor.claimInterest(receiverID: receiverID, deposit: receiverDeposit)
+                if pending > 0.0 {
+                    let newDepositWithPending = receiverDeposit + pending
+                    self.receiverDeposits[receiverID] = newDepositWithPending
+                    self.totalDeposited = self.totalDeposited + pending
+                    self.totalStaked = self.totalStaked + pending
+                    self.savingsDistributor.updateAfterBalanceChange(receiverID: receiverID, newDeposit: newDepositWithPending)
+                    let currentSavings = self.receiverTotalEarnedSavings[receiverID] ?? 0.0
+                    self.receiverTotalEarnedSavings[receiverID] = currentSavings + pending
+                    emit SavingsInterestCompounded(poolID: self.poolID, receiverID: receiverID, amount: pending)
+                }
             }
             
-            // Update deposit after compounding
             let currentDeposit = self.receiverDeposits[receiverID] ?? 0.0
             let newDeposit = currentDeposit - amount
             self.receiverDeposits[receiverID] = newDeposit
             self.totalDeposited = self.totalDeposited - amount
-            self.totalStaked = self.totalStaked - amount
-            
             self.savingsDistributor.updateAfterBalanceChange(receiverID: receiverID, newDeposit: newDeposit)
             
-            // Withdraw from yield source
-            let withdrawnVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: amount)
-            assert(withdrawnVault.balance >= amount, message: "Insufficient yield source balance")
+            var withdrawn <- DeFiActionsUtils.getEmptyVault(self.config.assetType)
+            var withdrawalFailed = false
+            var amountFromYieldSource: UFix64 = 0.0
             
-            emit Withdrawn(poolID: self.poolID, receiverID: receiverID, amount: withdrawnVault.balance)
-            return <- withdrawnVault
+            if self.emergencyState == PoolEmergencyState.EmergencyMode {
+                let yieldAvailable = self.config.yieldConnector.minimumAvailable()
+                if yieldAvailable >= amount {
+                    let yieldVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: amount)
+                    amountFromYieldSource = yieldVault.balance
+                    withdrawn.deposit(from: <- yieldVault)
+                } else {
+                    log("⚠️  Yield source insufficient in emergency, using liquid vault")
+                    withdrawalFailed = true
+                }
+            } else {
+                let yieldAvailable = self.config.yieldConnector.minimumAvailable()
+                if yieldAvailable >= amount {
+                    let yieldVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: amount)
+                    amountFromYieldSource = yieldVault.balance
+                    withdrawn.deposit(from: <- yieldVault)
+                } else {
+                    withdrawalFailed = true
+                }
+                
+                if withdrawalFailed {
+                    self.consecutiveWithdrawFailures = self.consecutiveWithdrawFailures + 1
+                    emit WithdrawalFailure(poolID: self.poolID, receiverID: receiverID, amount: amount,
+                        consecutiveFailures: self.consecutiveWithdrawFailures, yieldAvailable: yieldAvailable)
+                    self.checkAndAutoTriggerEmergency()
+                } else {
+                    self.consecutiveWithdrawFailures = 0
+                }
+            }
+            
+            // Use liquid vault if needed
+            if withdrawn.balance < amount {
+                let remaining = amount - withdrawn.balance
+                withdrawn.deposit(from: <- self.liquidVault.withdraw(amount: remaining))
+            }
+            
+            // Only decrease totalStaked by amount withdrawn from yield source (not liquid vault fallback)
+            self.totalStaked = self.totalStaked - amountFromYieldSource
+            
+            emit Withdrawn(poolID: self.poolID, receiverID: receiverID, amount: amount)
+            return <- withdrawn
         }
         
         access(all) fun processRewards() {
             let yieldBalance = self.config.yieldConnector.minimumAvailable()
             let availableYield = yieldBalance > self.totalStaked ? yieldBalance - self.totalStaked : 0.0
             
-            var yieldRewards: @{FungibleToken.Vault}? <- nil
-            if availableYield > 0.0 {
-                yieldRewards <-! self.config.yieldConnector.withdrawAvailable(maxAmount: availableYield)
-            }
-            
-            self.rewardAggregator.collectAllRewards()
-            let otherRewards = self.rewardAggregator.getCollectedBalance()
-            let yieldAmount = yieldRewards?.balance ?? 0.0
-            let totalRewards = yieldAmount + otherRewards
-            if totalRewards == 0.0 {
-                destroy yieldRewards
+            if availableYield == 0.0 {
                 return
             }
             
+            let yieldRewards <- self.config.yieldConnector.withdrawAvailable(maxAmount: availableYield)
+            let totalRewards = yieldRewards.balance
             let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: totalRewards)
             
             if plan.savingsAmount > 0.0 {
-                var savingsVault <- DeFiActionsUtils.getEmptyVault(self.config.assetType)
-                if yieldRewards != nil && yieldRewards?.balance! > 0.0 {
-                    let yieldBalance = yieldRewards?.balance!
-                    let fromYield = plan.savingsAmount < yieldBalance ? plan.savingsAmount : yieldBalance
-                    let yieldRef = &yieldRewards as auth(FungibleToken.Withdraw) &{FungibleToken.Vault}?
-                    savingsVault.deposit(from: <- yieldRef!.withdraw(amount: fromYield))
-                }
-                
-                if savingsVault.balance < plan.savingsAmount {
-                    let remaining = plan.savingsAmount - savingsVault.balance
-                    savingsVault.deposit(from: <- self.rewardAggregator.withdrawCollected(amount: remaining))
-                }
-                
-                // Always reinvest savings back into yield source to continue generating yield
-                let interestPerShare = self.savingsDistributor.distributeInterestAndReinvest(
-                    vault: <- savingsVault,
-                    totalDeposited: self.totalDeposited,
-                    yieldSink: &self.config.yieldConnector as &{DeFiActions.Sink}
-                )
-                
-                // AUTO-COMPOUND: Immediately update all user deposits with their earned interest
-                let receiverIDs = self.getRegisteredReceiverIDs()
-                var totalCompounded: UFix64 = 0.0
-                
-                for receiverID in receiverIDs {
-                    let currentDeposit = self.receiverDeposits[receiverID] ?? 0.0
-                    if currentDeposit > 0.0 {
-                        let pending = self.savingsDistributor.claimInterest(receiverID: receiverID, deposit: currentDeposit)
-                        
-                        if pending > 0.0 {
-                            // Add interest to deposit
-                            let newDeposit = currentDeposit + pending
-                            self.receiverDeposits[receiverID] = newDeposit
-                            totalCompounded = totalCompounded + pending
-                            
-                            // Update totalStaked to include the compounded interest
-                            self.totalStaked = self.totalStaked + pending
-                            
-                            // Update savings distributor to track the new balance
-                            self.savingsDistributor.updateAfterBalanceChange(receiverID: receiverID, newDeposit: newDeposit)
-                            
-                            // Track historical earnings
-                            let currentSavings = self.receiverTotalEarnedSavings[receiverID] ?? 0.0
-                            self.receiverTotalEarnedSavings[receiverID] = currentSavings + pending
-                            
-                            emit SavingsInterestCompounded(poolID: self.poolID, receiverID: receiverID, amount: pending)
-                        }
-                    }
-                }
-                
-                // Handle rounding dust: if there's a difference between what we distributed vs what we should have,
-                // send the remainder to treasury (ensures fairness and no funds are lost to precision errors)
-                if totalCompounded < plan.savingsAmount {
-                    let dust = plan.savingsAmount - totalCompounded
-                    
-                    // Withdraw dust from yield source and deposit into treasury
-                    let dustVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: dust)
-                    self.treasuryDistributor.deposit(vault: <- dustVault)
-                    
-                    emit SavingsRoundingDustToTreasury(
-                        poolID: self.poolID,
-                        amount: dust
-                    )
-                }
-                
-                // Update totalDeposited to reflect all compounded interest (now exact)
-                self.totalDeposited = self.totalDeposited + totalCompounded
-                // Note: totalStaked was already updated incrementally in the loop above
-                
-                emit SavingsInterestDistributed(
-                    poolID: self.poolID,
-                    amount: plan.savingsAmount,
-                    interestPerShare: interestPerShare
-                )
+                // Process rewards: collect from yield source, invest and distribute
+                let savingsVault <- yieldRewards.withdraw(amount: plan.savingsAmount)
+                self.distributeSavingsInterest(vault: <- savingsVault)
             }
             
             if plan.lotteryAmount > 0.0 {
-                var lotteryVault <- DeFiActionsUtils.getEmptyVault(self.config.assetType)
-                
-                // Take from yield first if available
-                if yieldRewards != nil && yieldRewards?.balance! > 0.0 {
-                    let yieldBalance = yieldRewards?.balance!
-                    let fromYield = plan.lotteryAmount < yieldBalance ? plan.lotteryAmount : yieldBalance
-                    let yieldRef = &yieldRewards as auth(FungibleToken.Withdraw) &{FungibleToken.Vault}?
-                    lotteryVault.deposit(from: <- yieldRef!.withdraw(amount: fromYield))
-                }
-                
-                // Take remainder from other sources if needed
-                if lotteryVault.balance < plan.lotteryAmount {
-                    let remaining = plan.lotteryAmount - lotteryVault.balance
-                    lotteryVault.deposit(from: <- self.rewardAggregator.withdrawCollected(amount: remaining))
-                }
-                
-                // Fund the prize pool with lottery rewards (held until winners are drawn)
+                let lotteryVault <- yieldRewards.withdraw(amount: plan.lotteryAmount)
                 self.lotteryDistributor.fundPrizePool(vault: <- lotteryVault)
-                
                 emit LotteryPrizePoolFunded(
                     poolID: self.poolID,
                     amount: plan.lotteryAmount,
-                    source: "rewards"
+                    source: "yield"
                 )
             }
             
             if plan.treasuryAmount > 0.0 {
-                var treasuryVault <- DeFiActionsUtils.getEmptyVault(self.config.assetType)
-                
-                // Take from yield first if available
-                if yieldRewards != nil && yieldRewards?.balance! > 0.0 {
-                    let yieldBalance = yieldRewards?.balance!
-                    let fromYield = plan.treasuryAmount < yieldBalance ? plan.treasuryAmount : yieldBalance
-                    let yieldRef = &yieldRewards as auth(FungibleToken.Withdraw) &{FungibleToken.Vault}?
-                    treasuryVault.deposit(from: <- yieldRef!.withdraw(amount: fromYield))
-                }
-                
-                // Take remainder from other sources if needed
-                if treasuryVault.balance < plan.treasuryAmount {
-                    let remaining = plan.treasuryAmount - treasuryVault.balance
-                    treasuryVault.deposit(from: <- self.rewardAggregator.withdrawCollected(amount: remaining))
-                }
-                
+                let treasuryVault <- yieldRewards.withdraw(amount: plan.treasuryAmount)
                 self.treasuryDistributor.deposit(vault: <- treasuryVault)
-                
                 emit TreasuryFunded(
                     poolID: self.poolID,
                     amount: plan.treasuryAmount,
-                    source: "rewards"
+                    source: "yield"
                 )
             }
             
             destroy yieldRewards
+            
             emit RewardsProcessed(
                 poolID: self.poolID,
                 totalAmount: totalRewards,
@@ -1768,51 +1988,26 @@ access(all) contract PrizeVaultModular {
             )
         }
         
-        access(all) fun contributeRewards(from: @{FungibleToken.Vault}, contributor: Address, sourceID: String) {
-            pre {
-                !self.paused: "Pool is paused - reward contributions are temporarily disabled"
-                from.getType() == self.config.assetType: "Invalid vault type"
-            }
-            
-            let amount = from.balance
-            let sourceRef = self.rewardAggregator.borrowSource(id: sourceID)
-                ?? panic("Reward source not found: ".concat(sourceID))
-            
-            // Cast to DirectContributionSource to access contribute function
-            let contributionSourceRef = sourceRef as! &DirectContributionSource
-            contributionSourceRef.contribute(from: <- from, contributor: contributor)
-            
-            emit RewardContributed(poolID: self.poolID, contributor: contributor, amount: amount)
-        }
-        
         access(all) fun startDraw() {
             pre {
-                !self.paused: "Pool is paused - draws are temporarily disabled"
+                self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: ".concat(self.emergencyState.rawValue.toString())
                 self.pendingDrawReceipt == nil: "Draw already in progress"
             }
             
             assert(self.canDrawNow(), message: "Not enough blocks since last draw")
             
-            // SNAPSHOT: Calculate time-weighted lottery stakes BEFORE processRewards()
-            // This captures the true time-weighted advantage of long-term depositors
-            // because pending interest reflects their time in pool
-            // BONUS WEIGHTS: Include referral/bonus lottery tickets in the snapshot
+            self.checkAndAutoTriggerEmergency()
+            
             let timeWeightedStakes: {UInt64: UFix64} = {}
             for receiverID in self.receiverDeposits.keys {
                 let deposit = self.receiverDeposits[receiverID]!
-                let pending = self.savingsDistributor.calculatePendingInterest(receiverID: receiverID, deposit: deposit)
                 let bonusWeight = self.getBonusWeight(receiverID: receiverID)
-                let timeWeightedStake = deposit + pending + bonusWeight
+                let stake = deposit + bonusWeight
                 
-                // Only include users with non-zero stakes (saves gas/storage)
-                if timeWeightedStake > 0.0 {
-                    timeWeightedStakes[receiverID] = timeWeightedStake
+                if stake > 0.0 {
+                    timeWeightedStakes[receiverID] = stake
                 }
             }
-            
-            // Process rewards AFTER snapshotting - this will auto-compound interest
-            // but won't affect the lottery odds for this draw
-            self.processRewards()
             
             let prizeAmount = self.lotteryDistributor.getPrizePoolBalance()
             assert(prizeAmount > 0.0, message: "No prize pool funds")
@@ -1842,8 +2037,6 @@ access(all) contract PrizeVaultModular {
             let unwrappedReceipt <- receipt!
             let totalPrizeAmount = unwrappedReceipt.prizeAmount
             
-            // Retrieve the time-weighted stakes that were snapshotted at startDraw()
-            // This ensures lottery odds are based on time in pool BEFORE auto-compounding
             let timeWeightedStakes = unwrappedReceipt.getTimeWeightedStakes()
             
             let request <- unwrappedReceipt.popRequest()
@@ -1883,54 +2076,37 @@ access(all) contract PrizeVaultModular {
                 let prizeAmount = prizeAmounts[i]
                 let nftIDsForWinner = nftIDsPerWinner[i]
                 
-                // Withdraw prizes from the lottery prize pool
                 let prizeVault <- self.lotteryDistributor.awardPrize(
                     receiverID: winnerID,
                     amount: prizeAmount,
                     yieldSource: nil
                 )
                 
-                // Automatically compound all rewards into user's deposit
-                // This maximizes yield and encourages long-term saving
                 let currentDeposit = self.receiverDeposits[winnerID] ?? 0.0
-                
-                // Settle any pending savings interest by adding it to deposit
-                // Since savings were already reinvested into yield during processRewards,
-                // we just update the accounting to reflect this in the user's individual deposit
                 let pendingSavings = self.savingsDistributor.claimInterest(receiverID: winnerID, deposit: currentDeposit)
                 var newDeposit = currentDeposit
                 
                 if pendingSavings > 0.0 {
-                    // Add pending savings to deposit
                     newDeposit = newDeposit + pendingSavings
                     self.totalDeposited = self.totalDeposited + pendingSavings
                     self.totalStaked = self.totalStaked + pendingSavings
                     
-                    // Track historical savings for user reference
                     let currentSavings = self.receiverTotalEarnedSavings[winnerID] ?? 0.0
                     self.receiverTotalEarnedSavings[winnerID] = currentSavings + pendingSavings
                 }
                 
-                // Add lottery prize to deposit and reinvest into yield source
                 newDeposit = newDeposit + prizeAmount
                 self.receiverDeposits[winnerID] = newDeposit
                 self.totalDeposited = self.totalDeposited + prizeAmount
                 self.totalStaked = self.totalStaked + prizeAmount
-                
-                // Update savings distributor to track the new balance
                 self.savingsDistributor.updateAfterBalanceChange(receiverID: winnerID, newDeposit: newDeposit)
-                
-                // Reinvest the prize into the yield source
                 self.config.yieldConnector.depositCapacity(from: &prizeVault as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
                 destroy prizeVault
                 
-                // Track total prizes awarded for user reference
                 let totalPrizes = self.receiverTotalEarnedPrizes[winnerID] ?? 0.0
                 self.receiverTotalEarnedPrizes[winnerID] = totalPrizes + prizeAmount
                 
-                // Distribute NFT prizes to this winner
                 for nftID in nftIDsForWinner {
-                    // Check if NFT exists in vault before attempting withdrawal
                     let availableNFTs = self.lotteryDistributor.getAvailableNFTPrizeIDs()
                     var nftFound = false
                     for availableID in availableNFTs {
@@ -1947,9 +2123,7 @@ access(all) contract PrizeVaultModular {
                     let nft <- self.lotteryDistributor.withdrawNFTPrize(nftID: nftID)
                     let nftType = nft.getType().identifier
                     
-                    // Try to send NFT directly to winner
-                    // For now, store as pending claim since we don't have their collection reference here
-                    // Winner will need to claim via separate transaction
+                    // Store as pending claim - winner claims via separate transaction
                     self.lotteryDistributor.storePendingNFT(receiverID: winnerID, nft: <- nft)
                     
                     emit NFTPrizeStored(
@@ -2042,7 +2216,6 @@ access(all) contract PrizeVaultModular {
             self.config.setWinnerSelectionStrategy(strategy: strategy)
         }
         
-        // Public getter to check if tracker is configured
         access(all) fun hasWinnerTracker(): Bool {
             return self.config.winnerTrackerCap != nil
         }
@@ -2060,19 +2233,6 @@ access(all) contract PrizeVaultModular {
             self.config.setMinimumDeposit(minimum: minimum)
         }
         
-        access(contract) fun registerRewardSource(id: String, source: @{RewardSource}) {
-            self.rewardAggregator.registerSource(id: id, source: <- source)
-        }
-        
-        access(contract) fun removeRewardSource(id: String) {
-            self.rewardAggregator.removeSource(id: id)
-        }
-        
-        access(all) fun getRewardSourceIDs(): [String] {
-            return self.rewardAggregator.getSourceIDs()
-        }
-        
-        // Bonus lottery weight management
         access(contract) fun setBonusWeight(receiverID: UInt64, bonusWeight: UFix64, reason: String, setBy: Address) {
             let timestamp = getCurrentBlock().timestamp
             let record = BonusWeightRecord(bonusWeight: bonusWeight, reason: reason, addedBy: setBy)
@@ -2174,17 +2334,6 @@ access(all) contract PrizeVaultModular {
             )
             
             return <- nft
-        }
-        
-        access(all) fun getAvailableRewardsFromSource(sourceID: String): UFix64 {
-            return self.rewardAggregator.getAvailableFromSource(id: sourceID)
-        }
-        
-        access(contract) fun getRewardSourceName(id: String): String? {
-            if let sourceRef = self.rewardAggregator.borrowSource(id: id) {
-                return sourceRef.getSourceName()
-            }
-            return nil
         }
         
         access(all) fun canDrawNow(): Bool {
@@ -2377,13 +2526,6 @@ access(all) contract PrizeVaultModular {
             return poolRef.compoundSavingsInterest(receiverID: self.uuid)
         }
         
-        access(all) fun contributeRewards(poolID: UInt64, from: @{FungibleToken.Vault}, contributor: Address, sourceID: String) {
-            let poolRef = PrizeVaultModular.borrowPoolAuth(poolID: poolID)
-                ?? panic("Cannot borrow pool")
-            
-            poolRef.contributeRewards(from: <- from, contributor: contributor, sourceID: sourceID)
-        }
-        
         access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
             if self.registeredPools[poolID] == nil {
                 return PoolBalance(deposits: 0.0, totalEarnedSavings: 0.0, totalEarnedPrizes: 0.0, pendingSavings: 0.0)
@@ -2404,16 +2546,24 @@ access(all) contract PrizeVaultModular {
     }
     
     // Contract Functions
-    access(all) entitlement PoolAccess
     
-    access(contract) fun createPool(config: PoolConfig): UInt64 {
+    access(contract) fun createPool(
+        config: PoolConfig,
+        emergencyConfig: EmergencyConfig?,
+        fundingPolicy: FundingPolicy?
+    ): UInt64 {
         let emptyVault <- DeFiActionsUtils.getEmptyVault(config.assetType)
-        let pool <- create Pool(config: config, initialVault: <- emptyVault)
+        let pool <- create Pool(
+            config: config, 
+            initialVault: <- emptyVault,
+            emergencyConfig: emergencyConfig,
+            fundingPolicy: fundingPolicy
+        )
         
         let poolID = self.nextPoolID
-            self.nextPoolID = self.nextPoolID + 1
-            
-            pool.setPoolID(id: poolID)
+        self.nextPoolID = self.nextPoolID + 1
+        
+        pool.setPoolID(id: poolID)
         emit PoolCreated(
             poolID: poolID,
             assetType: config.assetType.identifier,
@@ -2428,7 +2578,9 @@ access(all) contract PrizeVaultModular {
         return &self.pools[poolID]
     }
     
-    access(all) fun borrowPoolAuth(poolID: UInt64): auth(PoolAccess) &Pool? {
+    /// Returns authorized pool reference - restricted to contract only for security
+    /// Only Admin resource and internal contract functions can access this
+    access(contract) fun borrowPoolAuth(poolID: UInt64): &Pool? {
         return &self.pools[poolID]
     }
     
