@@ -9,8 +9,14 @@ DeFiActions on testnet uses STRUCT interfaces (not resource interfaces)
 */
 
 import "FungibleToken"
-import "FlowVaults"
-import "FlowVaultsClosedBeta"
+
+// importing FlowVaults and FlowVaultsClosedBeta directly will break the dependencies of the entire project because 
+// it imports DeFiActions directly from a different address than "flow deps install"
+// If you want to use this contract, you need to install FlowVaults/FlowVaultsClosedBeta as a dependency manually:
+// flow dependencies install testnet://3bda2f90274dbc9b.FlowVaults
+// flow dependencies install testnet://3bda2f90274dbc9b.FlowVaultsClosedBeta
+// import "FlowVaults"
+// import "FlowVaultsClosedBeta"
 import "DeFiActions"
 
 access(all) contract FlowVaultsConnectorTestnet {
