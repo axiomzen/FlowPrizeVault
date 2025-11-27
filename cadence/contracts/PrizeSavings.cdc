@@ -605,7 +605,7 @@ access(all) contract PrizeSavings {
         access(all) var totalDistributed: UFix64
         access(self) let vaultType: Type
         
-        /// Time-weighted stake tracking (TWAB-like). See docs/LOTTERY_FAIRNESS_ANALYSIS.md
+        /// Time-weighted stake tracking
         access(self) let userCumulativeShareSeconds: {UInt64: UFix64}
         access(self) let userLastUpdateTime: {UInt64: UFix64}
         access(self) let userEpochID: {UInt64: UInt64}
@@ -1792,6 +1792,11 @@ access(all) contract PrizeSavings {
                     panic("Pool is paused. No operations allowed.")
             }
             
+            // Process pending yield before minting shares to prevent diluting existing users
+            if self.getAvailableYieldRewards() > 0.0 {
+                self.processRewards()
+            }
+            
             let amount = from.balance
             self.savingsDistributor.deposit(receiverID: receiverID, amount: amount)
             let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
@@ -1813,6 +1818,11 @@ access(all) contract PrizeSavings {
             
             if self.emergencyState == PoolEmergencyState.EmergencyMode {
                 let _ = self.checkAndAutoRecover()
+            }
+            
+            // Process pending yield so withdrawing user gets their fair share
+            if self.emergencyState == PoolEmergencyState.Normal && self.getAvailableYieldRewards() > 0.0 {
+                self.processRewards()
             }
             
             let totalBalance = self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
