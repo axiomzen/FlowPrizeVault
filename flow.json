@@ -1,5 +1,18 @@
 {
 	"contracts": {
+		"FlowVaultsConnector": {
+			"source": "cadence/contracts/FlowVaultsConnector.cdc",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"testnet": "8f7109e18153bfb3"
+			}
+		},
+		"FlowVaultsConnectorTestnet": {
+			"source": "cadence/contracts/FlowVaultsConnectorTestnet.cdc",
+			"aliases": {
+				"testnet": "8f7109e18153bfb3"
+			}
+		},
 		"FlowVaultsConnectors": {
 			"source": "cadence/contracts/FlowVaultsConnectors.cdc",
 			"aliases": {
@@ -7,19 +20,6 @@
 				"testnet": "3bda2f90274dbc9b"
 			}
 		},
-	"FlowVaultsConnector": {
-		"source": "cadence/contracts/FlowVaultsConnector.cdc",
-		"aliases": {
-			"emulator": "f8d6e0586b0a20c7",
-			"testnet": "8f7109e18153bfb3"
-		}
-	},
-	"FlowVaultsConnectorTestnet": {
-		"source": "cadence/contracts/FlowVaultsConnectorTestnet.cdc",
-		"aliases": {
-			"testnet": "8f7109e18153bfb3"
-		}
-	},
 		"PrizeVault": {
 			"source": "cadence/contracts/PrizeVault.cdc",
 			"aliases": {
@@ -32,58 +32,50 @@
 				"mainnet": "262cf58c0b9fbcff"
 			}
 		},
-	"PrizeVaultModular": {
-		"source": "cadence/contracts/PrizeVaultModular.cdc",
-		"aliases": {
-			"emulator": "f8d6e0586b0a20c7",
-			"testnet": "8f7109e18153bfb3",
-			"testing": "0000000000000007"
-		}
-	},
-	"PrizeVaultScheduler": {
-		"source": "cadence/contracts/PrizeVaultScheduler.cdc",
-		"aliases": {
-			"emulator": "f8d6e0586b0a20c7",
-			"testnet": "8f7109e18153bfb3",
-			"testing": "0000000000000007"
-		}
-	},
+		"PrizeVaultModular": {
+			"source": "cadence/contracts/PrizeVaultModular.cdc",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"testing": "0000000000000007",
+				"testnet": "8f7109e18153bfb3"
+			}
+		},
+		"PrizeVaultScheduler": {
+			"source": "cadence/contracts/PrizeVaultScheduler.cdc",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"testing": "0000000000000007",
+				"testnet": "8f7109e18153bfb3"
+			}
+		},
 		"PrizeVaultV3": {
 			"source": "cadence/contracts/PrizeVaultV3.cdc",
 			"aliases": {
 				"mainnet": "262cf58c0b9fbcff"
 			}
 		},
-	"PrizeWinnerTracker": {
-		"source": "cadence/contracts/PrizeWinnerTracker.cdc",
-		"aliases": {
-			"emulator": "f8d6e0586b0a20c7",
-			"testnet": "8f7109e18153bfb3",
-			"testing": "0000000000000007"
+		"PrizeWinnerTracker": {
+			"source": "cadence/contracts/PrizeWinnerTracker.cdc",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"testing": "0000000000000007",
+				"testnet": "8f7109e18153bfb3"
+			}
+		},
+		"SimpleNFT": {
+			"source": "cadence/contracts/SimpleNFT.cdc",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"testnet": "8f7109e18153bfb3"
+			}
+		},
+		"TestHelpers": {
+			"source": "cadence/contracts/TestHelpers.cdc",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"testnet": "8f7109e18153bfb3"
+			}
 		}
-	},
-	"SimpleNFT": {
-		"source": "cadence/contracts/SimpleNFT.cdc",
-		"aliases": {
-			"emulator": "f8d6e0586b0a20c7",
-			"testnet": "8f7109e18153bfb3"
-		}
-	},
-	"TestHelpers": {
-		"source": "cadence/contracts/TestHelpers.cdc",
-		"aliases": {
-			"emulator": "f8d6e0586b0a20c7",
-			"testnet": "8f7109e18153bfb3"
-		}
-	},
-	"Xorshift128plus": {
-		"source": "cadence/contracts/Xorshift128plus.cdc",
-		"aliases": {
-			"emulator": "f8d6e0586b0a20c7",
-			"testnet": "8f7109e18153bfb3",
-			"testing": "0000000000000007"
-		}
-	}
 	},
 	"dependencies": {
 		"Burner": {
@@ -97,7 +89,7 @@
 		},
 		"DeFiActions": {
 			"source": "mainnet://92195d814edf9cb0.DeFiActions",
-			"hash": "67175b2a2569bdff79c221ec7ac823c79dd59c83bce07582cfc3b675dfbe6207",
+			"hash": "da752be448f97dec0f1a11051a12a6c851c11de28ac31f240c7f62593b79c717",
 			"aliases": {
 				"mainnet": "92195d814edf9cb0",
 				"testnet": "4c2ff9dd03ab442f"
@@ -113,7 +105,7 @@
 		},
 		"DeFiActionsUtils": {
 			"source": "mainnet://92195d814edf9cb0.DeFiActionsUtils",
-			"hash": "d01ab8cd8a57aee3e35ca8a9038f98de2321d6246e03285e0107ef6b4191bff1",
+			"hash": "f3ee7f02ec7373742172f08302471f7b16c44fc0e8deba1efeb50b4367610224",
 			"aliases": {
 				"mainnet": "92195d814edf9cb0",
 				"testnet": "4c2ff9dd03ab442f"
@@ -121,14 +113,14 @@
 		},
 		"DelegatorManager": {
 			"source": "mainnet://d6f80565193ad727.DelegatorManager",
-			"hash": "9f6a73cdad64601864b8e744defe202dfd460ebe2df1d5d1d9dcacb385fb1357",
+			"hash": "1fe0291ec722f89c15585c0b614bf64ceb7af09232a7e8e1d6b7bfc78326b931",
 			"aliases": {
 				"mainnet": "d6f80565193ad727"
 			}
 		},
 		"EVM": {
 			"source": "mainnet://e467b9dd11fa00df.EVM",
-			"hash": "df2065d3eebc1e690e0b52a3f293bdf6c22780c7a9e7ef48a708a651b87abdf0",
+			"hash": "2a4782c7459dc5b72c034f67c8dd1beac6bb9b29104772a3e6eb6850718bb3b4",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "e467b9dd11fa00df",
@@ -155,7 +147,7 @@
 		},
 		"FlowEpoch": {
 			"source": "mainnet://8624b52f9ddcd04a.FlowEpoch",
-			"hash": "9184449afbfb33e85e3e445b16e05f40cbb6e16c11a91db9515f82759977b867",
+			"hash": "edde990109372365dcb48fbba0cfdab7b68d403f44c2708bc159352003754b8b",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "8624b52f9ddcd04a",
@@ -164,7 +156,7 @@
 		},
 		"FlowFees": {
 			"source": "mainnet://f919ee77447b7497.FlowFees",
-			"hash": "d02bc8295c0434cf2b0a96a77d992f49f52e7865debda84e7a21e176e163a680",
+			"hash": "341cc0f3cc847d6b787c390133f6a5e6c867c111784f09c5c0083c47f2f1df64",
 			"aliases": {
 				"emulator": "e5a8b7f23e8b548f",
 				"mainnet": "f919ee77447b7497",
@@ -173,7 +165,7 @@
 		},
 		"FlowIDTableStaking": {
 			"source": "mainnet://8624b52f9ddcd04a.FlowIDTableStaking",
-			"hash": "c7db781612dfb53de294da564814b3b57dd0a7b7f23fec54ab3b80125cfd3635",
+			"hash": "a85948ea75fd19d6c1941ced0f3f74ef459fd7dfacb5f46bcf49ec86de89534a",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "8624b52f9ddcd04a",
@@ -182,7 +174,7 @@
 		},
 		"FlowStakingCollection": {
 			"source": "mainnet://8d0e87b65159ae63.FlowStakingCollection",
-			"hash": "872bd73ef9fd255affae3a16630adf90f89e81d30233dcf7fb8f97a1717a9eab",
+			"hash": "26e8430d6be7d348702c5977cb21adce2ad0c2bb22d8515e63f09e67caee042a",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "8d0e87b65159ae63",
@@ -191,7 +183,7 @@
 		},
 		"FlowStorageFees": {
 			"source": "mainnet://e467b9dd11fa00df.FlowStorageFees",
-			"hash": "e38d8a95f6518b8ff46ce57dfa37b4b850b3638f33d16333096bc625b6d9b51a",
+			"hash": "a92c26fb2ea59725441fa703aa4cd811e0fc56ac73d649a8e12c1e72b67a8473",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "e467b9dd11fa00df",
@@ -200,30 +192,16 @@
 		},
 		"FlowToken": {
 			"source": "mainnet://1654653399040a61.FlowToken",
-			"hash": "cefb25fd19d9fc80ce02896267eb6157a6b0df7b1935caa8641421fe34c0e67a",
+			"hash": "f82389e2412624ffa439836b00b42e6605b0c00802a4e485bc95b8930a7eac38",
 			"aliases": {
 				"emulator": "0ae53cb6e3f42a79",
 				"mainnet": "1654653399040a61",
 				"testnet": "7e60df042a9c0868"
 			}
 		},
-		"FlowVaults": {
-			"source": "testnet://3bda2f90274dbc9b.FlowVaults",
-			"hash": "",
-			"aliases": {
-				"testnet": "3bda2f90274dbc9b"
-			}
-		},
-		"FlowVaultsClosedBeta": {
-			"source": "testnet://3bda2f90274dbc9b.FlowVaultsClosedBeta",
-			"hash": "",
-			"aliases": {
-				"testnet": "3bda2f90274dbc9b"
-			}
-		},
 		"FlowTransactionScheduler": {
 			"source": "mainnet://e467b9dd11fa00df.FlowTransactionScheduler",
-			"hash": "312885f5fa3bc70327dfb59edc5da6d30b826002c322db8c566ddf17099310ac",
+			"hash": "c701f26f6a8e993b2573ec8700142f61c9ca936b199af8cc75dee7d9b19c9e95",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "e467b9dd11fa00df",
@@ -232,7 +210,7 @@
 		},
 		"FlowTransactionSchedulerUtils": {
 			"source": "mainnet://e467b9dd11fa00df.FlowTransactionSchedulerUtils",
-			"hash": "2e26d0bf8e6278b79880a47cb3cd55c499777fb96d76bde3f647b546805bc470",
+			"hash": "b5d6f06dd43e4cee907e08a5bc46df0bb9c2338d806d9d253789aee4c4ac01ad",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "e467b9dd11fa00df",
@@ -241,7 +219,7 @@
 		},
 		"FungibleToken": {
 			"source": "mainnet://f233dcee88fe0abe.FungibleToken",
-			"hash": "23c1159cf99b2b039b6b868d782d57ae39b8d784045d81597f100a4782f0285b",
+			"hash": "4b74edfe7d7ddfa70b703c14aa731a0b2e7ce016ce54d998bfd861ada4d240f6",
 			"aliases": {
 				"emulator": "ee82856bf20e2aa6",
 				"mainnet": "f233dcee88fe0abe",
@@ -250,14 +228,14 @@
 		},
 		"FungibleTokenConnectors": {
 			"source": "mainnet://1d9a619393e9fb53.FungibleTokenConnectors",
-			"hash": "01dd4a81d57f079316ff27e3980de1b895e2c50002e47d3c20f68bbf694e54b0",
+			"hash": "b009ad605b0ee134235812358655e9e06f014b9f8b919d87a0ff9f311b15d012",
 			"aliases": {
 				"mainnet": "1d9a619393e9fb53"
 			}
 		},
 		"FungibleTokenMetadataViews": {
 			"source": "mainnet://f233dcee88fe0abe.FungibleTokenMetadataViews",
-			"hash": "dff704a6e3da83997ed48bcd244aaa3eac0733156759a37c76a58ab08863016a",
+			"hash": "70477f80fd7678466c224507e9689f68f72a9e697128d5ea54d19961ec856b3c",
 			"aliases": {
 				"emulator": "ee82856bf20e2aa6",
 				"mainnet": "f233dcee88fe0abe",
@@ -266,14 +244,14 @@
 		},
 		"IncrementFiStakingConnectors": {
 			"source": "mainnet://efa9bd7d1b17f1ed.IncrementFiStakingConnectors",
-			"hash": "ad0fafe9446d59018bcf2091fa11fa15ce34e7bb1f1ad660b3c7ce0068be6c6b",
+			"hash": "f6873ccf52fd5c85afc22332999f0a1f6ddb3a1f07a5a32e44a3f92cf73b9b43",
 			"aliases": {
 				"mainnet": "efa9bd7d1b17f1ed"
 			}
 		},
 		"LiquidStaking": {
 			"source": "mainnet://d6f80565193ad727.LiquidStaking",
-			"hash": "6020c31364ed927e11d11fc0b28ecac7f3794a29dae957ff15c3ee2abaf2cf03",
+			"hash": "6b02fbfe98efb85c79f7c960dac69cf8912f3d4e5c5524c9b1a215b0d5871a68",
 			"aliases": {
 				"mainnet": "d6f80565193ad727",
 				"testnet": "d6f80565193ad727"
@@ -281,7 +259,7 @@
 		},
 		"LiquidStakingConfig": {
 			"source": "mainnet://d6f80565193ad727.LiquidStakingConfig",
-			"hash": "fe8d3ef77c39ff1900fb56acab38aecff07391b48dfb1d381c99ddad2e560fa7",
+			"hash": "91af03525ef5c3f223335de921287be2730c6e44a2ff8320af9c651aa7de6779",
 			"aliases": {
 				"mainnet": "d6f80565193ad727"
 			}
@@ -295,14 +273,14 @@
 		},
 		"LockedTokens": {
 			"source": "mainnet://8d0e87b65159ae63.LockedTokens",
-			"hash": "ff0277ec27e3be6d873d38675763e2e56c895b1456b1ebf0b454ddac19b6cb10",
+			"hash": "868d9b11e9fdeb6ecd4d14c2815fa59b5de18a43fac6697a6c8b52711716b25f",
 			"aliases": {
 				"mainnet": "8d0e87b65159ae63"
 			}
 		},
 		"MetadataViews": {
 			"source": "mainnet://1d7e57aa55817448.MetadataViews",
-			"hash": "9032f46909e729d26722cbfcee87265e4f81cd2912e936669c0e6b510d007e81",
+			"hash": "b290b7906d901882b4b62e596225fb2f10defb5eaaab4a09368f3aee0e9c18b1",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "1d7e57aa55817448",
@@ -311,7 +289,7 @@
 		},
 		"NonFungibleToken": {
 			"source": "mainnet://1d7e57aa55817448.NonFungibleToken",
-			"hash": "b63f10e00d1a814492822652dac7c0574428a200e4c26cb3c832c4829e2778f0",
+			"hash": "a258de1abddcdb50afc929e74aca87161d0083588f6abf2b369672e64cf4a403",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "1d7e57aa55817448",
@@ -329,17 +307,17 @@
 		},
 		"RandomConsumer": {
 			"source": "mainnet://45caec600164c9e6.RandomConsumer",
-			"hash": "197107e625fd645c54a420ac6539a36a9066eb7240d7e222c72667689de67cf9",
+			"hash": "47a07080dcbc5c1ed738dbf9b28e28ca6f16319585ac9baaaa109d3df3cbacba",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "45caec600164c9e6",
-				"testnet": "ed24dbe901028c5c",
-				"testing": "0000000000000010"
+				"testing": "0000000000000010",
+				"testnet": "ed24dbe901028c5c"
 			}
 		},
 		"Staking": {
 			"source": "mainnet://1b77ba4b414de352.Staking",
-			"hash": "2faa0180c406f783165d6b2e3370076f126ac6a0e8b800ace55707e838147811",
+			"hash": "276bcfcd986e09e65fa744691941eb6761dd45e4d748e5c3ef539b2942bb4041",
 			"aliases": {
 				"mainnet": "1b77ba4b414de352"
 			}
@@ -353,7 +331,7 @@
 		},
 		"StakingManager": {
 			"source": "mainnet://70466175fbacfb56.StakingManager",
-			"hash": "d84a17ad123e436dbab38dd7acb00454728d6a4a954b2ad6aacfce74ce6f7e3b",
+			"hash": "98c9083039004b3c4c9c62cfa8254256257923ebf13c966412b56a7622fcc515",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "70466175fbacfb56",
@@ -369,14 +347,14 @@
 		},
 		"SwapConfig": {
 			"source": "mainnet://b78ef7afa52ff906.SwapConfig",
-			"hash": "ccafdb89804887e4e39a9b8fdff5c0ff0d0743505282f2a8ecf86c964e691c82",
+			"hash": "111f3caa0ab506bed100225a1481f77687f6ac8493d97e49f149fa26a174ef99",
 			"aliases": {
 				"mainnet": "b78ef7afa52ff906"
 			}
 		},
 		"SwapInterfaces": {
 			"source": "mainnet://b78ef7afa52ff906.SwapInterfaces",
-			"hash": "570bb4b9c8da8e0caa8f428494db80779fb906a66cc1904c39a2b9f78b89c6fa",
+			"hash": "e559dff4d914fa12fff7ba482f30d3c575dc3d31587833fd628763d1a4ee96b2",
 			"aliases": {
 				"mainnet": "b78ef7afa52ff906"
 			}
@@ -393,11 +371,13 @@
 		"Xorshift128plus": {
 			"source": "mainnet://45caec600164c9e6.Xorshift128plus",
 			"hash": "219161c40707967b50ff71e507ac0e5ee24d932ea8925112fe108ff2638711aa",
-			"aliases": {}
+			"aliases": {
+				"mainnet": "45caec600164c9e6"
+			}
 		},
 		"stFlowToken": {
 			"source": "mainnet://d6f80565193ad727.stFlowToken",
-			"hash": "09b1350a55646fdee652fddf7927fc4b305da5a265cb1bd887e112d84fb5e2be",
+			"hash": "c5861b7f0a82303b639c0583bdec8c4e2ec2b44582a4bd3e44d188e28473b970",
 			"aliases": {
 				"mainnet": "d6f80565193ad727",
 				"testnet": "d6f80565193ad727"
@@ -449,13 +429,13 @@
 				"location": "emulator-account.pkey"
 			}
 		},
-	"testnet-account": {
-		"address": "0x8f7109e18153bfb3",
-		"key": {
-			"type": "file",
-			"location": "testnet-account-new.pkey"
+		"testnet-account": {
+			"address": "8f7109e18153bfb3",
+			"key": {
+				"type": "file",
+				"location": "testnet-account-new.pkey"
+			}
 		}
-	}
 	},
 	"deployments": {
 		"emulator": {
@@ -475,17 +455,6 @@
 				"SimpleNFT"
 			]
 		},
-		"testnet": {
-			"testnet-account": [
-				"Xorshift128plus",
-				"TestHelpers",
-				"PrizeVaultModular",
-				"PrizeVaultScheduler",
-				"PrizeWinnerTracker",
-				"SimpleNFT",
-				"FlowVaultsConnectorTestnet"
-			]
-		},
 		"mainnet": {
 			"azsavings": [
 				{
@@ -498,6 +467,17 @@
 					]
 				},
 				"PrizeVaultIncrement"
+			]
+		},
+		"testnet": {
+			"testnet-account": [
+				"Xorshift128plus",
+				"TestHelpers",
+				"PrizeVaultModular",
+				"PrizeVaultScheduler",
+				"PrizeWinnerTracker",
+				"SimpleNFT",
+				"FlowVaultsConnectorTestnet"
 			]
 		}
 	}
