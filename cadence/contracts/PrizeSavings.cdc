@@ -538,7 +538,6 @@ access(all) contract PrizeSavings {
     }
     
     access(all) let AdminStoragePath: StoragePath
-    access(all) let AdminPublicPath: PublicPath
     
     access(all) struct DistributionPlan {
         access(all) let savingsAmount: UFix64
@@ -635,8 +634,32 @@ access(all) contract PrizeSavings {
             self.totalDistributed = self.totalDistributed + amount
         }
         
-        access(contract) fun accumulateTime(receiverID: UInt64) {
+        access(all) view fun getElapsedShareSeconds(receiverID: UInt64): UFix64 {
             let now = getCurrentBlock().timestamp
+            let userEpoch = self.userEpochID[receiverID] ?? 0
+            let currentShares = self.userShares[receiverID] ?? 0.0
+            
+            // If epoch is stale, calculate from epoch start (as if reset happened)
+            let effectiveLastUpdate = userEpoch < self.currentEpochID 
+                ? self.epochStartTime 
+                : (self.userLastUpdateTime[receiverID] ?? self.epochStartTime)
+            
+            let elapsed = now - effectiveLastUpdate
+            if elapsed <= 0.0 {
+                return 0.0
+            }
+            return currentShares * elapsed
+        }
+        
+        access(all) view fun getEffectiveAccumulated(receiverID: UInt64): UFix64 {
+            let userEpoch = self.userEpochID[receiverID] ?? 0
+            if userEpoch < self.currentEpochID {
+                return 0.0  // Would be reset on next accumulation
+            }
+            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
+        }
+        
+        access(contract) fun accumulateTime(receiverID: UInt64) {
             let userEpoch = self.userEpochID[receiverID] ?? 0
             
             // Lazy reset for stale epoch
@@ -646,18 +669,21 @@ access(all) contract PrizeSavings {
                 self.userEpochID[receiverID] = self.currentEpochID
             }
             
-            let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.epochStartTime
-            let elapsed = now - lastUpdate
-            
+            // Get elapsed share-seconds and add to accumulated
+            let elapsed = self.getElapsedShareSeconds(receiverID: receiverID)
             if elapsed > 0.0 {
-                let currentShares = self.userShares[receiverID] ?? 0.0
                 let currentAccum = self.userCumulativeShareSeconds[receiverID] ?? 0.0
-                self.userCumulativeShareSeconds[receiverID] = currentAccum + (currentShares * elapsed)
-                self.userLastUpdateTime[receiverID] = now
+                self.userCumulativeShareSeconds[receiverID] = currentAccum + elapsed
+                self.userLastUpdateTime[receiverID] = getCurrentBlock().timestamp
             }
         }
         
-        access(contract) fun getTimeWeightedStake(receiverID: UInt64): UFix64 {
+        access(all) view fun getTimeWeightedStake(receiverID: UInt64): UFix64 {
+            return self.getEffectiveAccumulated(receiverID: receiverID) 
+                + self.getElapsedShareSeconds(receiverID: receiverID)
+        }
+        
+        access(contract) fun updateAndGetTimeWeightedStake(receiverID: UInt64): UFix64 {
             self.accumulateTime(receiverID: receiverID)
             return self.userCumulativeShareSeconds[receiverID] ?? 0.0
         }
@@ -738,24 +764,24 @@ access(all) contract PrizeSavings {
             return (shares * self.totalAssets) / self.totalShares
         }
         
-        access(all) fun getUserAssetValue(receiverID: UInt64): UFix64 {
+        access(all) view fun getUserAssetValue(receiverID: UInt64): UFix64 {
             let userShareBalance = self.userShares[receiverID] ?? 0.0
             return self.convertToAssets(userShareBalance)
         }
         
-        access(all) fun getTotalDistributed(): UFix64 {
+        access(all) view fun getTotalDistributed(): UFix64 {
             return self.totalDistributed
         }
         
-        access(all) fun getTotalShares(): UFix64 {
+        access(all) view fun getTotalShares(): UFix64 {
             return self.totalShares
         }
         
-        access(all) fun getTotalAssets(): UFix64 {
+        access(all) view fun getTotalAssets(): UFix64 {
             return self.totalAssets
         }
         
-        access(all) fun getUserShares(receiverID: UInt64): UFix64 {
+        access(all) view fun getUserShares(receiverID: UInt64): UFix64 {
             return self.userShares[receiverID] ?? 0.0
         }
         
@@ -801,7 +827,7 @@ access(all) contract PrizeSavings {
         access(self) var _prizeRound: UInt64
         access(all) var totalPrizesDistributed: UFix64
         
-        access(all) fun getPrizeRound(): UInt64 {
+        access(all) view fun getPrizeRound(): UInt64 {
             return self._prizeRound
         }
         
@@ -821,7 +847,7 @@ access(all) contract PrizeSavings {
             self.prizeVault.deposit(from: <- vault)
         }
         
-        access(all) fun getPrizePoolBalance(): UFix64 {
+        access(all) view fun getPrizePoolBalance(): UFix64 {
             return self.prizeVault.balance
         }
         
@@ -875,7 +901,7 @@ access(all) contract PrizeSavings {
             }
         }
         
-        access(all) fun getPendingNFTCount(receiverID: UInt64): Int {
+        access(all) view fun getPendingNFTCount(receiverID: UInt64): Int {
             return self.pendingNFTClaims[receiverID]?.length ?? 0
         }
         
@@ -892,11 +918,11 @@ access(all) contract PrizeSavings {
             return ids
         }
         
-        access(all) fun getAvailableNFTPrizeIDs(): [UInt64] {
+        access(all) view fun getAvailableNFTPrizeIDs(): [UInt64] {
             return self.nftPrizeSavings.keys
         }
         
-        access(all) fun borrowNFTPrize(nftID: UInt64): &{NonFungibleToken.NFT}? {
+        access(all) view fun borrowNFTPrize(nftID: UInt64): &{NonFungibleToken.NFT}? {
             return &self.nftPrizeSavings[nftID]
         }
 
@@ -928,19 +954,19 @@ access(all) contract PrizeSavings {
             self.treasuryVault.deposit(from: <- vault)
         }
         
-        access(all) fun getBalance(): UFix64 {
+        access(all) view fun getBalance(): UFix64 {
             return self.treasuryVault.balance
         }
         
-        access(all) fun getTotalCollected(): UFix64 {
+        access(all) view fun getTotalCollected(): UFix64 {
             return self.totalCollected
         }
         
-        access(all) fun getTotalWithdrawn(): UFix64 {
+        access(all) view fun getTotalWithdrawn(): UFix64 {
             return self.totalWithdrawn
         }
         
-        access(all) fun getWithdrawalHistory(): [{String: AnyStruct}] {
+        access(all) view fun getWithdrawalHistory(): [{String: AnyStruct}] {
             return self.withdrawalHistory
         }
         
@@ -1015,9 +1041,15 @@ access(all) contract PrizeSavings {
     }
     
     access(all) struct WeightedSingleWinner: WinnerSelectionStrategy {
+        /// Constants for random number scaling in winner selection
+        access(all) let RANDOM_SCALING_FACTOR: UInt64
+        access(all) let RANDOM_SCALING_DIVISOR: UFix64
+        
         access(all) let nftIDs: [UInt64]
         
         init(nftIDs: [UInt64]) {
+            self.RANDOM_SCALING_FACTOR = 1_000_000_000
+            self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
             self.nftIDs = nftIDs
         }
         
@@ -1056,7 +1088,7 @@ access(all) contract PrizeSavings {
                 )
             }
             
-            let scaledRandom = UFix64(randomNumber % 1_000_000_000) / 1_000_000_000.0
+            let scaledRandom = UFix64(randomNumber % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
             let randomValue = scaledRandom * runningTotal
             
             var winnerIndex = 0
@@ -1080,6 +1112,9 @@ access(all) contract PrizeSavings {
     }
     
     access(all) struct MultiWinnerSplit: WinnerSelectionStrategy {
+        /// Constants for random number scaling in winner selection
+        access(all) let RANDOM_SCALING_FACTOR: UInt64
+        access(all) let RANDOM_SCALING_DIVISOR: UFix64
         access(all) let winnerCount: Int
         access(all) let prizeSplits: [UFix64]
         access(all) let nftIDsPerWinner: [[UInt64]]
@@ -1099,6 +1134,8 @@ access(all) contract PrizeSavings {
             
             assert(total == 1.0, message: "Prize splits must sum to 1.0")
             
+            self.RANDOM_SCALING_FACTOR = 1_000_000_000
+            self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
             self.winnerCount = winnerCount
             self.prizeSplits = prizeSplits
             
@@ -1179,7 +1216,7 @@ access(all) contract PrizeSavings {
             var winnerIndex = 0
                 while winnerIndex < actualWinnerCount && remainingIDs.length > 0 && remainingTotal > 0.0 {
                     let rng = prg.nextUInt64()
-                    let scaledRandom = UFix64(rng % 1_000_000_000) / 1_000_000_000.0
+                    let scaledRandom = UFix64(rng % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
                     let randomValue = scaledRandom * remainingTotal
                 
                 var selectedIdx = 0
@@ -1291,12 +1328,17 @@ access(all) contract PrizeSavings {
     }
     
     access(all) struct FixedPrizeTiers: WinnerSelectionStrategy {
+        access(all) let RANDOM_SCALING_FACTOR: UInt64
+        access(all) let RANDOM_SCALING_DIVISOR: UFix64
+        
         access(all) let tiers: [PrizeTier]
         
         init(tiers: [PrizeTier]) {
             pre {
                 tiers.length > 0: "Must have at least one prize tier"
             }
+            self.RANDOM_SCALING_FACTOR = 1_000_000_000
+            self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
             self.tiers = tiers
         }
         
@@ -1365,7 +1407,7 @@ access(all) contract PrizeSavings {
                 
                 while tierWinnerCount < tier.winnerCount && remainingIDs.length > 0 && remainingTotal > 0.0 {
                     let rng = prg.nextUInt64()
-                    let scaledRandom = UFix64(rng % 1_000_000_000) / 1_000_000_000.0
+                    let scaledRandom = UFix64(rng % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
                     let randomValue = scaledRandom * remainingTotal
                     
                     var selectedIdx = 0
@@ -1504,6 +1546,14 @@ access(all) contract PrizeSavings {
         }
     }
     
+    /// Pool contains nested resources (SavingsDistributor, LotteryDistributor, TreasuryDistributor)
+    /// that hold FungibleToken vaults and NFTs. In Cadence 1.0+, these are automatically
+    /// destroyed when the Pool is destroyed. The destroy order is:
+    /// 1. pendingDrawReceipt (RandomConsumer.Request)
+    /// 2. randomConsumer
+    /// 3. savingsDistributor (contains user share data)
+    /// 4. lotteryDistributor (contains prizeVault, nftPrizeSavings, pendingNFTClaims)
+    /// 5. treasuryDistributor (contains treasuryVault)
     access(all) resource Pool {
         access(self) var config: PoolConfig
         access(self) var poolID: UInt64
@@ -1966,7 +2016,7 @@ access(all) contract PrizeSavings {
             
             let timeWeightedStakes: {UInt64: UFix64} = {}
             for receiverID in self.registeredReceivers.keys {
-                let twabStake = self.savingsDistributor.getTimeWeightedStake(receiverID: receiverID)
+                let twabStake = self.savingsDistributor.updateAndGetTimeWeightedStake(receiverID: receiverID)
                 
                 // Scale bonus weights by epoch duration
                 let bonusWeight = self.getBonusWeight(receiverID: receiverID)
@@ -2277,50 +2327,49 @@ access(all) contract PrizeSavings {
         }
         
         /// Returns principal deposit (lossless guarantee amount)
-        access(all) fun getReceiverDeposit(receiverID: UInt64): UFix64 {
+        access(all) view fun getReceiverDeposit(receiverID: UInt64): UFix64 {
             return self.receiverDeposits[receiverID] ?? 0.0
         }
         
         /// Returns total withdrawable balance (principal + interest)
-        access(all) fun getReceiverTotalBalance(receiverID: UInt64): UFix64 {
+        access(all) view fun getReceiverTotalBalance(receiverID: UInt64): UFix64 {
             return self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
         }
         
         /// Returns current savings earnings (totalBalance - deposits)
-        access(all) fun getReceiverTotalEarnedSavings(receiverID: UInt64): UFix64 {
+        access(all) view fun getReceiverTotalEarnedSavings(receiverID: UInt64): UFix64 {
             return self.getPendingSavingsInterest(receiverID: receiverID)
         }
         
-        access(all) fun getReceiverTotalEarnedPrizes(receiverID: UInt64): UFix64 {
+        access(all) view fun getReceiverTotalEarnedPrizes(receiverID: UInt64): UFix64 {
             return self.receiverTotalEarnedPrizes[receiverID] ?? 0.0
         }
         
-        access(all) fun getPendingSavingsInterest(receiverID: UInt64): UFix64 {
+        access(all) view fun getPendingSavingsInterest(receiverID: UInt64): UFix64 {
             let principal = self.receiverDeposits[receiverID] ?? 0.0
             let totalBalance = self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
             return totalBalance > principal ? totalBalance - principal : 0.0
         }
         
-        access(all) fun getUserSavingsShares(receiverID: UInt64): UFix64 {
+        access(all) view fun getUserSavingsShares(receiverID: UInt64): UFix64 {
             return self.savingsDistributor.getUserShares(receiverID: receiverID)
         }
         
-        access(all) fun getTotalSavingsShares(): UFix64 {
+        access(all) view fun getTotalSavingsShares(): UFix64 {
             return self.savingsDistributor.getTotalShares()
         }
         
-        access(all) fun getTotalSavingsAssets(): UFix64 {
+        access(all) view fun getTotalSavingsAssets(): UFix64 {
             return self.savingsDistributor.getTotalAssets()
         }
         
-        access(all) fun getSavingsSharePrice(): UFix64 {
+        access(all) view fun getSavingsSharePrice(): UFix64 {
             let totalShares = self.savingsDistributor.getTotalShares()
             let totalAssets = self.savingsDistributor.getTotalAssets()
             return totalShares > 0.0 ? totalAssets / totalShares : 1.0
         }
         
-        /// Time-weighted stake monitoring
-        access(all) fun getUserTimeWeightedStake(receiverID: UInt64): UFix64 {
+        access(all) view fun getUserTimeWeightedStake(receiverID: UInt64): UFix64 {
             return self.savingsDistributor.getTimeWeightedStake(receiverID: receiverID)
         }
         
@@ -2367,31 +2416,31 @@ access(all) contract PrizeSavings {
             return self.savingsDistributor.convertToAssets(shares)
         }
         
-        access(all) fun getUserSavingsValue(receiverID: UInt64): UFix64 {
+        access(all) view fun getUserSavingsValue(receiverID: UInt64): UFix64 {
             return self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
         }
         
-        access(all) fun isReceiverRegistered(receiverID: UInt64): Bool {
+        access(all) view fun isReceiverRegistered(receiverID: UInt64): Bool {
             return self.registeredReceivers[receiverID] == true
         }
         
-        access(all) fun getRegisteredReceiverIDs(): [UInt64] {
+        access(all) view fun getRegisteredReceiverIDs(): [UInt64] {
             return self.registeredReceivers.keys
         }
         
-        access(all) fun isDrawInProgress(): Bool {
+        access(all) view fun isDrawInProgress(): Bool {
             return self.pendingDrawReceipt != nil
         }
         
-        access(all) fun getConfig(): PoolConfig {
+        access(all) view fun getConfig(): PoolConfig {
             return self.config
         }
         
-        access(all) fun getTotalSavingsDistributed(): UFix64 {
+        access(all) view fun getTotalSavingsDistributed(): UFix64 {
             return self.savingsDistributor.getTotalDistributed()
         }
         
-        access(all) fun getCurrentReinvestedSavings(): UFix64 {
+        access(all) view fun getCurrentReinvestedSavings(): UFix64 {
             if self.totalStaked > self.totalDeposited {
                 return self.totalStaked - self.totalDeposited
             }
@@ -2407,19 +2456,19 @@ access(all) contract PrizeSavings {
             return 0.0
         }
         
-        access(all) fun getLotteryPoolBalance(): UFix64 {
+        access(all) view fun getLotteryPoolBalance(): UFix64 {
             return self.lotteryDistributor.getPrizePoolBalance() + self.pendingLotteryYield
         }
         
-        access(all) fun getPendingLotteryYield(): UFix64 {
+        access(all) view fun getPendingLotteryYield(): UFix64 {
             return self.pendingLotteryYield
         }
         
-        access(all) fun getTreasuryBalance(): UFix64 {
+        access(all) view fun getTreasuryBalance(): UFix64 {
             return self.treasuryDistributor.getBalance()
         }
         
-        access(all) fun getTreasuryStats(): {String: UFix64} {
+        access(all) view fun getTreasuryStats(): {String: UFix64} {
             return {
                 "balance": self.treasuryDistributor.getBalance(),
                 "totalCollected": self.treasuryDistributor.getTotalCollected(),
@@ -2427,7 +2476,7 @@ access(all) contract PrizeSavings {
             }
         }
         
-        access(all) fun getTreasuryWithdrawalHistory(): [{String: AnyStruct}] {
+        access(all) view fun getTreasuryWithdrawalHistory(): [{String: AnyStruct}] {
             return self.treasuryDistributor.getWithdrawalHistory()
         }
         
@@ -2460,8 +2509,8 @@ access(all) contract PrizeSavings {
     }
     
     access(all) resource interface PoolPositionCollectionPublic {
-        access(all) fun getRegisteredPoolIDs(): [UInt64]
-        access(all) fun isRegisteredWithPool(poolID: UInt64): Bool
+        access(all) view fun getRegisteredPoolIDs(): [UInt64]
+        access(all) view fun isRegisteredWithPool(poolID: UInt64): Bool
         access(all) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault})
         access(all) fun withdraw(poolID: UInt64, amount: UFix64): @{FungibleToken.Vault}
         access(all) fun getPendingSavingsInterest(poolID: UInt64): UFix64
@@ -2487,11 +2536,11 @@ access(all) contract PrizeSavings {
             self.registeredPools[poolID] = true
         }
         
-        access(all) fun getRegisteredPoolIDs(): [UInt64] {
+        access(all) view fun getRegisteredPoolIDs(): [UInt64] {
             return self.registeredPools.keys
         }
         
-        access(all) fun isRegisteredWithPool(poolID: UInt64): Bool {
+        access(all) view fun isRegisteredWithPool(poolID: UInt64): Bool {
             return self.registeredPools[poolID] == true
         }
         
@@ -2585,7 +2634,6 @@ access(all) contract PrizeSavings {
         self.PoolPositionCollectionPublicPath = /public/PrizeSavingsCollection
         
         self.AdminStoragePath = /storage/PrizeSavingsAdmin
-        self.AdminPublicPath = /public/PrizeSavingsAdmin
         
         self.pools <- {}
         self.nextPoolID = 0
