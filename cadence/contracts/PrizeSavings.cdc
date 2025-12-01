@@ -33,6 +33,8 @@ import "PrizeWinnerTracker"
 import "Xorshift128plus"
 
 access(all) contract PrizeSavings {
+    access(all) entitlement ConfigOps
+    access(all) entitlement CriticalOps
     
     access(all) let PoolPositionCollectionStoragePath: StoragePath
     access(all) let PoolPositionCollectionPublicPath: PublicPath
@@ -209,8 +211,8 @@ access(all) contract PrizeSavings {
     
     access(all) resource Admin {
         access(contract) init() {}
-        
-        access(all) fun updatePoolDistributionStrategy(
+
+        access(CriticalOps) fun updatePoolDistributionStrategy(
             poolID: UInt64,
             newStrategy: {DistributionStrategy},
             updatedBy: Address
@@ -230,7 +232,7 @@ access(all) contract PrizeSavings {
             )
         }
         
-        access(all) fun updatePoolWinnerSelectionStrategy(
+        access(CriticalOps) fun updatePoolWinnerSelectionStrategy(
             poolID: UInt64,
             newStrategy: {WinnerSelectionStrategy},
             updatedBy: Address
@@ -250,7 +252,7 @@ access(all) contract PrizeSavings {
             )
         }
         
-        access(all) fun updatePoolWinnerTracker(
+        access(ConfigOps) fun updatePoolWinnerTracker(
             poolID: UInt64,
             newTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?,
             updatedBy: Address
@@ -270,7 +272,7 @@ access(all) contract PrizeSavings {
             )
         }
         
-        access(all) fun updatePoolDrawInterval(
+        access(ConfigOps) fun updatePoolDrawInterval(
             poolID: UInt64,
             newInterval: UFix64,
             updatedBy: Address
@@ -289,7 +291,7 @@ access(all) contract PrizeSavings {
             )
         }
         
-        access(all) fun updatePoolMinimumDeposit(
+        access(ConfigOps) fun updatePoolMinimumDeposit(
             poolID: UInt64,
             newMinimum: UFix64,
             updatedBy: Address
@@ -312,31 +314,31 @@ access(all) contract PrizeSavings {
             )
         }
         
-        access(all) fun enableEmergencyMode(poolID: UInt64, reason: String, enabledBy: Address) {
+        access(CriticalOps) fun enableEmergencyMode(poolID: UInt64, reason: String, enabledBy: Address) {
             let poolRef = PrizeSavings.borrowPool(poolID: poolID) ?? panic("Pool does not exist")
             poolRef.setEmergencyMode(reason: reason)
             emit PoolEmergencyEnabled(poolID: poolID, reason: reason, enabledBy: enabledBy, timestamp: getCurrentBlock().timestamp)
         }
         
-        access(all) fun disableEmergencyMode(poolID: UInt64, disabledBy: Address) {
+        access(CriticalOps) fun disableEmergencyMode(poolID: UInt64, disabledBy: Address) {
             let poolRef = PrizeSavings.borrowPool(poolID: poolID) ?? panic("Pool does not exist")
             poolRef.clearEmergencyMode()
             emit PoolEmergencyDisabled(poolID: poolID, disabledBy: disabledBy, timestamp: getCurrentBlock().timestamp)
         }
         
-        access(all) fun setEmergencyPartialMode(poolID: UInt64, reason: String, setBy: Address) {
+        access(CriticalOps) fun setEmergencyPartialMode(poolID: UInt64, reason: String, setBy: Address) {
             let poolRef = PrizeSavings.borrowPool(poolID: poolID) ?? panic("Pool does not exist")
             poolRef.setPartialMode(reason: reason)
             emit PoolPartialModeEnabled(poolID: poolID, reason: reason, setBy: setBy, timestamp: getCurrentBlock().timestamp)
         }
         
-        access(all) fun updateEmergencyConfig(poolID: UInt64, newConfig: EmergencyConfig, updatedBy: Address) {
+        access(CriticalOps) fun updateEmergencyConfig(poolID: UInt64, newConfig: EmergencyConfig, updatedBy: Address) {
             let poolRef = PrizeSavings.borrowPool(poolID: poolID) ?? panic("Pool does not exist")
             poolRef.setEmergencyConfig(config: newConfig)
             emit EmergencyConfigUpdated(poolID: poolID, updatedBy: updatedBy)
         }
         
-        access(all) fun fundPoolDirect(
+        access(CriticalOps) fun fundPoolDirect(
             poolID: UInt64,
             destination: PoolFundingDestination,
             from: @{FungibleToken.Vault},
@@ -368,7 +370,7 @@ access(all) contract PrizeSavings {
             }
         }
         
-        access(all) fun createPool(
+        access(CriticalOps) fun createPool(
             config: PoolConfig,
             emergencyConfig: EmergencyConfig?,
             fundingPolicy: FundingPolicy?,
@@ -395,14 +397,14 @@ access(all) contract PrizeSavings {
             return poolID
         }
         
-        access(all) fun processPoolRewards(poolID: UInt64) {
+        access(ConfigOps) fun processPoolRewards(poolID: UInt64) {
             let poolRef = PrizeSavings.borrowPool(poolID: poolID)
                 ?? panic("Pool does not exist")
             
             poolRef.processRewards()
         }
         
-        access(all) fun setPoolState(poolID: UInt64, state: PoolEmergencyState, reason: String?, setBy: Address) {
+        access(CriticalOps) fun setPoolState(poolID: UInt64, state: PoolEmergencyState, reason: String?, setBy: Address) {
             let poolRef = PrizeSavings.borrowPool(poolID: poolID)
                 ?? panic("Pool does not exist")
             
@@ -420,7 +422,7 @@ access(all) contract PrizeSavings {
             }
         }
         
-        access(all) fun withdrawPoolTreasury(
+        access(CriticalOps) fun withdrawPoolTreasury(
             poolID: UInt64,
             amount: UFix64,
             purpose: String,
@@ -450,7 +452,7 @@ access(all) contract PrizeSavings {
             return <- treasuryVault
         }
         
-        access(all) fun setBonusLotteryWeight(
+        access(ConfigOps) fun setBonusLotteryWeight(
             poolID: UInt64,
             receiverID: UInt64,
             bonusWeight: UFix64,
@@ -466,7 +468,7 @@ access(all) contract PrizeSavings {
             poolRef.setBonusWeight(receiverID: receiverID, bonusWeight: bonusWeight, reason: reason, setBy: setBy)
         }
         
-        access(all) fun addBonusLotteryWeight(
+        access(ConfigOps) fun addBonusLotteryWeight(
             poolID: UInt64,
             receiverID: UInt64,
             additionalWeight: UFix64,
@@ -482,7 +484,7 @@ access(all) contract PrizeSavings {
             poolRef.addBonusWeight(receiverID: receiverID, additionalWeight: additionalWeight, reason: reason, addedBy: addedBy)
         }
         
-        access(all) fun removeBonusLotteryWeight(
+        access(ConfigOps) fun removeBonusLotteryWeight(
             poolID: UInt64,
             receiverID: UInt64,
             removedBy: Address
@@ -493,7 +495,7 @@ access(all) contract PrizeSavings {
             poolRef.removeBonusWeight(receiverID: receiverID, removedBy: removedBy)
         }
         
-        access(all) fun depositNFTPrize(
+        access(ConfigOps) fun depositNFTPrize(
             poolID: UInt64,
             nft: @{NonFungibleToken.NFT},
             depositedBy: Address
@@ -514,7 +516,7 @@ access(all) contract PrizeSavings {
             )
         }
         
-        access(all) fun withdrawNFTPrize(
+        access(ConfigOps) fun withdrawNFTPrize(
             poolID: UInt64,
             nftID: UInt64,
             withdrawnBy: Address
