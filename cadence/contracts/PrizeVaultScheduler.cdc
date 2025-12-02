@@ -18,7 +18,7 @@ import "FlowTransactionScheduler"
 import "FlowTransactionSchedulerUtils"
 import "FungibleToken"
 import "FlowToken"
-import "PrizeVaultModular"
+// import "PrizeVaultModular"
 import "ViewResolver"
 
 access(all) contract PrizeVaultScheduler {
