@@ -193,23 +193,45 @@ flow project deploy --network=emulator
 Users must create a `PoolPositionCollection` before interacting:
 
 ```bash
-flow transactions send cadence/transactions/prize-vault-modular/setup_collection.cdc \
+flow transactions send cadence/transactions/prize-savings/setup_collection.cdc \
   --network=emulator --signer=user-account
 ```
 
 ### 3. Deposit into Pool
 
 ```bash
-flow transactions send cadence/transactions/prize-vault-modular/deposit.cdc \
+flow transactions send cadence/transactions/prize-savings/deposit.cdc \
   --args UInt64:0 UFix64:100.0 \
   --network=emulator --signer=user-account
 ```
 
-### 4. Query Balance
+### 4. Withdraw from Pool
 
 ```bash
-flow scripts execute cadence/scripts/prize-vault-modular/get_pool_balance.cdc \
-  --args UInt64:0 Address:0xUSER_ADDRESS \
+flow transactions send cadence/transactions/prize-savings/withdraw.cdc \
+  --args UInt64:0 UFix64:50.0 \
+  --network=emulator --signer=user-account
+```
+
+### 5. Query Balance
+
+```bash
+flow scripts execute cadence/scripts/prize-savings/get_pool_balance.cdc \
+  --args Address:0xUSER_ADDRESS UInt64:0 \
+  --network=emulator
+```
+
+### 6. Start & Complete Lottery Draw
+
+```bash
+# Start the draw (commits to randomness)
+flow transactions send cadence/transactions/prize-savings/start_draw.cdc \
+  --args UInt64:0 \
+  --network=emulator
+
+# Wait at least 1 block, then complete the draw
+flow transactions send cadence/transactions/prize-savings/complete_draw.cdc \
+  --args UInt64:0 \
   --network=emulator
 ```
 
@@ -282,14 +304,62 @@ let emergencyConfig = PrizeSavings.EmergencyConfig(
 
 ---
 
+## Transactions
+
+All transactions are located in `cadence/transactions/prize-savings/`:
+
+### User Transactions
+
+| Transaction | Description |
+|-------------|-------------|
+| `setup_collection.cdc` | Create a PoolPositionCollection (one-time setup) |
+| `deposit.cdc` | Deposit FLOW tokens into a pool |
+| `withdraw.cdc` | Withdraw tokens from a pool (principal + interest) |
+
+### Lottery Transactions (Permissionless)
+
+| Transaction | Description |
+|-------------|-------------|
+| `start_draw.cdc` | Start a lottery draw (commits to randomness) |
+| `complete_draw.cdc` | Complete a draw (reveals winner and distributes prizes) |
+| `process_rewards.cdc` | Trigger yield distribution |
+
+### Admin Transactions
+
+| Transaction | Description |
+|-------------|-------------|
+| `create_pool.cdc` | Create a new PrizeSavings pool |
+| `withdraw_treasury.cdc` | Withdraw funds from pool treasury |
+| `update_draw_interval.cdc` | Change time between lottery draws |
+| `enable_emergency_mode.cdc` | Enable emergency mode (withdrawals only) |
+| `disable_emergency_mode.cdc` | Return pool to normal operation |
+
+### Testing Transactions (Emulator Only)
+
+| Transaction | Description |
+|-------------|-------------|
+| `setup_test_yield_vault.cdc` | Create a test vault to simulate yield source |
+| `create_test_pool.cdc` | Create a pool using TestHelpers connector |
+| `add_yield_to_pool.cdc` | Add simulated yield to the test vault |
+
+---
+
 ## Scripts & Queries
+
+All scripts are located in `cadence/scripts/prize-savings/`:
 
 | Script | Description |
 |--------|-------------|
-| `get_pool_stats.cdc` | Pool totals, config, draw status |
-| `get_pool_balance.cdc` | User balance in a pool |
+| `get_pool_stats.cdc` | Pool totals, config, draw status, share price |
+| `get_pool_balance.cdc` | User balance in a pool (deposits, prizes, savings) |
 | `get_all_pools.cdc` | List all pool IDs |
-| `get_winner_history.cdc` | Recent winners (if tracker enabled) |
+| `get_user_shares.cdc` | Detailed user share info and TWAB stake |
+| `get_draw_status.cdc` | Lottery timing, prize pool, epoch info |
+| `get_treasury_stats.cdc` | Treasury balance and funding stats |
+| `get_emergency_info.cdc` | Emergency state and details |
+| `get_user_pools.cdc` | All pools a user is registered with |
+| `is_registered.cdc` | Check if user is registered with a pool |
+| `preview_deposit.cdc` | Preview shares received for a deposit amount |
 
 ---
 
@@ -375,7 +445,29 @@ let emergencyConfig = PrizeSavings.EmergencyConfig(
 
 ## Testing
 
-### Run Tests
+### Run Integration Tests
+
+The `test_prize_savings.sh` script runs a comprehensive integration test against the emulator:
+
+```bash
+# Start the emulator in one terminal
+flow emulator start
+
+# Run the test suite in another terminal
+./test_prize_savings.sh
+```
+
+This tests the full contract lifecycle:
+- Contract deployment
+- User collection setup
+- Pool creation with test yield connector
+- Deposits and withdrawals
+- Yield simulation and reward processing
+- Lottery draw execution (start → complete)
+- Emergency mode enable/disable
+- All query scripts
+
+### Run Unit Tests
 
 ```bash
 flow test cadence/tests/PrizeSavings_shares_test.cdc
@@ -388,6 +480,7 @@ flow test cadence/tests/PrizeVault_test.cdc
 |------|-------|
 | Shares math (ERC4626) | Deposit, withdrawal, interest distribution, late joiner fairness |
 | Invariants | Total assets, underflow protection |
+| Integration | Full lifecycle via `test_prize_savings.sh` |
 
 ---
 
