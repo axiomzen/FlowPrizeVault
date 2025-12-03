@@ -8,9 +8,12 @@ import "MockYieldConnector"
 /// Uses MockYieldConnector for simplified testing
 transaction {
     prepare(signer: auth(Storage, Capabilities) &Account) {
+        // Generate unique storage path based on current pool count to avoid collisions
+        let currentPoolCount = PrizeSavings.getAllPoolIDs().length
+        let vaultPath = StoragePath(identifier: "testYieldVaultShort_".concat(currentPoolCount.toString()))!
+        
         // Create a test vault to use as yield source
         let testVault <- FlowToken.createEmptyVault(vaultType: Type<@FlowToken.Vault>())
-        let vaultPath = /storage/testYieldVaultShort
         signer.storage.save(<-testVault, to: vaultPath)
         
         // Create capabilities for the connector
