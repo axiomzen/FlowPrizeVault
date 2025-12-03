@@ -35,6 +35,7 @@ import "Xorshift128plus"
 access(all) contract PrizeSavings {
     access(all) entitlement ConfigOps
     access(all) entitlement CriticalOps
+    access(all) entitlement OwnerOnly
     
     /// Virtual offset constants for ERC4626 inflation attack protection.
     /// These create "dead" shares/assets that prevent share price manipulation.
@@ -421,10 +422,10 @@ access(all) contract PrizeSavings {
         /// Once set, treasury funds are auto-forwarded during processRewards().
         /// Pass nil to disable auto-forwarding (funds stored in distributor).
         /// 
-        /// SECURITY: This function has NO entitlement requirement intentionally.
-        /// It can only be called by borrowing Admin directly from storage (account owner).
-        /// Never issue a capability for Admin to preserve this security model.
-        access(all) fun setPoolTreasuryRecipient(
+        /// SECURITY: Requires OwnerOnly entitlement - NEVER issue capabilities with this.
+        /// Only the account owner (via direct storage borrow with auth) can call this.
+        /// For multi-sig protection, store Admin in a multi-sig account.
+        access(OwnerOnly) fun setPoolTreasuryRecipient(
             poolID: UInt64,
             recipientCap: Capability<&{FungibleToken.Receiver}>?,
             updatedBy: Address

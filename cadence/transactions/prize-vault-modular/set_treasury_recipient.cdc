@@ -3,12 +3,13 @@ import FungibleToken from "FungibleToken"
 
 /// Set the treasury recipient for automatic forwarding during processRewards.
 /// 
-/// **SECURITY MODEL**: This function can ONLY be called by borrowing Admin
-/// directly from storage - meaning only the account owner (private key holder)
-/// can execute this transaction. No capability delegation is possible.
+/// **SECURITY MODEL**: This function requires OwnerOnly entitlement which is
+/// NEVER issued via capabilities. Only the account owner (private key holder)
+/// can execute this transaction via direct storage access.
 /// 
-/// This is MORE secure than CriticalOps entitlement because:
-/// - CriticalOps can be delegated via capabilities
+/// This is MORE secure than ConfigOps/CriticalOps because:
+/// - Those entitlements could theoretically be delegated via capabilities
+/// - OwnerOnly is explicitly never issued as a capability
 /// - Direct storage access requires the account's private key(s)
 /// 
 /// For multi-sig protection, use a multi-sig account to store the Admin resource.
@@ -18,12 +19,12 @@ import FungibleToken from "FungibleToken"
 /// 2. Every processRewards() automatically forwards treasury to recipient
 /// 3. No further action needed - fully automated
 transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath) {
-    let adminRef: &PrizeSavings.Admin
+    let adminRef: auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin
     let signerAddress: Address
     
     prepare(signer: auth(Storage) &Account) {
-        // Borrow directly from storage - only account owner can do this
-        self.adminRef = signer.storage.borrow<&PrizeSavings.Admin>(
+        // Borrow with OwnerOnly entitlement - only account owner can do this
+        self.adminRef = signer.storage.borrow<auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Admin resource not found. Call setup_admin first.")
         
