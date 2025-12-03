@@ -1,11 +1,10 @@
 /*
-FlowVaultsConnectorTestnet - Testnet-Compatible Flow Vaults Integration
+FlowVaultsConnector - Mainnet Flow Vaults Integration
 
-This version implements DeFiActions.Sink and DeFiActions.Source (struct interfaces)
-to work with PrizeSavings on testnet, while managing Flow Vaults integration.
+This connector enables PrizeSavings to deposit funds into Flow Vaults Tides (yield-bearing strategies)
+and implements DeFiActions.Sink and DeFiActions.Source interfaces.
 
-Flow Vaults Contract: testnet://3bda2f90274dbc9b.FlowVaults
-DeFiActions on testnet uses STRUCT interfaces (not resource interfaces)
+Flow Vaults Contract: mainnet://b1d63873c3cc9f79.FlowVaults
 */
 
 import "FungibleToken"
@@ -13,7 +12,7 @@ import "FlowVaults"
 import "FlowVaultsClosedBeta"
 import "DeFiActions"
 
-access(all) contract FlowVaultsConnectorTestnet {
+access(all) contract FlowVaultsConnector {
     
     // Storage paths
     access(all) let ManagerStoragePath: StoragePath
@@ -27,7 +26,6 @@ access(all) contract FlowVaultsConnectorTestnet {
     
     /// TideManagerWrapper Resource
     /// Wraps FlowVaults.TideManager with beta badge authentication
-    /// This must be a resource because it holds capabilities
     access(all) resource TideManagerWrapper {
         access(self) let tideManagerCap: Capability<auth(FungibleToken.Withdraw) &FlowVaults.TideManager>
         access(self) let betaBadgeCap: Capability<auth(FlowVaultsClosedBeta.Beta) &FlowVaultsClosedBeta.BetaBadge>
@@ -150,7 +148,7 @@ access(all) contract FlowVaultsConnectorTestnet {
     }
     
     /// Connector Struct
-    /// Implements DeFiActions.Sink and DeFiActions.Source (testnet uses struct interfaces)
+    /// Implements DeFiActions.Sink and DeFiActions.Source
     /// References a stored TideManagerWrapper resource
     access(all) struct Connector: DeFiActions.Sink, DeFiActions.Source {
         access(all) let managerAddress: Address
@@ -167,7 +165,7 @@ access(all) contract FlowVaultsConnectorTestnet {
         access(all) fun depositCapacity(from: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}) {
             let managerAccount = getAccount(self.managerAddress)
             let managerRef = managerAccount.capabilities.borrow<&TideManagerWrapper>(
-                FlowVaultsConnectorTestnet.ManagerPublicPath
+                FlowVaultsConnector.ManagerPublicPath
             ) ?? panic("Cannot borrow TideManagerWrapper from address")
             
             managerRef.depositToTide(from: from)
@@ -183,11 +181,9 @@ access(all) contract FlowVaultsConnectorTestnet {
         
         /// DeFiActions.Source Implementation
         access(all) fun minimumAvailable(): UFix64 {
-            // Returns the actual Tide balance by borrowing the TideManagerWrapper
-            // Note: minimumAvailable() is NOT required to be a view function per DeFiActions.Source interface
             let managerAccount = getAccount(self.managerAddress)
             if let managerRef = managerAccount.capabilities.borrow<&TideManagerWrapper>(
-                FlowVaultsConnectorTestnet.ManagerPublicPath
+                FlowVaultsConnector.ManagerPublicPath
             ) {
                 return managerRef.getTideBalance()
             }
@@ -197,7 +193,7 @@ access(all) contract FlowVaultsConnectorTestnet {
         access(FungibleToken.Withdraw) fun withdrawAvailable(maxAmount: UFix64): @{FungibleToken.Vault} {
             let managerAccount = getAccount(self.managerAddress)
             let managerRef = managerAccount.capabilities.borrow<&TideManagerWrapper>(
-                FlowVaultsConnectorTestnet.ManagerPublicPath
+                FlowVaultsConnector.ManagerPublicPath
             ) ?? panic("Cannot borrow TideManagerWrapper from address")
             
             return <- managerRef.withdrawFromTide(maxAmount: maxAmount)
@@ -269,7 +265,8 @@ access(all) contract FlowVaultsConnectorTestnet {
     }
     
     init() {
-        self.ManagerStoragePath = /storage/flowVaultsTideManager
-        self.ManagerPublicPath = /public/flowVaultsTideManager
+        let identifier = "flowVaultsTideManager_\(self.account.address)"
+        self.ManagerStoragePath = StoragePath(identifier: identifier)!
+        self.ManagerPublicPath = PublicPath(identifier: identifier)!
     }
 }
