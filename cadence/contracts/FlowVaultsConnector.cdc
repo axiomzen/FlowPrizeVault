@@ -24,9 +24,9 @@ access(all) contract FlowVaultsConnector {
     access(all) event WithdrawnFromTide(tideID: UInt64, amount: UFix64, vaultType: String)
     access(all) event TideCreated(tideID: UInt64, strategyType: String, initialAmount: UFix64)
     
-    /// TideManager Resource
-    /// Manages the actual Tide in Flow Vaults with beta badge authentication
-    access(all) resource TideManager {
+    /// TideManagerWrapper Resource
+    /// Wraps FlowVaults.TideManager with beta badge authentication
+    access(all) resource TideManagerWrapper {
         access(self) let tideManagerCap: Capability<auth(FungibleToken.Withdraw) &FlowVaults.TideManager>
         access(self) let betaBadgeCap: Capability<auth(FlowVaultsClosedBeta.Beta) &FlowVaultsClosedBeta.BetaBadge>
         access(self) var tideID: UInt64?
@@ -149,7 +149,7 @@ access(all) contract FlowVaultsConnector {
     
     /// Connector Struct
     /// Implements DeFiActions.Sink and DeFiActions.Source
-    /// References a stored TideManager resource
+    /// References a stored TideManagerWrapper resource
     access(all) struct Connector: DeFiActions.Sink, DeFiActions.Source {
         access(all) let managerAddress: Address
         access(contract) var uniqueID: DeFiActions.UniqueIdentifier?
@@ -164,9 +164,9 @@ access(all) contract FlowVaultsConnector {
         /// DeFiActions.Sink Implementation
         access(all) fun depositCapacity(from: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}) {
             let managerAccount = getAccount(self.managerAddress)
-            let managerRef = managerAccount.capabilities.borrow<&TideManager>(
+            let managerRef = managerAccount.capabilities.borrow<&TideManagerWrapper>(
                 FlowVaultsConnector.ManagerPublicPath
-            ) ?? panic("Cannot borrow TideManager from address")
+            ) ?? panic("Cannot borrow TideManagerWrapper from address")
             
             managerRef.depositToTide(from: from)
         }
@@ -182,7 +182,7 @@ access(all) contract FlowVaultsConnector {
         /// DeFiActions.Source Implementation
         access(all) fun minimumAvailable(): UFix64 {
             let managerAccount = getAccount(self.managerAddress)
-            if let managerRef = managerAccount.capabilities.borrow<&TideManager>(
+            if let managerRef = managerAccount.capabilities.borrow<&TideManagerWrapper>(
                 FlowVaultsConnector.ManagerPublicPath
             ) {
                 return managerRef.getTideBalance()
@@ -192,9 +192,9 @@ access(all) contract FlowVaultsConnector {
         
         access(FungibleToken.Withdraw) fun withdrawAvailable(maxAmount: UFix64): @{FungibleToken.Vault} {
             let managerAccount = getAccount(self.managerAddress)
-            let managerRef = managerAccount.capabilities.borrow<&TideManager>(
+            let managerRef = managerAccount.capabilities.borrow<&TideManagerWrapper>(
                 FlowVaultsConnector.ManagerPublicPath
-            ) ?? panic("Cannot borrow TideManager from address")
+            ) ?? panic("Cannot borrow TideManagerWrapper from address")
             
             return <- managerRef.withdrawFromTide(maxAmount: maxAmount)
         }
@@ -221,7 +221,7 @@ access(all) contract FlowVaultsConnector {
         }
     }
     
-    /// Create a new TideManager and store it
+    /// Create a new TideManagerWrapper and store it
     /// Returns a Connector struct that references it
     access(all) fun createConnectorAndManager(
         account: auth(Storage, Capabilities) &Account,
@@ -237,8 +237,8 @@ access(all) contract FlowVaultsConnector {
             message: "Strategy does not support vault type"
         )
         
-        // Create and store the TideManager resource
-        let manager <- create TideManager(
+        // Create and store the TideManagerWrapper resource
+        let manager <- create TideManagerWrapper(
             tideManagerCap: tideManagerCap,
             betaBadgeCap: betaBadgeCap,
             vaultType: vaultType,
@@ -248,7 +248,7 @@ access(all) contract FlowVaultsConnector {
         account.storage.save(<-manager, to: self.ManagerStoragePath)
         
         // Create public capability for the manager
-        let managerCap = account.capabilities.storage.issue<&TideManager>(self.ManagerStoragePath)
+        let managerCap = account.capabilities.storage.issue<&TideManagerWrapper>(self.ManagerStoragePath)
         account.capabilities.publish(managerCap, at: self.ManagerPublicPath)
         
         emit ConnectorCreated(

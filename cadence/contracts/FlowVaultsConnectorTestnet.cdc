@@ -2,21 +2,15 @@
 FlowVaultsConnectorTestnet - Testnet-Compatible Flow Vaults Integration
 
 This version implements DeFiActions.Sink and DeFiActions.Source (struct interfaces)
-to work with PrizeVaultModular on testnet, while managing Flow Vaults integration.
+to work with PrizeSavings on testnet, while managing Flow Vaults integration.
 
 Flow Vaults Contract: testnet://3bda2f90274dbc9b.FlowVaults
 DeFiActions on testnet uses STRUCT interfaces (not resource interfaces)
 */
 
 import "FungibleToken"
-
-// importing FlowVaults and FlowVaultsClosedBeta directly will break the dependencies of the entire project because 
-// it imports DeFiActions directly from a different address than "flow deps install"
-// If you want to use this contract, you need to install FlowVaults/FlowVaultsClosedBeta as a dependency manually:
-// flow dependencies install testnet://3bda2f90274dbc9b.FlowVaults
-// flow dependencies install testnet://3bda2f90274dbc9b.FlowVaultsClosedBeta
-// import "FlowVaults"
-// import "FlowVaultsClosedBeta"
+import "FlowVaults"
+import "FlowVaultsClosedBeta"
 import "DeFiActions"
 
 access(all) contract FlowVaultsConnectorTestnet {
@@ -31,10 +25,10 @@ access(all) contract FlowVaultsConnectorTestnet {
     access(all) event WithdrawnFromTide(tideID: UInt64, amount: UFix64, vaultType: String)
     access(all) event TideCreated(tideID: UInt64, strategyType: String, initialAmount: UFix64)
     
-    /// TideManager Resource
-    /// Stores the capabilities and manages the actual Tide in Flow Vaults
+    /// TideManagerWrapper Resource
+    /// Wraps FlowVaults.TideManager with beta badge authentication
     /// This must be a resource because it holds capabilities
-    access(all) resource TideManager {
+    access(all) resource TideManagerWrapper {
         access(self) let tideManagerCap: Capability<auth(FungibleToken.Withdraw) &FlowVaults.TideManager>
         access(self) let betaBadgeCap: Capability<auth(FlowVaultsClosedBeta.Beta) &FlowVaultsClosedBeta.BetaBadge>
         access(self) var tideID: UInt64?
@@ -155,10 +149,10 @@ access(all) contract FlowVaultsConnectorTestnet {
         }
     }
     
-    /// FlowVaultsConnector Struct
+    /// Connector Struct
     /// Implements DeFiActions.Sink and DeFiActions.Source (testnet uses struct interfaces)
-    /// References a stored TideManager resource
-    access(all) struct FlowVaultsConnector: DeFiActions.Sink, DeFiActions.Source {
+    /// References a stored TideManagerWrapper resource
+    access(all) struct Connector: DeFiActions.Sink, DeFiActions.Source {
         access(all) let managerAddress: Address
         access(contract) var uniqueID: DeFiActions.UniqueIdentifier?
         access(all) let vaultType: Type
@@ -172,9 +166,9 @@ access(all) contract FlowVaultsConnectorTestnet {
         /// DeFiActions.Sink Implementation
         access(all) fun depositCapacity(from: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}) {
             let managerAccount = getAccount(self.managerAddress)
-            let managerRef = managerAccount.capabilities.borrow<&TideManager>(
+            let managerRef = managerAccount.capabilities.borrow<&TideManagerWrapper>(
                 FlowVaultsConnectorTestnet.ManagerPublicPath
-            ) ?? panic("Cannot borrow TideManager from address")
+            ) ?? panic("Cannot borrow TideManagerWrapper from address")
             
             managerRef.depositToTide(from: from)
         }
@@ -189,10 +183,10 @@ access(all) contract FlowVaultsConnectorTestnet {
         
         /// DeFiActions.Source Implementation
         access(all) fun minimumAvailable(): UFix64 {
-            // Returns the actual Tide balance by borrowing the TideManager
+            // Returns the actual Tide balance by borrowing the TideManagerWrapper
             // Note: minimumAvailable() is NOT required to be a view function per DeFiActions.Source interface
             let managerAccount = getAccount(self.managerAddress)
-            if let managerRef = managerAccount.capabilities.borrow<&TideManager>(
+            if let managerRef = managerAccount.capabilities.borrow<&TideManagerWrapper>(
                 FlowVaultsConnectorTestnet.ManagerPublicPath
             ) {
                 return managerRef.getTideBalance()
@@ -202,9 +196,9 @@ access(all) contract FlowVaultsConnectorTestnet {
         
         access(FungibleToken.Withdraw) fun withdrawAvailable(maxAmount: UFix64): @{FungibleToken.Vault} {
             let managerAccount = getAccount(self.managerAddress)
-            let managerRef = managerAccount.capabilities.borrow<&TideManager>(
+            let managerRef = managerAccount.capabilities.borrow<&TideManagerWrapper>(
                 FlowVaultsConnectorTestnet.ManagerPublicPath
-            ) ?? panic("Cannot borrow TideManager from address")
+            ) ?? panic("Cannot borrow TideManagerWrapper from address")
             
             return <- managerRef.withdrawFromTide(maxAmount: maxAmount)
         }
@@ -231,15 +225,15 @@ access(all) contract FlowVaultsConnectorTestnet {
         }
     }
     
-    /// Create a new TideManager and store it
-    /// Returns a FlowVaultsConnector struct that references it
+    /// Create a new TideManagerWrapper and store it
+    /// Returns a Connector struct that references it
     access(all) fun createConnectorAndManager(
         account: auth(Storage, Capabilities) &Account,
         tideManagerCap: Capability<auth(FungibleToken.Withdraw) &FlowVaults.TideManager>,
         betaBadgeCap: Capability<auth(FlowVaultsClosedBeta.Beta) &FlowVaultsClosedBeta.BetaBadge>,
         vaultType: Type,
         strategyType: Type
-    ): FlowVaultsConnector {
+    ): Connector {
         // Validate that the strategy supports the vault type
         let supportedVaults = FlowVaults.getSupportedInitializationVaults(forStrategy: strategyType)
         assert(
@@ -247,8 +241,8 @@ access(all) contract FlowVaultsConnectorTestnet {
             message: "Strategy does not support vault type"
         )
         
-        // Create and store the TideManager resource
-        let manager <- create TideManager(
+        // Create and store the TideManagerWrapper resource
+        let manager <- create TideManagerWrapper(
             tideManagerCap: tideManagerCap,
             betaBadgeCap: betaBadgeCap,
             vaultType: vaultType,
@@ -258,7 +252,7 @@ access(all) contract FlowVaultsConnectorTestnet {
         account.storage.save(<-manager, to: self.ManagerStoragePath)
         
         // Create public capability for the manager
-        let managerCap = account.capabilities.storage.issue<&TideManager>(self.ManagerStoragePath)
+        let managerCap = account.capabilities.storage.issue<&TideManagerWrapper>(self.ManagerStoragePath)
         account.capabilities.publish(managerCap, at: self.ManagerPublicPath)
         
         emit ConnectorCreated(
@@ -268,7 +262,7 @@ access(all) contract FlowVaultsConnectorTestnet {
         )
         
         // Return the struct connector that references this manager
-        return FlowVaultsConnector(
+        return Connector(
             managerAddress: account.address,
             vaultType: vaultType
         )
