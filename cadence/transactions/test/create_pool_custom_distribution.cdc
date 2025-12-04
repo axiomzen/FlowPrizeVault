@@ -4,13 +4,12 @@ import "FlowToken"
 import "DeFiActions"
 import "MockYieldConnector"
 
-/// Transaction to create a test pool with SHORT draw interval for testing draws
-/// Uses MockYieldConnector for simplified testing
-transaction {
+/// Transaction to create a test pool with custom distribution strategy
+transaction(savingsPercent: UFix64, lotteryPercent: UFix64, treasuryPercent: UFix64) {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         // Generate unique storage path based on current pool count to avoid collisions
         let currentPoolCount = PrizeSavings.getAllPoolIDs().length
-        let vaultPath = StoragePath(identifier: "testYieldVaultShort_".concat(currentPoolCount.toString()))!
+        let vaultPath = StoragePath(identifier: "testYieldVaultDist_".concat(currentPoolCount.toString()))!
         
         // Create a test vault to use as yield source
         let testVault <- FlowToken.createEmptyVault(vaultType: Type<@FlowToken.Vault>())
@@ -27,11 +26,11 @@ transaction {
             vaultType: Type<@FlowToken.Vault>()
         )
         
-        // Create distribution strategy (70% savings, 20% lottery, 10% treasury)
+        // Create custom distribution strategy
         let strategy = PrizeSavings.FixedPercentageStrategy(
-            savings: 0.7,
-            lottery: 0.2,
-            treasury: 0.1
+            savings: savingsPercent,
+            lottery: lotteryPercent,
+            treasury: treasuryPercent
         )
         
         // Create winner selection strategy
@@ -39,12 +38,12 @@ transaction {
             nftIDs: []
         ) as {PrizeSavings.WinnerSelectionStrategy}
         
-        // Create pool config with SHORT draw interval (1 second for testing)
+        // Create pool config
         let config = PrizeSavings.PoolConfig(
             assetType: Type<@FlowToken.Vault>(),
             yieldConnector: mockConnector,
             minimumDeposit: 1.0,
-            drawIntervalSeconds: 1.0,  // 1 second for testing!
+            drawIntervalSeconds: 86400.0,
             distributionStrategy: strategy,
             winnerSelectionStrategy: winnerStrategy,
             winnerTrackerCap: nil
@@ -62,7 +61,7 @@ transaction {
             createdBy: signer.address
         )
         
-        log("Created pool with ID: ".concat(poolID.toString()).concat(" with 1 second draw interval"))
+        log("Created pool with ID: ".concat(poolID.toString()).concat(" with custom distribution"))
     }
 }
 
