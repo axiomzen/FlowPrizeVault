@@ -15,6 +15,7 @@ This document provides an in-depth explanation of the accounting system and ERC4
 - [Invariants](#invariants)
 - [Examples](#examples)
 - [Edge Cases & Protections](#edge-cases--protections)
+  - [ERC4626 Donation Attack Protection](#erc4626-donation-attack-protection)
 
 ---
 
@@ -132,39 +133,54 @@ access(self) let receiverTotalEarnedPrizes: {UInt64: UFix64}
 
 ### Core Formulas
 
+The implementation uses a **virtual offset pattern** to prevent the ERC4626 "inflation attack" (donation attack). This adds virtual shares and assets to the conversion formulas.
+
 #### Converting Assets to Shares (Deposit)
 
 ```cadence
 access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
-    if self.totalShares == 0.0 || self.totalAssets == 0.0 {
-        return assets  // 1:1 for first deposit
+    // Virtual offset: prevents inflation attacks by ensuring share price 
+    // starts near 1:1 and can't be manipulated when totalShares is small
+    let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES  // +1.0
+    let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS  // +1.0
+    
+    if assets > 0.0 {
+        let maxSafeAssets = UFix64.max / effectiveShares
+        assert(assets <= maxSafeAssets, message: "Deposit amount too large - would cause overflow")
     }
-    return (assets * self.totalShares) / self.totalAssets
+    
+    return (assets * effectiveShares) / effectiveAssets
 }
 ```
 
-**Formula**: `shares = (depositAmount × totalShares) / totalAssets`
+**Formula**: `shares = (depositAmount × (totalShares + 1)) / (totalAssets + 1)`
 
 #### Converting Shares to Assets (Value Lookup)
 
 ```cadence
 access(all) view fun convertToAssets(_ shares: UFix64): UFix64 {
-    if self.totalShares == 0.0 {
-        return 0.0
+    // Virtual offset: (shares * (totalAssets + 1)) / (totalShares + 1)
+    let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES  // +1.0
+    let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS  // +1.0
+    
+    if shares > 0.0 {
+        let maxSafeShares = UFix64.max / effectiveAssets
+        assert(shares <= maxSafeShares, message: "Share amount too large - would cause overflow")
     }
-    return (shares * self.totalAssets) / self.totalShares
+    
+    return (shares * effectiveAssets) / effectiveShares
 }
 ```
 
-**Formula**: `value = (userShares × totalAssets) / totalShares`
+**Formula**: `value = (userShares × (totalAssets + 1)) / (totalShares + 1)`
 
 #### Share Price
 
 ```
-sharePrice = totalAssets / totalShares
+sharePrice = (totalAssets + 1) / (totalShares + 1)
 ```
 
-When yield accrues, `totalAssets` increases while `totalShares` stays constant, so share price rises.
+When yield accrues, `totalAssets` increases while `totalShares` stays constant, so share price rises. The virtual offset ensures the price starts near 1:1 even for an empty pool.
 
 ### State Changes
 
@@ -578,38 +594,73 @@ User A's withdrawal doesn't affect User B's value.
 
 ## Edge Cases & Protections
 
+### ERC4626 Donation Attack Protection
+
+The **inflation attack** (also known as the "donation attack") is a vulnerability in naive ERC4626 implementations where a malicious first depositor can:
+
+1. Deposit a small amount (e.g., 1 wei) to get 1 share
+2. "Donate" a large amount directly to the vault (increasing `totalAssets`)
+3. When the next user deposits, they receive 0 shares due to rounding
+4. The attacker can then withdraw all funds
+
+**Protection via Virtual Offset:**
+
+The implementation uses virtual shares and assets that create "dead" ownership:
+
+```cadence
+// Constants defined at contract level
+access(all) let VIRTUAL_SHARES: UFix64 = 1.0
+access(all) let VIRTUAL_ASSETS: UFix64 = 1.0
+
+// Applied in conversions
+let effectiveShares = self.totalShares + VIRTUAL_SHARES
+let effectiveAssets = self.totalAssets + VIRTUAL_ASSETS
+```
+
+This ensures:
+- Share price starts near 1:1 even for empty pools
+- No special-casing for first deposit
+- Donations cannot manipulate share price when `totalShares` is small
+- Defense-in-depth for future yield connectors that might be permissionless
+
 ### Overflow Protection
 
 ```cadence
 access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
-    // ...
-    if assets > 0.0 && self.totalShares > 0.0 {
-        let maxSafeAssets = UFix64.max / self.totalShares
+    let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
+    let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS
+    
+    if assets > 0.0 {
+        let maxSafeAssets = UFix64.max / effectiveShares
         assert(assets <= maxSafeAssets, message: "Deposit too large - would overflow")
     }
-    return (assets * self.totalShares) / self.totalAssets
+    return (assets * effectiveShares) / effectiveAssets
 }
 ```
 
 ### Empty Pool (First Deposit)
 
+With virtual offset, empty pools are handled uniformly—no special case needed:
+
 ```cadence
-access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
-    if self.totalShares == 0.0 || self.totalAssets == 0.0 {
-        return assets  // 1:1 ratio for bootstrap
-    }
-    // ...
-}
+// When totalShares = 0 and totalAssets = 0:
+// effectiveShares = 0 + 1 = 1
+// effectiveAssets = 0 + 1 = 1
+// shares = (assets * 1) / 1 = assets
+
+// First deposit of 100 FLOW → 100 shares (near 1:1 ratio)
 ```
 
 ### Zero Balance Check
 
+Division by zero is prevented by virtual offset:
+
 ```cadence
 access(all) view fun convertToAssets(_ shares: UFix64): UFix64 {
-    if self.totalShares == 0.0 {
-        return 0.0  // Prevent division by zero
-    }
-    // ...
+    // effectiveShares is always >= 1.0, so division is safe
+    let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
+    let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS
+    return (shares * effectiveAssets) / effectiveShares
 }
 ```
 
@@ -650,6 +701,9 @@ The shares model provides:
 | **Gas Efficiency** | Single state update vs. N user updates |
 | **Simple Withdrawals** | Burn shares proportional to withdrawal |
 | **Auditable State** | `Σ(userValues) == totalAssets` invariant |
+| **Donation Attack Protection** | Virtual offset prevents share price manipulation |
 
 Key insight: **Shares represent proportional ownership, not absolute balance.** When yield accrues, the pool grows but shares stay constant—everyone's proportional claim on a larger pool automatically increases their value.
+
+The **virtual offset pattern** (adding 1.0 to both shares and assets in conversions) provides defense-in-depth against the ERC4626 inflation attack, ensuring the protocol remains secure even if future yield connectors allow permissionless deposits.
 

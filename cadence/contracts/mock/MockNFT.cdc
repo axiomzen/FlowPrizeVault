@@ -2,9 +2,9 @@ import "NonFungibleToken"
 import "ViewResolver"
 import "MetadataViews"
 
-/// SimpleNFT - A basic NFT contract for testing Prize Vault NFT prizes
+/// MockNFT - A basic NFT contract for testing Prize Vault NFT prizes
 /// Each NFT has a unique ID and name
-access(all) contract SimpleNFT: NonFungibleToken {
+access(all) contract MockNFT: NonFungibleToken {
     
     access(all) var totalSupply: UInt64
     
@@ -49,23 +49,23 @@ access(all) contract SimpleNFT: NonFungibleToken {
         }
         
         access(all) fun createEmptyCollection(): @{NonFungibleToken.Collection} {
-            return <- SimpleNFT.createEmptyCollection(nftType: Type<@SimpleNFT.NFT>())
+            return <- MockNFT.createEmptyCollection(nftType: Type<@MockNFT.NFT>())
         }
     }
     
-    access(all) resource interface SimpleNFTCollectionPublic {
+    access(all) resource interface MockNFTCollectionPublic {
         access(all) fun deposit(token: @{NonFungibleToken.NFT})
         access(all) view fun getIDs(): [UInt64]
         access(all) view fun borrowNFT(_ id: UInt64): &{NonFungibleToken.NFT}?
-        access(all) fun borrowSimpleNFT(id: UInt64): &SimpleNFT.NFT? {
+        access(all) fun borrowMockNFT(id: UInt64): &MockNFT.NFT? {
             post {
                 (result == nil) || (result?.id == id):
-                    "Cannot borrow SimpleNFT reference: The ID of the returned reference is incorrect"
+                    "Cannot borrow MockNFT reference: The ID of the returned reference is incorrect"
             }
         }
     }
     
-    access(all) resource Collection: SimpleNFTCollectionPublic, NonFungibleToken.Collection {
+    access(all) resource Collection: MockNFTCollectionPublic, NonFungibleToken.Collection {
         access(all) var ownedNFTs: @{UInt64: {NonFungibleToken.NFT}}
         
         init() {
@@ -81,7 +81,7 @@ access(all) contract SimpleNFT: NonFungibleToken {
         }
         
         access(all) fun deposit(token: @{NonFungibleToken.NFT}) {
-            let token <- token as! @SimpleNFT.NFT
+            let token <- token as! @MockNFT.NFT
             let id = token.id
             let oldToken <- self.ownedNFTs[id] <- token
             
@@ -97,24 +97,24 @@ access(all) contract SimpleNFT: NonFungibleToken {
             return &self.ownedNFTs[id]
         }
         
-        access(all) fun borrowSimpleNFT(id: UInt64): &SimpleNFT.NFT? {
+        access(all) fun borrowMockNFT(id: UInt64): &MockNFT.NFT? {
             if self.ownedNFTs[id] != nil {
                 let ref = &self.ownedNFTs[id] as &{NonFungibleToken.NFT}?
-                return ref as! &SimpleNFT.NFT?
+                return ref as! &MockNFT.NFT?
             }
             return nil
         }
         
         access(all) view fun getSupportedNFTTypes(): {Type: Bool} {
-            return {Type<@SimpleNFT.NFT>(): true}
+            return {Type<@MockNFT.NFT>(): true}
         }
         
         access(all) view fun isSupportedNFTType(type: Type): Bool {
-            return type == Type<@SimpleNFT.NFT>()
+            return type == Type<@MockNFT.NFT>()
         }
         
         access(all) fun createEmptyCollection(): @{NonFungibleToken.Collection} {
-            return <- SimpleNFT.createEmptyCollection(nftType: Type<@SimpleNFT.NFT>())
+            return <- MockNFT.createEmptyCollection(nftType: Type<@MockNFT.NFT>())
         }
     }
     
@@ -138,7 +138,7 @@ access(all) contract SimpleNFT: NonFungibleToken {
             thumbnail: String
         ): UInt64 {
             let nft <- create NFT(
-                id: SimpleNFT.totalSupply,
+                id: MockNFT.totalSupply,
                 name: name,
                 description: description,
                 thumbnail: thumbnail
@@ -148,7 +148,7 @@ access(all) contract SimpleNFT: NonFungibleToken {
             recipient.deposit(token: <- nft)
             
             emit Minted(id: id, name: name)
-            SimpleNFT.totalSupply = SimpleNFT.totalSupply + 1
+            MockNFT.totalSupply = MockNFT.totalSupply + 1
             
             return id
         }
@@ -157,9 +157,9 @@ access(all) contract SimpleNFT: NonFungibleToken {
     init() {
         self.totalSupply = 0
         
-        self.CollectionStoragePath = /storage/SimpleNFTCollection
-        self.CollectionPublicPath = /public/SimpleNFTCollection
-        self.MinterStoragePath = /storage/SimpleNFTMinter
+        self.CollectionStoragePath = /storage/MockNFTCollection
+        self.CollectionPublicPath = /public/MockNFTCollection
+        self.MinterStoragePath = /storage/MockNFTMinter
         
         // Create minter and save it
         let minter <- create NFTMinter()

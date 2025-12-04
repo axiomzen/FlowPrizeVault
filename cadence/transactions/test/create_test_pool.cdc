@@ -2,10 +2,10 @@ import "PrizeSavings"
 import "FungibleToken"
 import "FlowToken"
 import "DeFiActions"
-import "TestHelpers"
+import "MockYieldConnector"
 
 /// Transaction to create a test pool for unit testing
-/// Uses TestHelpers mock connectors for simplified testing
+/// Uses MockYieldConnector for simplified testing
 transaction {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         // Create a test vault to use as yield source
@@ -17,8 +17,8 @@ transaction {
         let withdrawCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>(vaultPath)
         let depositCap = signer.capabilities.storage.issue<&{FungibleToken.Receiver}>(vaultPath)
         
-        // Create mock connector using TestHelpers
-        let mockConnector = TestHelpers.SimpleVaultConnector(
+        // Create mock connector using MockYieldConnector
+        let mockConnector = MockYieldConnector.createSimpleVaultConnector(
             providerCap: withdrawCap,
             receiverCap: depositCap,
             vaultType: Type<@FlowToken.Vault>()

@@ -6,7 +6,7 @@ access(all) struct PoolStats {
     access(all) let totalDeposited: UFix64
     access(all) let totalStaked: UFix64
     access(all) let lotteryPoolBalance: UFix64
-    access(all) let treasuryBalance: UFix64
+    access(all) let totalTreasuryForwarded: UFix64
     access(all) let totalSavingsDistributed: UFix64
     access(all) let currentReinvestedSavings: UFix64
     access(all) let availableYieldRewards: UFix64
@@ -29,7 +29,7 @@ access(all) struct PoolStats {
         totalDeposited: UFix64,
         totalStaked: UFix64,
         lotteryPoolBalance: UFix64,
-        treasuryBalance: UFix64,
+        totalTreasuryForwarded: UFix64,
         totalSavingsDistributed: UFix64,
         currentReinvestedSavings: UFix64,
         availableYieldRewards: UFix64,
@@ -51,7 +51,7 @@ access(all) struct PoolStats {
         self.totalDeposited = totalDeposited
         self.totalStaked = totalStaked
         self.lotteryPoolBalance = lotteryPoolBalance
-        self.treasuryBalance = treasuryBalance
+        self.totalTreasuryForwarded = totalTreasuryForwarded
         self.totalSavingsDistributed = totalSavingsDistributed
         self.currentReinvestedSavings = currentReinvestedSavings
         self.availableYieldRewards = availableYieldRewards
@@ -88,7 +88,7 @@ access(all) fun main(poolID: UInt64): PoolStats {
         totalDeposited: poolRef.totalDeposited,
         totalStaked: poolRef.totalStaked,
         lotteryPoolBalance: poolRef.getLotteryPoolBalance(),
-        treasuryBalance: poolRef.getTreasuryBalance(),
+        totalTreasuryForwarded: poolRef.getTotalTreasuryForwarded(),
         totalSavingsDistributed: poolRef.getTotalSavingsDistributed(),
         currentReinvestedSavings: poolRef.getCurrentReinvestedSavings(),
         availableYieldRewards: poolRef.getAvailableYieldRewards(),

@@ -24,24 +24,17 @@
 				"testnet": "8f7109e18153bfb3"
 			}
 		},
-		"FlowVaultsConnector": {
-			"source": "cadence/contracts/FlowVaultsConnector.cdc",
+		"MockNFT": {
+			"source": "cadence/contracts/mock/MockNFT.cdc",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"testnet": "8f7109e18153bfb3"
 			}
 		},
-		"FlowVaultsConnectorTestnet": {
-			"source": "cadence/contracts/FlowVaultsConnectorTestnet.cdc",
+		"MockYieldConnector": {
+			"source": "cadence/contracts/mock/MockYieldConnector.cdc",
 			"aliases": {
-				"testnet": "8f7109e18153bfb3"
-			}
-		},
-		"FlowVaultsConnectors": {
-			"source": "cadence/contracts/FlowVaultsConnectors.cdc",
-			"aliases": {
-				"emulator": "f8d6e0586b0a20c7",
-				"testnet": "3bda2f90274dbc9b"
+				"emulator": "f8d6e0586b0a20c7"
 			}
 		},
 		"PrizeSavings": {
@@ -88,21 +81,6 @@
 		},
 		"PrizeWinnerTracker": {
 			"source": "cadence/contracts/PrizeWinnerTracker.cdc",
-			"aliases": {
-				"emulator": "f8d6e0586b0a20c7",
-				"testing": "0000000000000007",
-				"testnet": "8f7109e18153bfb3"
-			}
-		},
-		"SimpleNFT": {
-			"source": "cadence/contracts/SimpleNFT.cdc",
-			"aliases": {
-				"emulator": "f8d6e0586b0a20c7",
-				"testnet": "8f7109e18153bfb3"
-			}
-		},
-		"TestHelpers": {
-			"source": "cadence/contracts/TestHelpers.cdc",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"testing": "0000000000000007",
@@ -470,17 +448,17 @@
 	"deployments": {
 		"emulator": {
 			"emulator-account": [
-				"PrizeSavings",
 				"Xorshift128plus",
-				"RandomConsumer",
 				"RandomBeaconHistory",
-				"DeFiActions",
+				"RandomConsumer",
 				"DeFiActionsUtils",
 				"DeFiActionsMathUtils",
+				"DeFiActions",
 				"FungibleTokenConnectors",
 				"PrizeWinnerTracker",
-				"TestHelpers",
-				"SimpleNFT"
+				"PrizeSavings",
+				"MockNFT",
+				"MockYieldConnector"
 			]
 		}
 	}
