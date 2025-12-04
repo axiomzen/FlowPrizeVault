@@ -2,7 +2,7 @@ import "PrizeSavings"
 import "FungibleToken"
 import "FlowToken"
 import "DeFiActions"
-import "TestHelpers"
+import "MockYieldConnector"
 
 /// Transaction to create a test pool with custom distribution strategy
 transaction(savingsPercent: UFix64, lotteryPercent: UFix64, treasuryPercent: UFix64) {
@@ -19,8 +19,8 @@ transaction(savingsPercent: UFix64, lotteryPercent: UFix64, treasuryPercent: UFi
         let withdrawCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>(vaultPath)
         let depositCap = signer.capabilities.storage.issue<&{FungibleToken.Receiver}>(vaultPath)
         
-        // Create mock connector using TestHelpers
-        let mockConnector = TestHelpers.SimpleVaultConnector(
+        // Create mock connector using MockYieldConnector
+        let mockConnector = MockYieldConnector.createSimpleVaultConnector(
             providerCap: withdrawCap,
             receiverCap: depositCap,
             vaultType: Type<@FlowToken.Vault>()

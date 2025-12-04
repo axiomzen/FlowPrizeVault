@@ -102,12 +102,12 @@ access(all) fun testNewPoolLotteryBalanceZero() {
     Test.assertEqual(0.0, state["lotteryPoolBalance"]! as! UFix64)
 }
 
-access(all) fun testNewPoolTreasuryBalanceZero() {
+access(all) fun testNewPoolTreasuryForwardedZero() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["treasuryBalance"]! as! UFix64)
+    Test.assertEqual(0.0, state["totalTreasuryForwarded"]! as! UFix64)
 }
 
 // ============================================================================

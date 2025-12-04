@@ -2,7 +2,7 @@ import "PrizeSavings"
 import "FungibleToken"
 import "FlowToken"
 import "DeFiActions"
-import "TestHelpers"
+import "MockYieldConnector"
 
 /// Transaction to create a pool with custom emergency config
 transaction(
@@ -24,7 +24,7 @@ transaction(
         let withdrawCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>(vaultPath)
         let depositCap = signer.capabilities.storage.issue<&{FungibleToken.Receiver}>(vaultPath)
         
-        let mockConnector = TestHelpers.SimpleVaultConnector(
+        let mockConnector = MockYieldConnector.createSimpleVaultConnector(
             providerCap: withdrawCap,
             receiverCap: depositCap,
             vaultType: Type<@FlowToken.Vault>()

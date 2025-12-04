@@ -2,11 +2,12 @@ import "PrizeSavings"
 import "FungibleToken"
 import "FlowToken"
 import "DeFiActions"
-import "TestHelpers"
+import "MockYieldConnector"
 
 /// Transaction to create a pool with custom funding policy
 /// Uses 0.0 to represent nil (unlimited)
-transaction(maxDirectLottery: UFix64, maxDirectTreasury: UFix64, maxDirectSavings: UFix64) {
+/// Note: Treasury funding is no longer supported - treasury auto-forwards during reward processing
+transaction(maxDirectLottery: UFix64, maxDirectSavings: UFix64) {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         let currentPoolCount = PrizeSavings.getAllPoolIDs().length
         let vaultPath = StoragePath(identifier: "testYieldVaultFP_".concat(currentPoolCount.toString()))!
@@ -17,7 +18,7 @@ transaction(maxDirectLottery: UFix64, maxDirectTreasury: UFix64, maxDirectSaving
         let withdrawCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>(vaultPath)
         let depositCap = signer.capabilities.storage.issue<&{FungibleToken.Receiver}>(vaultPath)
         
-        let mockConnector = TestHelpers.SimpleVaultConnector(
+        let mockConnector = MockYieldConnector.createSimpleVaultConnector(
             providerCap: withdrawCap,
             receiverCap: depositCap,
             vaultType: Type<@FlowToken.Vault>()
@@ -47,7 +48,6 @@ transaction(maxDirectLottery: UFix64, maxDirectTreasury: UFix64, maxDirectSaving
         // Use nil when value is 0.0 to represent unlimited
         let fundingPolicy = PrizeSavings.FundingPolicy(
             maxDirectLottery: maxDirectLottery > 0.0 ? maxDirectLottery : nil,
-            maxDirectTreasury: maxDirectTreasury > 0.0 ? maxDirectTreasury : nil,
             maxDirectSavings: maxDirectSavings > 0.0 ? maxDirectSavings : nil
         )
         

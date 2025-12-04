@@ -14,7 +14,7 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
         "isDrawInProgress": poolRef.isDrawInProgress(),
         "canDrawNow": poolRef.canDrawNow(),
         "lotteryPoolBalance": poolRef.getLotteryPoolBalance(),
-        "treasuryBalance": poolRef.getTreasuryBalance(),
+        "totalTreasuryForwarded": poolRef.getTotalTreasuryForwarded(),
         "sharePriceIsOne": poolRef.getSavingsSharePrice() == 1.0,
         "currentEpochID": poolRef.getCurrentEpochID(),
         "totalSavingsShares": poolRef.getTotalSavingsShares(),

@@ -67,8 +67,8 @@ fun deployAllDependencies() {
     deployContract(name: "DeFiActionsMathUtils", path: "../../imports/92195d814edf9cb0/DeFiActionsMathUtils.cdc")
     deployContract(name: "DeFiActions", path: "../../imports/92195d814edf9cb0/DeFiActions.cdc")
     deployContract(name: "PrizeWinnerTracker", path: "../contracts/PrizeWinnerTracker.cdc")
-    deployContract(name: "TestHelpers", path: "../contracts/TestHelpers.cdc")
     deployContract(name: "PrizeSavings", path: "../contracts/PrizeSavings.cdc")
+    deployContract(name: "MockYieldConnector", path: "../contracts/mock/MockYieldConnector.cdc")
 }
 
 // ============================================================================
@@ -520,14 +520,13 @@ fun getEmergencyConfigDetails(_ poolID: UInt64): {String: AnyStruct} {
 access(all)
 fun createPoolWithFundingPolicy(
     maxDirectLottery: UFix64?,
-    maxDirectTreasury: UFix64?,
     maxDirectSavings: UFix64?
 ): UInt64 {
     let deployerAccount = getDeployerAccount()
     // Convert nil to 0.0 for transaction (0.0 = unlimited)
     let result = _executeTransaction(
         "../transactions/test/create_pool_custom_funding_policy.cdc",
-        [maxDirectLottery ?? 0.0, maxDirectTreasury ?? 0.0, maxDirectSavings ?? 0.0],
+        [maxDirectLottery ?? 0.0, maxDirectSavings ?? 0.0],
         deployerAccount
     )
     assertTransactionSucceeded(result, context: "Create pool with custom funding policy")

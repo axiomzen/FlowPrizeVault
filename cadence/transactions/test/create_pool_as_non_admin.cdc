@@ -2,7 +2,6 @@ import "PrizeSavings"
 import "FungibleToken"
 import "FlowToken"
 import "DeFiActions"
-import "TestHelpers"
 
 /// Transaction to attempt pool creation as non-admin (should fail)
 transaction {
