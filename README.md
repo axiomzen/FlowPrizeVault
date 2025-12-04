@@ -467,25 +467,31 @@ All scripts are located in `cadence/scripts/prize-savings/`:
 
 ### Run Integration Tests
 
-The `test_prize_savings.sh` script runs a comprehensive integration test against the emulator:
+The `test_prize_savings.py` script runs a comprehensive integration test suite against the emulator:
 
 ```bash
 # Start the emulator in one terminal
 flow emulator start
 
 # Run the test suite in another terminal
-./test_prize_savings.sh
+python3 test_prize_savings.py
 ```
 
-This tests the full contract lifecycle:
-- Contract deployment
-- User collection setup
-- Pool creation with test yield connector
-- Deposits and withdrawals
+This tests the full contract lifecycle including:
+- Contract deployment and pool creation
+- User collection setup and deposits/withdrawals
 - Yield simulation and reward processing
 - Lottery draw execution (start → complete)
-- Emergency mode enable/disable
-- All query scripts
+- Prize winner verification
+- NFT prize lifecycle (deposit, award, claim)
+- Emergency mode and admin operations
+- Multi-user scenarios and lottery fairness
+- Treasury recipient setup and forwarding
+- Draw timing and state management
+- Invalid pool/parameter handling
+- Access control verification
+- NFT edge cases (admin withdrawal, non-winner claims)
+- Precision and boundary cases (UFix64 limits)
 
 ### Run Unit Tests
 
@@ -498,9 +504,16 @@ flow test cadence/tests/PrizeVault_test.cdc
 
 | Area | Tests |
 |------|-------|
-| Shares math (ERC4626) | Deposit, withdrawal, interest distribution, late joiner fairness |
-| Invariants | Total assets, underflow protection |
-| Integration | Full lifecycle via `test_prize_savings.sh` |
+| Core Operations | Deposits, withdrawals, yield distribution, lottery draws |
+| Shares Math (ERC4626) | Interest distribution, late joiner fairness |
+| NFT Prizes | Deposit, award, claim, admin withdrawal, non-winner blocking |
+| Access Control | Admin-only operations, user position isolation |
+| Edge Cases | Minimum deposits, zero values, invalid pools, concurrent draws |
+| Precision | UFix64 limits, 8 decimal precision, large values |
+| Multi-User | Multiple depositors, fair prize distribution |
+| Treasury | Recipient setup, forwarding verification |
+| Draw Timing | Interval enforcement, concurrent prevention, stale recovery |
+| Integration | Full lifecycle via `test_prize_savings.py` |
 
 ---
 
