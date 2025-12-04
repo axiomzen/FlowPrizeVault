@@ -1,21 +1,22 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 
 /// Treasury statistics structure
+/// Note: Treasury auto-forwards to recipient during reward processing, so there's no balance held
 access(all) struct TreasuryStats {
-    access(all) let balance: UFix64
-    access(all) let totalCollected: UFix64
-    access(all) let totalWithdrawn: UFix64
+    access(all) let totalForwarded: UFix64
+    access(all) let recipientAddress: Address?
+    access(all) let hasRecipient: Bool
     access(all) let fundingStats: {String: UFix64}
     
     init(
-        balance: UFix64,
-        totalCollected: UFix64,
-        totalWithdrawn: UFix64,
+        totalForwarded: UFix64,
+        recipientAddress: Address?,
+        hasRecipient: Bool,
         fundingStats: {String: UFix64}
     ) {
-        self.balance = balance
-        self.totalCollected = totalCollected
-        self.totalWithdrawn = totalWithdrawn
+        self.totalForwarded = totalForwarded
+        self.recipientAddress = recipientAddress
+        self.hasRecipient = hasRecipient
         self.fundingStats = fundingStats
     }
 }
@@ -30,12 +31,10 @@ access(all) fun main(poolID: UInt64): TreasuryStats {
     let poolRef = PrizeSavings.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
     
-    let stats = poolRef.getTreasuryStats()
-    
     return TreasuryStats(
-        balance: stats["balance"] ?? 0.0,
-        totalCollected: stats["totalCollected"] ?? 0.0,
-        totalWithdrawn: stats["totalWithdrawn"] ?? 0.0,
+        totalForwarded: poolRef.getTotalTreasuryForwarded(),
+        recipientAddress: poolRef.getTreasuryRecipient(),
+        hasRecipient: poolRef.hasTreasuryRecipient(),
         fundingStats: poolRef.getFundingStats()
     )
 }

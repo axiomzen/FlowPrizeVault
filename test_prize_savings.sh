@@ -203,7 +203,7 @@ test_scripts() {
     # Get treasury stats
     print_step "Testing get_treasury_stats.cdc..."
     result=$(run_script cadence/scripts/prize-savings/get_treasury_stats.cdc $POOL_ID)
-    check_result "$result" "balance|totalCollected" "get_treasury_stats.cdc"
+    check_result "$result" "totalForwarded|hasRecipient" "get_treasury_stats.cdc"
     echo "$result" | head -10
     
     # Get emergency info

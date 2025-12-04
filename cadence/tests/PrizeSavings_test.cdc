@@ -58,10 +58,10 @@ access(all) fun setup() {
     )
     Test.expect(err, Test.beNil())
 
-    // Deploy TestHelpers contract (for mock connectors)
+    // Deploy MockYieldConnector contract (for mock connectors)
     err = Test.deployContract(
-        name: "TestHelpers",
-        path: "../contracts/TestHelpers.cdc",
+        name: "MockYieldConnector",
+        path: "../contracts/mock/MockYieldConnector.cdc",
         arguments: [],
     )
     Test.expect(err, Test.beNil())

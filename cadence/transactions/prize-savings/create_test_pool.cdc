@@ -1,9 +1,9 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
-import TestHelpers from "../../contracts/TestHelpers.cdc"
+import MockYieldConnector from "../../contracts/mock/MockYieldConnector.cdc"
 import FungibleToken from "FungibleToken"
 import FlowToken from "FlowToken"
 
-/// Create Test Pool transaction - Creates a new PrizeSavings pool using TestHelpers.SimpleVaultConnector
+/// Create Test Pool transaction - Creates a new PrizeSavings pool using MockYieldConnector.SimpleVaultConnector
 /// This is specifically for testing with the emulator
 ///
 /// Parameters:
@@ -46,8 +46,8 @@ transaction(
     }
     
     execute {
-        // Create the yield connector using TestHelpers
-        let yieldConnector = TestHelpers.SimpleVaultConnector(
+        // Create the yield connector using MockYieldConnector
+        let yieldConnector = MockYieldConnector.createSimpleVaultConnector(
             providerCap: self.providerCap,
             receiverCap: self.receiverCap,
             vaultType: Type<@FlowToken.Vault>()

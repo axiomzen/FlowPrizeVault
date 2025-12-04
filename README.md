@@ -112,6 +112,22 @@ userValue = (userShares × totalAssets) / totalShares
 
 When yield is distributed, `totalAssets` increases while shares remain constant—automatically increasing each user's proportional value.
 
+#### Donation Attack Protection
+
+The implementation includes **virtual offset protection** against the ERC4626 "inflation attack" (also known as the "donation attack"). This attack allows a malicious first depositor to manipulate the share price when `totalShares` is small, potentially stealing funds from subsequent depositors.
+
+The protection uses virtual shares and assets:
+
+```
+effectiveShares = totalShares + 1.0
+effectiveAssets = totalAssets + 1.0
+
+shares = (assets × effectiveShares) / effectiveAssets
+assets = (shares × effectiveAssets) / effectiveShares
+```
+
+This creates "dead" shares/assets that ensure the share price starts near 1:1 and cannot be manipulated through donation attacks, providing defense-in-depth even for future yield connectors that might be permissionless.
+
 > 📖 **[Read the full Accounting & Shares documentation →](./docs/ACCOUNTING.md)**
 
 ### Time-Weighted Average Balance (TWAB)
@@ -150,11 +166,15 @@ Custom strategies can implement the `DistributionStrategy` interface.
 
 ### Winner Selection Strategies
 
+Winner selection is a configurable component that determines how prizes are distributed among participants. The following strategies are implemented in the contract:
+
 | Strategy | Description |
 |----------|-------------|
 | `WeightedSingleWinner` | One winner takes all, weighted by TWAB |
 | `MultiWinnerSplit` | Multiple winners with configurable prize splits |
 | `FixedPrizeTiers` | Fixed prize amounts per tier (e.g., 1st: 100, 2nd: 50, 3rd: 25) |
+
+Custom strategies can implement the `WinnerSelectionStrategy` interface.
 
 ### Emergency Mode
 
@@ -339,7 +359,7 @@ All transactions are located in `cadence/transactions/prize-savings/`:
 | Transaction | Description |
 |-------------|-------------|
 | `setup_test_yield_vault.cdc` | Create a test vault to simulate yield source |
-| `create_test_pool.cdc` | Create a pool using TestHelpers connector |
+| `create_test_pool.cdc` | Create a pool using MockYieldConnector |
 | `add_yield_to_pool.cdc` | Add simulated yield to the test vault |
 
 ---
