@@ -4,18 +4,18 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 /// Note: Treasury auto-forwards to recipient during reward processing, so there's no balance held
 access(all) struct TreasuryStats {
     access(all) let totalForwarded: UFix64
-    access(all) let recipientAddress: Address?
+    access(all) let recipient: Address?
     access(all) let hasRecipient: Bool
     access(all) let fundingStats: {String: UFix64}
     
     init(
         totalForwarded: UFix64,
-        recipientAddress: Address?,
+        recipient: Address?,
         hasRecipient: Bool,
         fundingStats: {String: UFix64}
     ) {
         self.totalForwarded = totalForwarded
-        self.recipientAddress = recipientAddress
+        self.recipient = recipient
         self.hasRecipient = hasRecipient
         self.fundingStats = fundingStats
     }
@@ -33,7 +33,7 @@ access(all) fun main(poolID: UInt64): TreasuryStats {
     
     return TreasuryStats(
         totalForwarded: poolRef.getTotalTreasuryForwarded(),
-        recipientAddress: poolRef.getTreasuryRecipient(),
+        recipient: poolRef.getTreasuryRecipient(),
         hasRecipient: poolRef.hasTreasuryRecipient(),
         fundingStats: poolRef.getFundingStats()
     )
