@@ -5,9 +5,7 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 transaction {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         // Check if collection already exists
-        if signer.storage.borrow<&PrizeSavings.PoolPositionCollection>(
-            from: PrizeSavings.PoolPositionCollectionStoragePath
-        ) != nil {
+        if signer.storage.type(at: PrizeSavings.PoolPositionCollectionStoragePath) != nil {
             log("Collection already exists")
             return
         }
@@ -20,7 +18,7 @@ transaction {
         )
         
         // Link public capability with public interface
-        let cap = signer.capabilities.storage.issue<&{PrizeSavings.PoolPositionCollectionPublic}>(
+        let cap = signer.capabilities.storage.issue<&PrizeSavings.PoolPositionCollection>(
             PrizeSavings.PoolPositionCollectionStoragePath
         )
         signer.capabilities.publish(

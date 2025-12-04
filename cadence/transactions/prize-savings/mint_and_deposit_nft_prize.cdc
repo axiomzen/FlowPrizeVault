@@ -1,46 +1,37 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
-import SimpleNFT from "../../contracts/SimpleNFT.cdc"
+import MockNFT from "../../contracts/mock/MockNFT.cdc"
 import NonFungibleToken from "NonFungibleToken"
 
-/// Mint a SimpleNFT and deposit it as an NFT prize for the lottery
-///
-/// Parameters:
-/// - poolID: The pool to add the NFT prize to
-/// - nftName: Name for the NFT
-/// - nftDescription: Description for the NFT
+/// Mint a MockNFT and deposit it as an NFT prize for the lottery
 transaction(poolID: UInt64, nftName: String, nftDescription: String) {
     let adminRef: auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin
-    let minterRef: &SimpleNFT.NFTMinter
-    let collectionRef: auth(NonFungibleToken.Withdraw) &SimpleNFT.Collection
+    let minterRef: &MockNFT.NFTMinter
+    let collectionRef: auth(NonFungibleToken.Withdraw) &MockNFT.Collection
     let signerAddress: Address
     
     prepare(signer: auth(Storage, Capabilities) &Account) {
-        // Borrow admin reference
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Admin resource not found")
         
-        // Borrow minter reference
-        self.minterRef = signer.storage.borrow<&SimpleNFT.NFTMinter>(
-            from: SimpleNFT.MinterStoragePath
-        ) ?? panic("NFTMinter not found - deploy SimpleNFT contract first")
+        self.minterRef = signer.storage.borrow<&MockNFT.NFTMinter>(
+            from: MockNFT.MinterStoragePath
+        ) ?? panic("NFTMinter not found - deploy MockNFT contract first")
         
         self.signerAddress = signer.address
         
-        // Ensure we have an NFT collection
-        if signer.storage.borrow<&SimpleNFT.Collection>(from: SimpleNFT.CollectionStoragePath) == nil {
-            let collection <- SimpleNFT.createEmptyCollection(nftType: Type<@SimpleNFT.NFT>())
-            signer.storage.save(<-collection, to: SimpleNFT.CollectionStoragePath)
+        if signer.storage.type(at: MockNFT.CollectionStoragePath) == nil {
+            let collection <- MockNFT.createEmptyCollection(nftType: Type<@MockNFT.NFT>())
+            signer.storage.save(<-collection, to: MockNFT.CollectionStoragePath)
             
-            let cap = signer.capabilities.storage.issue<&{NonFungibleToken.CollectionPublic, SimpleNFT.SimpleNFTCollectionPublic}>(
-                SimpleNFT.CollectionStoragePath
+            let cap = signer.capabilities.storage.issue<&MockNFT.Collection>(
+                MockNFT.CollectionStoragePath
             )
-            signer.capabilities.publish(cap, at: SimpleNFT.CollectionPublicPath)
+            signer.capabilities.publish(cap, at: MockNFT.CollectionPublicPath)
         }
         
-        // Borrow with Withdraw entitlement to allow withdrawing NFT
-        self.collectionRef = signer.storage.borrow<auth(NonFungibleToken.Withdraw) &SimpleNFT.Collection>(
-            from: SimpleNFT.CollectionStoragePath
+        self.collectionRef = signer.storage.borrow<auth(NonFungibleToken.Withdraw) &MockNFT.Collection>(
+            from: MockNFT.CollectionStoragePath
         ) ?? panic("Could not borrow collection reference")
     }
     

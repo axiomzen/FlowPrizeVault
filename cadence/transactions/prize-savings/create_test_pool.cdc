@@ -21,8 +21,8 @@ transaction(
 ) {
     
     let adminRef: auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin
-    let providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>
-    let receiverCap: Capability<&{FungibleToken.Receiver}>
+    let providerCap: Capability<auth(FungibleToken.Withdraw) &FlowToken.Vault>
+    let receiverCap: Capability<&FlowToken.Vault>
     let signerAddress: Address
     
     prepare(signer: auth(Storage, BorrowValue, Capabilities) &Account) {
@@ -35,12 +35,12 @@ transaction(
         ) ?? panic("Admin resource not found. Only the contract deployer can create pools.")
         
         // Get the provider capability for the test yield vault
-        self.providerCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>(
+        self.providerCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &FlowToken.Vault>(
             /storage/testYieldVault
         )
         
         // Get the receiver capability for the test yield vault  
-        self.receiverCap = signer.capabilities.storage.issue<&{FungibleToken.Receiver}>(
+        self.receiverCap = signer.capabilities.storage.issue<&FlowToken.Vault>(
             /storage/testYieldVault
         )
     }
