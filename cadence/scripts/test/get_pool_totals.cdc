@@ -1,13 +1,15 @@
 import "PrizeSavings"
 
-/// Get the total deposits and staked amounts for a pool
+/// Get the total deposits, staked amounts, and balances for a pool
 access(all) fun main(poolID: UInt64): {String: UFix64} {
     let poolRef = PrizeSavings.borrowPool(poolID: poolID)
         ?? panic("Pool not found")
     
     return {
         "totalDeposited": poolRef.totalDeposited,
-        "totalStaked": poolRef.totalStaked
+        "totalStaked": poolRef.totalStaked,
+        "lotteryBalance": poolRef.getLotteryPoolBalance(),
+        "treasuryBalance": poolRef.getTreasuryBalance()
     }
 }
 
