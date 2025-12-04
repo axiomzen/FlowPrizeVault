@@ -524,7 +524,7 @@ flow test cadence/tests/PrizeVault_test.cdc
 | Network | Contract Address | Status |
 |---------|------------------|--------|
 | Emulator | `f8d6e0586b0a20c7` | Development |
-| Testnet | `8f7109e18153bfb3` | Testing |
+| Testnet | `c24c9fd9b176ea87` | Testing |
 | Mainnet | TBD | Pending Audit |
 
 ### Deployment Order
