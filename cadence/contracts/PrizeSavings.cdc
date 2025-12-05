@@ -13,7 +13,6 @@ Architecture:
 - Pluggable winner selection (weighted single, multi-winner, fixed tiers)
 - Resource-based position ownership via PoolPositionCollection
 - Emergency mode with auto-recovery and health monitoring
-- Admin emergency fund recovery for lost positions
 - NFT prize support with pending claims
 - Direct funding for external sponsors
 - Bonus lottery weights for promotions
@@ -77,9 +76,6 @@ access(all) contract PrizeSavings {
     access(all) event TreasuryFunded(poolID: UInt64, amount: UFix64, source: String)
     access(all) event TreasuryRecipientUpdated(poolID: UInt64, newRecipient: Address?, updatedBy: Address)
     access(all) event TreasuryForwarded(poolID: UInt64, amount: UFix64, recipient: Address)
-    
-    /// Emergency recovery event - emitted when admin recovers funds for a lost/destroyed position
-    access(all) event EmergencyRecovery(poolID: UInt64, receiverID: UInt64, amount: UFix64, recoveredBy: Address, reason: String)
     
     access(all) event BonusLotteryWeightSet(poolID: UInt64, receiverID: UInt64, bonusWeight: UFix64, reason: String, setBy: Address, timestamp: UFix64)
     access(all) event BonusLotteryWeightAdded(poolID: UInt64, receiverID: UInt64, additionalWeight: UFix64, newTotalBonus: UFix64, reason: String, addedBy: Address, timestamp: UFix64)
@@ -537,52 +533,8 @@ access(all) contract PrizeSavings {
             return <- nft
         }
         
-        /// Emergency fund recovery for lost/destroyed PoolPositionCollection resources.
-        /// This is a safety net for users who have lost access to their collection.
-        /// 
-        /// ⚠️ CRITICAL: Use only after verifying ownership through off-chain means.
-        /// This function bypasses normal access control and should be used sparingly.
-        /// 
-        /// - Parameter poolID: The pool to recover funds from
-        /// - Parameter receiverID: The UUID of the lost PoolPositionCollection
-        /// - Parameter recipient: Where to send the recovered funds
-        /// - Parameter reason: Documentation of why recovery was needed
-        /// - Parameter recoveredBy: Address of the admin performing recovery
-        access(CriticalOps) fun emergencyRecoverFunds(
-            poolID: UInt64,
-            receiverID: UInt64,
-            recipient: Capability<&{FungibleToken.Receiver}>,
-            reason: String,
-            recoveredBy: Address
-        ) {
-            pre {
-                reason.length > 0: "Must provide reason for emergency recovery"
-            }
-            
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID: poolID)
-                ?? panic("Pool does not exist")
-            
-            let balance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
-            assert(balance > 0.0, message: "No funds to recover for this receiverID")
-            
-            let vault <- poolRef.withdraw(amount: balance, receiverID: receiverID)
-            let actualAmount = vault.balance
-            
-            let receiverRef = recipient.borrow()
-                ?? panic("Cannot borrow recipient capability")
-            receiverRef.deposit(from: <- vault)
-            
-            emit EmergencyRecovery(
-                poolID: poolID,
-                receiverID: receiverID,
-                amount: actualAmount,
-                recoveredBy: recoveredBy,
-                reason: reason
-            )
-        }
-        
         // Batch draw functions (for future scalability when user count grows)
-        
+
         access(CriticalOps) fun startPoolDrawSnapshot(poolID: UInt64) {
             let poolRef = PrizeSavings.borrowPoolInternal(poolID: poolID) ?? panic("Pool does not exist")
             poolRef.startDrawSnapshot()
@@ -646,11 +598,7 @@ access(all) contract PrizeSavings {
         }
         
         access(all) fun getStrategyName(): String {
-            return "Fixed: "
-                .concat(self.savingsPercent.toString())
-                .concat(" savings, ")
-                .concat(self.lotteryPercent.toString())
-                .concat(" lottery")
+            return "Fixed: \(self.savingsPercent) savings, \(self.lotteryPercent) lottery"
         }
     }
     
@@ -1249,10 +1197,10 @@ access(all) contract PrizeSavings {
             )
             
             var winnerIndex = 0
-                while winnerIndex < actualWinnerCount && remainingIDs.length > 0 && remainingTotal > 0.0 {
-                    let rng = prg.nextUInt64()
-                    let scaledRandom = UFix64(rng % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
-                    let randomValue = scaledRandom * remainingTotal
+            while winnerIndex < actualWinnerCount && remainingIDs.length > 0 && remainingTotal > 0.0 {
+                let rng = prg.nextUInt64()
+                let scaledRandom = UFix64(rng % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
+                let randomValue = scaledRandom * remainingTotal
                 
                 var selectedIdx = 0
                 for i, cumSum in remainingCumSum {
@@ -1323,12 +1271,12 @@ access(all) contract PrizeSavings {
         }
         
         access(all) fun getStrategyName(): String {
-            var name = "Multi-Winner (".concat(self.winnerCount.toString()).concat(" winners): ")
+            var name = "Multi-Winner (\(self.winnerCount) winners): "
             for idx in InclusiveRange(0, self.prizeSplits.length - 1) {
                 if idx > 0 {
                     name = name.concat(", ")
                 }
-                name = name.concat((self.prizeSplits[idx] * 100.0).toString()).concat("%")
+                name = name.concat("\(self.prizeSplits[idx] * 100.0)%")
             }
             return name
         }
@@ -1485,9 +1433,7 @@ access(all) contract PrizeSavings {
                     name = name.concat(", ")
                 }
                 let tier = self.tiers[idx]
-                name = name.concat(tier.winnerCount.toString())
-                    .concat("x ")
-                    .concat(tier.prizeAmount.toString())
+                name = name.concat("\(tier.winnerCount)x \(tier.prizeAmount)")
             }
             return name.concat(")")
         }
@@ -1598,14 +1544,15 @@ access(all) contract PrizeSavings {
         
         /// ACCOUNTING VARIABLES - Key relationships:
         /// 
-        /// totalDeposited: Sum of user principal deposits only (excludes earned interest)
-        ///   Updated on: deposit (+), withdraw principal (-)
+        /// totalDeposited: Sum of user deposits + auto-compounded lottery prizes (excludes savings interest)
+        ///   Updated on: deposit (+), prize awarded (+), withdraw (-)
+        ///   Note: This is the "no-loss guarantee" amount - users can always withdraw at least this much
         ///   
         /// totalStaked: Amount tracked as being in the yield source
-        ///   Updated on: deposit (+), savings yield accrual (+), withdraw from yield source (-)
+        ///   Updated on: deposit (+), prize awarded (+), savings yield accrual (+), withdraw from yield source (-)
         ///   Should equal: yieldSourceBalance (approximately)
         ///   
-        /// Invariant: totalStaked >= totalDeposited (difference is reinvested savings yield)
+        /// Invariant: totalStaked >= totalDeposited (difference is reinvested savings interest)
         /// 
         /// Note: SavingsDistributor.totalAssets tracks what users own and should equal totalStaked
         access(all) var totalDeposited: UFix64
@@ -1677,13 +1624,13 @@ access(all) contract PrizeSavings {
         
         access(contract) fun setState(state: PoolEmergencyState, reason: String?) {
             self.emergencyState = state
-            if state != PoolEmergencyState.Normal {
-                self.emergencyReason = reason
-                self.emergencyActivatedAt = getCurrentBlock().timestamp
-            } else {
+            if state == PoolEmergencyState.Normal {
                 self.emergencyReason = nil
                 self.emergencyActivatedAt = nil
                 self.consecutiveWithdrawFailures = 0
+            } else {
+                self.emergencyReason = reason
+                self.emergencyActivatedAt = getCurrentBlock().timestamp
             }
         }
         
@@ -1756,14 +1703,23 @@ access(all) contract PrizeSavings {
             
             let health = self.checkYieldSourceHealth()
             if health < self.emergencyConfig.minYieldSourceHealth {
-                self.setEmergencyMode(reason: "Auto-triggered: Yield source health below threshold (".concat(health.toString()).concat(")"))
-                emit EmergencyModeAutoTriggered(poolID: self.poolID, reason: "Low yield source health", healthScore: health, timestamp: getCurrentBlock().timestamp)
+                self.setEmergencyMode(reason: "Auto-triggered: Yield source health below threshold (\(health))")
+                emit EmergencyModeAutoTriggered(
+                    poolID: self.poolID,
+                    reason: "Low yield source health",
+                    healthScore: health,
+                    timestamp: getCurrentBlock().timestamp
+                )
                 return true
             }
             
             if self.consecutiveWithdrawFailures >= self.emergencyConfig.maxWithdrawFailures {
                 self.setEmergencyMode(reason: "Auto-triggered: Multiple consecutive withdrawal failures")
-                emit EmergencyModeAutoTriggered(poolID: self.poolID, reason: "Withdrawal failures", healthScore: health, timestamp: getCurrentBlock().timestamp)
+                emit EmergencyModeAutoTriggered(
+                    poolID: self.poolID,
+                    reason: "Withdrawal failures",
+                    healthScore: health,
+                    timestamp: getCurrentBlock().timestamp)
                 return true
             }
             
@@ -1852,7 +1808,7 @@ access(all) contract PrizeSavings {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive"
                 from.getType() == self.config.assetType: "Invalid vault type"
-                self.registeredReceivers[receiverID] == true: "Receiver not registered"
+                self.registeredReceivers[receiverID] != nil: "Receiver not registered"
             }
             
             // TODO: Future batch draw support - add check here:
@@ -1860,11 +1816,11 @@ access(all) contract PrizeSavings {
             
             switch self.emergencyState {
                 case PoolEmergencyState.Normal:
-                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit of ".concat(self.config.minimumDeposit.toString()))
+                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit of \(self.config.minimumDeposit)")
                 case PoolEmergencyState.PartialMode:
                     let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
                     assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured")
-                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit of ".concat(depositLimit.toString()))
+                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit of \(depositLimit)")
                 case PoolEmergencyState.EmergencyMode:
                     panic("Deposits disabled in emergency mode. Withdrawals only.")
                 case PoolEmergencyState.Paused:
@@ -1890,7 +1846,7 @@ access(all) contract PrizeSavings {
         access(contract) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Vault} {
             pre {
                 amount > 0.0: "Withdrawal amount must be positive"
-                self.registeredReceivers[receiverID] == true: "Receiver not registered"
+                self.registeredReceivers[receiverID] != nil: "Receiver not registered"
             }
             
             // TODO: Future batch draw support - add check here:
@@ -1907,14 +1863,13 @@ access(all) contract PrizeSavings {
             }
             
             let totalBalance = self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
-            assert(totalBalance >= amount, message: "Insufficient balance. You have ".concat(totalBalance.toString()).concat(" but trying to withdraw ").concat(amount.toString()))
+            assert(totalBalance >= amount, message: "Insufficient balance. You have \(totalBalance) but trying to withdraw \(amount)")
             
             let yieldAvailable = self.config.yieldConnector.minimumAvailable()
             
             if yieldAvailable < amount {
-                let newFailureCount: Int = self.emergencyState == PoolEmergencyState.Normal 
-                    ? self.consecutiveWithdrawFailures + 1 
-                    : self.consecutiveWithdrawFailures
+                let newFailureCount = self.consecutiveWithdrawFailures
+                    + (self.emergencyState == PoolEmergencyState.Normal ? 1 : 0)
                 
                 emit WithdrawalFailure(
                     poolID: self.poolID, 
@@ -1937,9 +1892,8 @@ access(all) contract PrizeSavings {
             let actualWithdrawn = withdrawn.balance
             
             if actualWithdrawn == 0.0 {
-                let newFailureCount: Int = self.emergencyState == PoolEmergencyState.Normal 
-                    ? self.consecutiveWithdrawFailures + 1 
-                    : self.consecutiveWithdrawFailures
+                let newFailureCount = self.consecutiveWithdrawFailures
+                    + (self.emergencyState == PoolEmergencyState.Normal ? 1 : 0)
                 
                 emit WithdrawalFailure(
                     poolID: self.poolID, 
@@ -2036,7 +1990,7 @@ access(all) contract PrizeSavings {
         /// Start draw using time-weighted stakes (TWAB-like). See docs/LOTTERY_FAIRNESS_ANALYSIS.md
         access(all) fun startDraw() {
             pre {
-                self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: ".concat(self.emergencyState.rawValue.toString())
+                self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: \(self.emergencyState.rawValue)"
                 self.pendingDrawReceipt == nil: "Draw already in progress"
             }
             
@@ -2211,7 +2165,7 @@ access(all) contract PrizeSavings {
                         receiverID: winnerID,
                         nftID: nftID,
                         nftType: nftType,
-                        reason: "Lottery win - round ".concat(currentRound.toString())
+                        reason: "Lottery win - round \(currentRound)"
                     )
                     
                     emit NFTPrizeAwarded(
@@ -2385,7 +2339,8 @@ access(all) contract PrizeSavings {
             return (getCurrentBlock().timestamp - self.lastDrawTimestamp) >= self.config.drawIntervalSeconds
         }
         
-        /// Returns principal deposit (lossless guarantee amount)
+        /// Returns the "no-loss guarantee" amount: user deposits + auto-compounded lottery prizes
+        /// This is the minimum amount users can always withdraw (excludes savings interest)
         access(all) view fun getReceiverDeposit(receiverID: UInt64): UFix64 {
             return self.receiverDeposits[receiverID] ?? 0.0
         }
@@ -2404,9 +2359,10 @@ access(all) contract PrizeSavings {
         /// Returns current pending savings interest (not yet withdrawn).
         /// This is NOT lifetime total - it's the current accrued interest that
         /// will be included in the next withdrawal.
-        /// Formula: totalBalance - principal deposits
+        /// Formula: totalBalance - (deposits + prizes)
+        /// Note: "principal" here includes both user deposits AND auto-compounded lottery prizes
         access(all) view fun getPendingSavingsInterest(receiverID: UInt64): UFix64 {
-            let principal = self.receiverDeposits[receiverID] ?? 0.0
+            let principal = self.receiverDeposits[receiverID] ?? 0.0  // deposits + prizes
             let totalBalance = self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
             return totalBalance > principal ? totalBalance - principal : 0.0
         }
@@ -2483,7 +2439,7 @@ access(all) contract PrizeSavings {
         }
         
         access(all) view fun isReceiverRegistered(receiverID: UInt64): Bool {
-            return self.registeredReceivers[receiverID] == true
+            return self.registeredReceivers[receiverID] != nil
         }
         
         access(all) view fun getRegisteredReceiverIDs(): [UInt64] {
@@ -2551,9 +2507,13 @@ access(all) contract PrizeSavings {
     }
     
     access(all) struct PoolBalance {
+        /// User deposits + auto-compounded prizes (the "no-loss guarantee" amount, decreases on withdrawal)
         access(all) let deposits: UFix64
+        /// Lifetime total of lottery prizes won (cumulative, never decreases)
         access(all) let totalEarnedPrizes: UFix64
+        /// Current pending savings interest (will be included in next withdrawal)
         access(all) let savingsEarned: UFix64
+        /// Total withdrawable balance: deposits + savingsEarned
         access(all) let totalBalance: UFix64
         
         init(deposits: UFix64, totalEarnedPrizes: UFix64, savingsEarned: UFix64) {
