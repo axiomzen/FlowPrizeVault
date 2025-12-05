@@ -17,8 +17,8 @@ transaction {
         signer.storage.save(<-testVault, to: vaultPath)
         
         // Create capabilities for the connector
-        let withdrawCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>(vaultPath)
-        let depositCap = signer.capabilities.storage.issue<&{FungibleToken.Receiver}>(vaultPath)
+        let withdrawCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &FlowToken.Vault>(vaultPath)
+        let depositCap = signer.capabilities.storage.issue<&FlowToken.Vault>(vaultPath)
         
         // Create mock connector using MockYieldConnector
         let mockConnector = MockYieldConnector.createSimpleVaultConnector(

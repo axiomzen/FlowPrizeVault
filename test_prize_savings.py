@@ -1067,7 +1067,7 @@ def test_nft_prizes() -> bool:
         # Claim the NFT (index 0 = first pending NFT)
         success, output = run_flow_tx(
             "cadence/transactions/prize-savings/claim_nft_prize.cdc",
-            pool_id, "0", "/storage/SimpleNFTCollection"
+            pool_id, "0", "/storage/MockNFTCollection"
         )
         
         if success:
@@ -2318,7 +2318,7 @@ def test_nft_edge_cases() -> bool:
         
         success, output = run_flow_tx(
             "cadence/transactions/prize-savings/withdraw_nft_prize.cdc",
-            pool_id, str(nft_to_withdraw), "/storage/SimpleNFTCollection"
+            pool_id, str(nft_to_withdraw), "/storage/MockNFTCollection"
         )
         
         if success:
@@ -2367,7 +2367,7 @@ def test_nft_edge_cases() -> bool:
             print_info("Non-winner attempting to claim NFT...")
             success, output = run_flow_tx(
                 "cadence/transactions/prize-savings/claim_nft_prize.cdc",
-                pool_id, "0", "/storage/SimpleNFTCollection",
+                pool_id, "0", "/storage/MockNFTCollection",
                 signer=test_user.name
             )
             
@@ -2407,7 +2407,7 @@ def test_nft_edge_cases() -> bool:
     print_info("Attempting to claim NFT at index 999...")
     success, output = run_flow_tx(
         "cadence/transactions/prize-savings/claim_nft_prize.cdc",
-        pool_id, "999", "/storage/SimpleNFTCollection"
+        pool_id, "999", "/storage/MockNFTCollection"
     )
     
     if not success:

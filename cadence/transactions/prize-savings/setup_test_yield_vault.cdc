@@ -12,7 +12,7 @@ transaction {
     
     prepare(signer: auth(Storage, Capabilities) &Account) {
         // Check if vault already exists
-        if signer.storage.borrow<&FlowToken.Vault>(from: /storage/testYieldVault) != nil {
+        if signer.storage.type(at: /storage/testYieldVault) != nil {
             log("Test yield vault already exists")
             return
         }
@@ -22,12 +22,12 @@ transaction {
         signer.storage.save(<-vault, to: /storage/testYieldVault)
         
         // Issue provider capability (for withdrawing - simulating yield returns)
-        let providerCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>(
+        let providerCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &FlowToken.Vault>(
             /storage/testYieldVault
         )
         
         // Issue receiver capability (for depositing into yield source)
-        let receiverCap = signer.capabilities.storage.issue<&{FungibleToken.Receiver}>(
+        let receiverCap = signer.capabilities.storage.issue<&FlowToken.Vault>(
             /storage/testYieldVault
         )
         signer.capabilities.publish(receiverCap, at: /public/testYieldVaultReceiver)
