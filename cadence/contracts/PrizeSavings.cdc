@@ -6,7 +6,7 @@ Rewards auto-compound into deposits via ERC4626-style shares model.
 
 Architecture:
 - ERC4626-style shares with virtual offset protection (inflation attack resistant)
-- TWAB (time-weighted average balance) for fair lottery weighting
+- TWAB (time-weighted average balance) using balance-seconds for fair lottery weighting
 - On-chain randomness via Flow's RandomConsumer
 - Modular yield sources via DeFi Actions interface
 - Configurable distribution strategies (savings/lottery/treasury split)
@@ -18,8 +18,14 @@ Architecture:
 - Bonus lottery weights for promotions
 - Winner tracking integration for leaderboards
 
+Lottery Fairness:
+- Uses balance-seconds (current_balance × time) for lottery weighting
+- Balance = shares × share_price, so yield automatically counts toward lottery odds
+- Users who earn more yield have proportionally higher lottery chances
+- Rewards commitment: longer deposits = more accumulated balance-seconds
+
 Core Components:
-- SavingsDistributor: Shares vault with epoch-based stake tracking
+- SavingsDistributor: Shares vault with balance-seconds tracking for lottery weights
 - LotteryDistributor: Prize pool, NFT prizes, and draw execution
 - Pool: Deposits, withdrawals, yield processing, and prize draws
 - PoolPositionCollection: User's resource for interacting with pools
@@ -611,8 +617,9 @@ access(all) contract PrizeSavings {
         access(all) var totalDistributed: UFix64
         access(self) let vaultType: Type
         
-        // Time-weighted stake tracking for lottery fairness
-        access(self) let userCumulativeShareSeconds: {UInt64: UFix64}
+        // Time-weighted balance tracking for lottery fairness (balance-seconds)
+        // Uses current balance (shares × share_price) so yield counts toward lottery odds
+        access(self) let userCumulativeBalanceSeconds: {UInt64: UFix64}
         access(self) let userLastUpdateTime: {UInt64: UFix64}
         access(self) let userEpochID: {UInt64: UInt64}
         access(self) var currentEpochID: UInt64
@@ -625,7 +632,7 @@ access(all) contract PrizeSavings {
             self.totalDistributed = 0.0
             self.vaultType = vaultType
             
-            self.userCumulativeShareSeconds = {}
+            self.userCumulativeBalanceSeconds = {}
             self.userLastUpdateTime = {}
             self.userEpochID = {}
             self.currentEpochID = 1
@@ -641,10 +648,12 @@ access(all) contract PrizeSavings {
             self.totalDistributed = self.totalDistributed + amount
         }
         
-        access(all) view fun getElapsedShareSeconds(receiverID: UInt64): UFix64 {
+        /// Calculate elapsed balance-seconds since last update.
+        /// Uses current balance (shares × share_price) so yield is included in lottery weight.
+        access(all) view fun getElapsedBalanceSeconds(receiverID: UInt64): UFix64 {
             let now = getCurrentBlock().timestamp
             let userEpoch = self.userEpochID[receiverID] ?? 0
-            let currentShares = self.userShares[receiverID] ?? 0.0
+            let currentBalance = self.getUserAssetValue(receiverID: receiverID)
             
             let effectiveLastUpdate = userEpoch < self.currentEpochID 
                 ? self.epochStartTime 
@@ -654,7 +663,7 @@ access(all) contract PrizeSavings {
             if elapsed <= 0.0 {
                 return 0.0
             }
-            return currentShares * elapsed
+            return currentBalance * elapsed
         }
         
         access(all) view fun getEffectiveAccumulated(receiverID: UInt64): UFix64 {
@@ -662,18 +671,18 @@ access(all) contract PrizeSavings {
             if userEpoch < self.currentEpochID {
                 return 0.0  // Would be reset on next accumulation
             }
-            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
+            return self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
         }
         
         access(contract) fun accumulateTime(receiverID: UInt64) {
             let userEpoch = self.userEpochID[receiverID] ?? 0
             
             if userEpoch < self.currentEpochID {
-                self.userCumulativeShareSeconds[receiverID] = 0.0
+                self.userCumulativeBalanceSeconds[receiverID] = 0.0
                 self.userEpochID[receiverID] = self.currentEpochID
                 
-                let currentShares = self.userShares[receiverID] ?? 0.0
-                if currentShares > 0.0 {
+                let currentBalance = self.getUserAssetValue(receiverID: receiverID)
+                if currentBalance > 0.0 {
                     self.userLastUpdateTime[receiverID] = self.epochStartTime
                 } else {
                     self.userLastUpdateTime[receiverID] = getCurrentBlock().timestamp
@@ -681,22 +690,26 @@ access(all) contract PrizeSavings {
                 }
             }
             
-            let elapsed = self.getElapsedShareSeconds(receiverID: receiverID)
+            let elapsed = self.getElapsedBalanceSeconds(receiverID: receiverID)
             if elapsed > 0.0 {
-                let currentAccum = self.userCumulativeShareSeconds[receiverID] ?? 0.0
-                self.userCumulativeShareSeconds[receiverID] = currentAccum + elapsed
+                let currentAccum = self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
+                self.userCumulativeBalanceSeconds[receiverID] = currentAccum + elapsed
             }
             self.userLastUpdateTime[receiverID] = getCurrentBlock().timestamp
         }
         
-        access(all) view fun getTimeWeightedStake(receiverID: UInt64): UFix64 {
+        /// Returns total time-weighted balance (balance-seconds) for lottery weight calculation.
+        /// Includes both accumulated and elapsed balance-seconds.
+        access(all) view fun getTimeWeightedBalance(receiverID: UInt64): UFix64 {
             return self.getEffectiveAccumulated(receiverID: receiverID) 
-                + self.getElapsedShareSeconds(receiverID: receiverID)
+                + self.getElapsedBalanceSeconds(receiverID: receiverID)
         }
         
-        access(contract) fun updateAndGetTimeWeightedStake(receiverID: UInt64): UFix64 {
+        /// Accumulate time and return the time-weighted balance (balance-seconds).
+        /// Used by lottery draw to get final lottery weight.
+        access(contract) fun updateAndGetTimeWeightedBalance(receiverID: UInt64): UFix64 {
             self.accumulateTime(receiverID: receiverID)
-            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
+            return self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
         }
         
         access(contract) fun startNewPeriod() {
@@ -753,24 +766,22 @@ access(all) contract PrizeSavings {
             let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
             let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS
             
-            if assets > 0.0 {
-                let maxSafeAssets = UFix64.max / effectiveShares
-                assert(assets <= maxSafeAssets, message: "Deposit amount too large - would cause overflow")
-            }
-            
-            return (assets * effectiveShares) / effectiveAssets
+            // Calculate share price first to avoid overflow in assets * effectiveShares
+            // share_price = effectiveAssets / effectiveShares (close to 1.0)
+            // shares = assets / share_price
+            let sharePrice = effectiveAssets / effectiveShares
+            return assets / sharePrice
         }
         
         access(all) view fun convertToAssets(_ shares: UFix64): UFix64 {
             let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
             let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS
             
-            if shares > 0.0 {
-                let maxSafeShares = UFix64.max / effectiveAssets
-                assert(shares <= maxSafeShares, message: "Share amount too large - would cause overflow")
-            }
-            
-            return (shares * effectiveAssets) / effectiveShares
+            // Calculate share price first to avoid overflow in shares * effectiveAssets
+            // share_price = effectiveAssets / effectiveShares (close to 1.0)
+            // Then: assets = shares * share_price
+            let sharePrice = effectiveAssets / effectiveShares
+            return shares * sharePrice
         }
         
         access(all) view fun getUserAssetValue(receiverID: UInt64): UFix64 {
@@ -795,7 +806,7 @@ access(all) contract PrizeSavings {
         }
         
         access(all) view fun getUserAccumulatedRaw(receiverID: UInt64): UFix64 {
-            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
+            return self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
         }
         
         access(all) view fun getUserLastUpdateTime(receiverID: UInt64): UFix64 {
@@ -806,26 +817,26 @@ access(all) contract PrizeSavings {
             return self.userEpochID[receiverID] ?? 0
         }
         
-        /// Calculate projected stake at a specific time (no state change)
-        access(all) view fun calculateStakeAtTime(receiverID: UInt64, targetTime: UFix64): UFix64 {
+        /// Calculate projected balance-seconds at a specific time (no state change)
+        access(all) view fun calculateBalanceSecondsAtTime(receiverID: UInt64, targetTime: UFix64): UFix64 {
             let userEpoch = self.userEpochID[receiverID] ?? 0
-            let shares = self.userShares[receiverID] ?? 0.0
+            let balance = self.getUserAssetValue(receiverID: receiverID)
             
             if userEpoch < self.currentEpochID {
                 if targetTime <= self.epochStartTime { return 0.0 }
-                return shares * (targetTime - self.epochStartTime)
+                return balance * (targetTime - self.epochStartTime)
             }
             
             let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.epochStartTime
-            let accumulated = self.userCumulativeShareSeconds[receiverID] ?? 0.0
+            let accumulated = self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
             
             if targetTime <= lastUpdate {
                 let overdraft = lastUpdate - targetTime
-                let overdraftAmount = shares * overdraft
+                let overdraftAmount = balance * overdraft
                 return accumulated >= overdraftAmount ? accumulated - overdraftAmount : 0.0
             }
             
-            return accumulated + (shares * (targetTime - lastUpdate))
+            return accumulated + (balance * (targetTime - lastUpdate))
         }
     }
     
@@ -993,7 +1004,7 @@ access(all) contract PrizeSavings {
     access(all) struct interface WinnerSelectionStrategy {
         /// Select winners based on weighted random selection.
         /// - Parameter randomNumber: Source of randomness for selection
-        /// - Parameter receiverWeights: Map of receiverID to their selection weight (e.g., time-weighted stake + bonuses).
+        /// - Parameter receiverWeights: Map of receiverID to their selection weight (balance-seconds + bonuses).
         ///   NOTE: These are NOT raw deposit balances - they represent lottery ticket weights.
         /// - Parameter totalPrizeAmount: Total prize pool to distribute among winners
         access(all) fun selectWinners(
@@ -1987,7 +1998,8 @@ access(all) contract PrizeSavings {
             )
         }
         
-        /// Start draw using time-weighted stakes (TWAB-like). See docs/LOTTERY_FAIRNESS_ANALYSIS.md
+        /// Start a lottery draw using balance-seconds (TWAB) for fair weighting.
+        /// Each user's lottery weight = accumulated (balance × time) during the epoch.
         access(all) fun startDraw() {
             pre {
                 self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: \(self.emergencyState.rawValue)"
@@ -2002,7 +2014,7 @@ access(all) contract PrizeSavings {
             
             let timeWeightedStakes: {UInt64: UFix64} = {}
             for receiverID in self.registeredReceivers.keys {
-                let twabStake = self.savingsDistributor.updateAndGetTimeWeightedStake(receiverID: receiverID)
+                let twabStake = self.savingsDistributor.updateAndGetTimeWeightedBalance(receiverID: receiverID)
                 
                 // Scale bonus weights by epoch duration
                 let bonusWeight = self.getBonusWeight(receiverID: receiverID)
@@ -2387,8 +2399,8 @@ access(all) contract PrizeSavings {
             return effectiveAssets / effectiveShares
         }
         
-        access(all) view fun getUserTimeWeightedStake(receiverID: UInt64): UFix64 {
-            return self.savingsDistributor.getTimeWeightedStake(receiverID: receiverID)
+        access(all) view fun getUserTimeWeightedBalance(receiverID: UInt64): UFix64 {
+            return self.savingsDistributor.getTimeWeightedBalance(receiverID: receiverID)
         }
         
         access(all) view fun getCurrentEpochID(): UInt64 {
@@ -2420,8 +2432,8 @@ access(all) contract PrizeSavings {
             return nil
         }
         
-        access(all) view fun getUserProjectedStake(receiverID: UInt64, atTime: UFix64): UFix64 {
-            return self.savingsDistributor.calculateStakeAtTime(receiverID: receiverID, targetTime: atTime)
+        access(all) view fun getUserProjectedBalanceSeconds(receiverID: UInt64, atTime: UFix64): UFix64 {
+            return self.savingsDistributor.calculateBalanceSecondsAtTime(receiverID: receiverID, targetTime: atTime)
         }
         
         /// Preview how many shares would be minted for a deposit amount (ERC-4626 style)
