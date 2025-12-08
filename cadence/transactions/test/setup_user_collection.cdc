@@ -4,9 +4,7 @@ import "PrizeSavings"
 transaction {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         // Check if collection already exists
-        if signer.storage.borrow<&PrizeSavings.PoolPositionCollection>(
-            from: PrizeSavings.PoolPositionCollectionStoragePath
-        ) != nil {
+        if signer.storage.type(at: PrizeSavings.PoolPositionCollectionStoragePath) != nil {
             log("Collection already exists")
             return
         }
@@ -16,7 +14,7 @@ transaction {
         signer.storage.save(<-collection, to: PrizeSavings.PoolPositionCollectionStoragePath)
         
         // Create public capability
-        let cap = signer.capabilities.storage.issue<&{PrizeSavings.PoolPositionCollectionPublic}>(
+        let cap = signer.capabilities.storage.issue<&PrizeSavings.PoolPositionCollection>(
             PrizeSavings.PoolPositionCollectionStoragePath
         )
         signer.capabilities.publish(cap, at: PrizeSavings.PoolPositionCollectionPublicPath)
