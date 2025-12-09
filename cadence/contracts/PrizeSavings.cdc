@@ -47,7 +47,7 @@ access(all) contract PrizeSavings {
     
     /// Virtual offset constants for ERC4626 inflation attack protection.
     /// These create "dead" shares/assets that prevent share price manipulation.
-    /// Using 1.0 as the offset value (standard practice).
+    /// Using 0.0001 to minimize user dilution (~0.0001%) while maintaining security.
     access(all) let VIRTUAL_SHARES: UFix64
     access(all) let VIRTUAL_ASSETS: UFix64
     
@@ -604,7 +604,7 @@ access(all) contract PrizeSavings {
         }
         
         access(all) fun getStrategyName(): String {
-            return "Fixed: \(self.savingsPercent) savings, \(self.lotteryPercent) lottery"
+            return "Fixed: \(self.savingsPercent) savings, \(self.lotteryPercent) lottery, \(self.treasuryPercent) treasury"
         }
     }
     
@@ -639,13 +639,24 @@ access(all) contract PrizeSavings {
             self.epochStartTime = getCurrentBlock().timestamp
         }
         
-        access(contract) fun accrueYield(amount: UFix64) {
+        /// Accrue yield to the savings pool.
+        /// Returns the "dust" amount that goes to virtual shares (to be routed to treasury).
+        /// This prevents the virtual share dilution from being lost.
+        access(contract) fun accrueYield(amount: UFix64): UFix64 {
             if amount == 0.0 || self.totalShares == 0.0 {
-                return
+                return 0.0
             }
             
-            self.totalAssets = self.totalAssets + amount
-            self.totalDistributed = self.totalDistributed + amount
+            // Calculate how much goes to virtual shares (dust)
+            // dustPercent = VIRTUAL_SHARES / (totalShares + VIRTUAL_SHARES)
+            let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
+            let dustAmount = amount * PrizeSavings.VIRTUAL_SHARES / effectiveShares
+            let userAmount = amount - dustAmount
+            
+            self.totalAssets = self.totalAssets + userAmount
+            self.totalDistributed = self.totalDistributed + userAmount
+            
+            return dustAmount
         }
         
         /// Calculate elapsed balance-seconds since last update.
@@ -1797,9 +1808,27 @@ access(all) contract PrizeSavings {
                     )
                     self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
                     destroy from
-                    self.savingsDistributor.accrueYield(amount: amount)
-                    self.totalStaked = self.totalStaked + amount
-                    emit SavingsYieldAccrued(poolID: self.poolID, amount: amount)
+                    let dustAmount = self.savingsDistributor.accrueYield(amount: amount)
+                    let actualSavings = amount - dustAmount
+                    self.totalStaked = self.totalStaked + actualSavings
+                    emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
+                    
+                    // Route dust to treasury if recipient configured
+                    if dustAmount > 0.0 {
+                        emit SavingsRoundingDustToTreasury(poolID: self.poolID, amount: dustAmount)
+                        if let cap = self.treasuryRecipientCap {
+                            if let recipientRef = cap.borrow() {
+                                let dustVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: dustAmount)
+                                if dustVault.balance > 0.0 {
+                                    recipientRef.deposit(from: <- dustVault)
+                                    self.totalTreasuryForwarded = self.totalTreasuryForwarded + dustAmount
+                                    emit TreasuryForwarded(poolID: self.poolID, amount: dustAmount, recipient: cap.address)
+                                } else {
+                                    destroy dustVault
+                                }
+                            }
+                        }
+                    }
                 default:
                     panic("Unsupported funding destination")
             }
@@ -1955,10 +1984,17 @@ access(all) contract PrizeSavings {
             
             let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: availableYield)
             
+            var savingsDust: UFix64 = 0.0
+            
             if plan.savingsAmount > 0.0 {
-                self.savingsDistributor.accrueYield(amount: plan.savingsAmount)
-                self.totalStaked = self.totalStaked + plan.savingsAmount
-                emit SavingsYieldAccrued(poolID: self.poolID, amount: plan.savingsAmount)
+                savingsDust = self.savingsDistributor.accrueYield(amount: plan.savingsAmount)
+                let actualSavings = plan.savingsAmount - savingsDust
+                self.totalStaked = self.totalStaked + actualSavings
+                emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
+                
+                if savingsDust > 0.0 {
+                    emit SavingsRoundingDustToTreasury(poolID: self.poolID, amount: savingsDust)
+                }
             }
             
             if plan.lotteryAmount > 0.0 {
@@ -1970,10 +2006,13 @@ access(all) contract PrizeSavings {
                 )
             }
             
-            if plan.treasuryAmount > 0.0 {
+            // Combine planned treasury amount with savings dust
+            let totalTreasuryAmount = plan.treasuryAmount + savingsDust
+            
+            if totalTreasuryAmount > 0.0 {
                 if let cap = self.treasuryRecipientCap {
                     if let recipientRef = cap.borrow() {
-                        let treasuryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: plan.treasuryAmount)
+                        let treasuryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: totalTreasuryAmount)
                         let actualAmount = treasuryVault.balance
                         if actualAmount > 0.0 {
                             recipientRef.deposit(from: <- treasuryVault)
@@ -1993,7 +2032,7 @@ access(all) contract PrizeSavings {
             emit RewardsProcessed(
                 poolID: self.poolID,
                 totalAmount: availableYield,
-                savingsAmount: plan.savingsAmount,
+                savingsAmount: plan.savingsAmount - savingsDust,
                 lotteryAmount: plan.lotteryAmount
             )
         }
@@ -2546,6 +2585,7 @@ access(all) contract PrizeSavings {
         access(all) fun getPoolBalance(poolID: UInt64): PoolBalance
         access(all) view fun getPendingNFTCount(poolID: UInt64): Int
         access(all) fun getPendingNFTIDs(poolID: UInt64): [UInt64]
+        access(all) view fun getReceiverID(): UInt64
     }
     
     /// PoolPositionCollection represents a user's position across all prize pools.
@@ -2634,6 +2674,10 @@ access(all) contract PrizeSavings {
             return []
         }
         
+        access(all) view fun getReceiverID(): UInt64 {
+            return self.uuid
+        }
+        
         access(all) view fun getPendingSavingsInterest(poolID: UInt64): UFix64 {
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
                 return poolRef.getPendingSavingsInterest(receiverID: self.uuid)
@@ -2702,8 +2746,8 @@ access(all) contract PrizeSavings {
     
     init() {
         // Virtual offset constants for ERC4626 inflation attack protection
-        self.VIRTUAL_SHARES = 1.0
-        self.VIRTUAL_ASSETS = 1.0
+        self.VIRTUAL_SHARES = 0.0001
+        self.VIRTUAL_ASSETS = 0.0001
         
         self.PoolPositionCollectionStoragePath = /storage/PrizeSavingsCollection
         self.PoolPositionCollectionPublicPath = /public/PrizeSavingsCollection
