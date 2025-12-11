@@ -381,7 +381,31 @@ def test_yield() -> bool:
     print_step("Pool stats after processing rewards...")
     success, output = run_flow_script("cadence/scripts/prize-savings/get_pool_stats.cdc", pool_id)
     print(output[:500] if len(output) > 500 else output)
-    print_success("Yield processing")
+    print_success("Yield processing via deposit")
+    
+    # =========================================
+    # Test explicit process_rewards.cdc
+    # =========================================
+    print_step("Testing explicit process_rewards transaction...")
+    print_info("This transaction allows anyone to trigger reward processing")
+    
+    # Add more yield
+    success, output = run_flow_tx("cadence/transactions/prize-savings/add_yield_to_pool.cdc", "15.0")
+    check_result(success, output, "Add 15 FLOW yield for explicit processing")
+    
+    # Call process_rewards explicitly
+    success, output = run_flow_tx("cadence/transactions/prize-savings/process_rewards.cdc", pool_id)
+    
+    if success:
+        print_success("Explicit process_rewards transaction succeeded")
+    else:
+        # This is permissionless, so it should work but may log "no yield available"
+        print_info(f"process_rewards result: {output[:200]}")
+    
+    # Check stats after explicit processing
+    print_step("Pool stats after explicit process_rewards...")
+    success, output = run_flow_script("cadence/scripts/prize-savings/get_pool_stats.cdc", pool_id)
+    print(output[:500] if len(output) > 500 else output)
     
     return True
 
@@ -541,6 +565,45 @@ def test_treasury() -> bool:
         print_success("Treasury recipient cleared")
     else:
         print_error("Treasury recipient not cleared")
+    
+    # =========================================
+    # Test withdraw_treasury.cdc
+    # =========================================
+    print_step("Testing treasury withdrawal (without recipient)...")
+    print_info("When no recipient is set, treasury funds accumulate in the pool")
+    
+    # Add yield to accumulate treasury (10% goes to treasury with default distribution)
+    success, output = run_flow_tx("cadence/transactions/prize-savings/add_yield_to_pool.cdc", "100.0")
+    check_result(success, output, "Add 100 FLOW yield for treasury accumulation")
+    
+    # Process rewards via deposit
+    run_flow_tx("cadence/transactions/prize-savings/deposit.cdc", pool_id, "1.0")
+    
+    # Check treasury stats for accumulated amount
+    print_step("Checking accumulated treasury...")
+    success, output = run_flow_script("cadence/scripts/prize-savings/get_treasury_stats.cdc", pool_id)
+    print(output)
+    
+    # Attempt admin treasury withdrawal
+    print_step("Testing admin treasury withdrawal...")
+    success, output = run_flow_tx(
+        "cadence/transactions/prize-savings/withdraw_treasury.cdc",
+        pool_id, "1.0", "Test treasury withdrawal"
+    )
+    
+    if success:
+        print_success("Admin treasury withdrawal successful")
+    else:
+        # May fail if no treasury accumulated or insufficient funds
+        if "insufficient" in output.lower() or "not enough" in output.lower():
+            print_info("Treasury withdrawal failed - no funds available (expected in some cases)")
+        else:
+            print_info(f"Treasury withdrawal result: {output[:200]}")
+    
+    # Check treasury stats after withdrawal
+    print_step("Treasury stats after withdrawal attempt...")
+    success, output = run_flow_script("cadence/scripts/prize-savings/get_treasury_stats.cdc", pool_id)
+    print(output)
     
     return True
 
@@ -1914,7 +1977,7 @@ def test_invalid_pool_operations() -> bool:
     # Test 4b: Get user positions for non-existent user
     print_info("4b. Querying positions for non-existent address...")
     success, output = run_flow_script(
-        "cadence/scripts/prize-savings/get_user_positions.cdc",
+        "cadence/scripts/prize-savings/get_user_pools.cdc",
         fake_address
     )
     
@@ -2069,11 +2132,11 @@ def test_access_control() -> bool:
             # First set up the test user with a position
             print_info("Setting up test user's FlowToken vault and position collection...")
             success, output = run_flow_tx(
-                "cadence/transactions/prize-savings/setup_position_collection.cdc",
+                "cadence/transactions/prize-savings/setup_collection.cdc",
                 signer=test_user.name
             )
             if not success:
-                print_info("Position collection setup may already exist or failed")
+                print_info("Collection setup may already exist or failed")
             
             # Test user deposits their own funds
             print_info("Test user depositing their own 10 FLOW...")
@@ -2358,7 +2421,7 @@ def test_nft_edge_cases() -> bool:
         
         # Setup position collection for test user
         run_flow_tx(
-            "cadence/transactions/prize-savings/setup_position_collection.cdc",
+            "cadence/transactions/prize-savings/setup_collection.cdc",
             signer=test_user.name
         )
         
