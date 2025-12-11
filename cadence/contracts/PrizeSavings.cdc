@@ -103,9 +103,6 @@ access(all) contract PrizeSavings {
     
     access(all) event DirectFundingReceived(poolID: UInt64, destination: UInt8, destinationName: String, amount: UFix64, sponsor: Address, purpose: String, metadata: {String: String})
     
-    access(all) event AdminMetadataUpdated(namespace: String, key: String, updatedBy: Address)
-    access(all) event AdminMetadataRemoved(namespace: String, key: String?, removedBy: Address)
-    
     access(self) var pools: @{UInt64: Pool}
     access(self) var nextPoolID: UInt64
     
@@ -327,25 +324,29 @@ access(all) contract PrizeSavings {
         }
         
         access(CriticalOps) fun enableEmergencyMode(poolID: UInt64, reason: String, enabledBy: Address) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID) ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
+                ?? panic("Pool does not exist")
             poolRef.setEmergencyMode(reason: reason)
             emit PoolEmergencyEnabled(poolID: poolID, reason: reason, enabledBy: enabledBy, timestamp: getCurrentBlock().timestamp)
         }
         
         access(CriticalOps) fun disableEmergencyMode(poolID: UInt64, disabledBy: Address) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID) ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
+                ?? panic("Pool does not exist")
             poolRef.clearEmergencyMode()
             emit PoolEmergencyDisabled(poolID: poolID, disabledBy: disabledBy, timestamp: getCurrentBlock().timestamp)
         }
         
         access(CriticalOps) fun setEmergencyPartialMode(poolID: UInt64, reason: String, setBy: Address) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID) ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
+                ?? panic("Pool does not exist")
             poolRef.setPartialMode(reason: reason)
             emit PoolPartialModeEnabled(poolID: poolID, reason: reason, setBy: setBy, timestamp: getCurrentBlock().timestamp)
         }
         
         access(CriticalOps) fun updateEmergencyConfig(poolID: UInt64, newConfig: EmergencyConfig, updatedBy: Address) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID) ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
+                ?? panic("Pool does not exist")
             poolRef.setEmergencyConfig(config: newConfig)
             emit EmergencyConfigUpdated(poolID: poolID, updatedBy: updatedBy)
         }
@@ -358,7 +359,8 @@ access(all) contract PrizeSavings {
             purpose: String,
             metadata: {String: String}?
         ) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID) ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
+                ?? panic("Pool does not exist")
             let amount = from.balance
             poolRef.fundDirectInternal(destination: destination, from: <- from, sponsor: sponsor, purpose: purpose, metadata: metadata ?? {})
             
@@ -549,58 +551,23 @@ access(all) contract PrizeSavings {
         // Batch draw functions (for future scalability when user count grows)
 
         access(CriticalOps) fun startPoolDrawSnapshot(poolID: UInt64) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID) ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
+                ?? panic("Pool does not exist")
             poolRef.startDrawSnapshot()
         }
         
         access(CriticalOps) fun processPoolDrawBatch(poolID: UInt64, limit: Int) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID) ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
+                ?? panic("Pool does not exist")
             poolRef.captureStakesBatch(limit: limit)
         }
         
         access(CriticalOps) fun finalizePoolDraw(poolID: UInt64) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID) ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
+                ?? panic("Pool does not exist")
             poolRef.finalizeDrawStart()
         }
         
-        // ============ Metadata Management ============
-
-        access(CriticalOps) fun setMetadata(namespace: String, key: String, value: AnyStruct, updatedBy: Address) {
-            var ns = self.metadata[namespace] ?? {}
-            ns[key] = value
-            self.metadata[namespace] = ns
-            
-            emit AdminMetadataUpdated(namespace: namespace, key: key, updatedBy: updatedBy)
-        }
-        
-        access(CriticalOps) fun removeMetadata(namespace: String, key: String, removedBy: Address) {
-            if var ns = self.metadata[namespace] {
-                let _ = ns.remove(key: key)
-                self.metadata[namespace] = ns
-            }
-            
-            emit AdminMetadataRemoved(namespace: namespace, key: key, removedBy: removedBy)
-        }
-        
-        access(CriticalOps) fun removeNamespace(namespace: String, removedBy: Address) {
-            let _ = self.metadata.remove(key: namespace)
-            emit AdminMetadataRemoved(namespace: namespace, key: nil, removedBy: removedBy)
-        }
-        
-        access(all) view fun getMetadata(namespace: String, key: String): AnyStruct? {
-            if let ns = self.metadata[namespace] {
-                return ns[key]
-            }
-            return nil
-        }
-        
-        access(all) view fun getNamespace(namespace: String): {String: AnyStruct}? {
-            return self.metadata[namespace]
-        }
-        
-        access(all) view fun getNamespaces(): [String] {
-            return self.metadata.keys
-        }
     }
     
     access(all) let AdminStoragePath: StoragePath
@@ -2783,27 +2750,6 @@ access(all) contract PrizeSavings {
     
     access(all) view fun getAllPoolIDs(): [UInt64] {
         return self.pools.keys
-    }
-    
-    access(all) view fun getAdminMetadata(namespace: String, key: String): AnyStruct? {
-        if let admin = self.account.storage.borrow<&Admin>(from: self.AdminStoragePath) {
-            return admin.getMetadata(namespace: namespace, key: key)
-        }
-        return nil
-    }
-    
-    access(all) view fun getAdminNamespace(namespace: String): {String: AnyStruct}? {
-        if let admin = self.account.storage.borrow<&Admin>(from: self.AdminStoragePath) {
-            return admin.getNamespace(namespace: namespace)
-        }
-        return nil
-    }
-    
-    access(all) view fun getAdminNamespaces(): [String] {
-        if let admin = self.account.storage.borrow<&Admin>(from: self.AdminStoragePath) {
-            return admin.getNamespaces()
-        }
-        return []
     }
     
     access(all) fun createPoolPositionCollection(): @PoolPositionCollection {
