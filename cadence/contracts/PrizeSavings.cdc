@@ -652,8 +652,8 @@ access(all) contract PrizeSavings {
         }
         
         /// Accrue yield to the savings pool.
-        /// Returns the "dust" amount that goes to virtual shares (to be routed to treasury).
-        /// This prevents the virtual share dilution from being lost.
+        /// Returns the actual amount accrued to users (after virtual share dust is excluded).
+        /// The dust portion goes to virtual shares to prevent dilution attacks.
         access(contract) fun accrueYield(amount: UFix64): UFix64 {
             if amount == 0.0 || self.totalShares == 0.0 {
                 return 0.0
@@ -663,12 +663,12 @@ access(all) contract PrizeSavings {
             // dustPercent = VIRTUAL_SHARES / (totalShares + VIRTUAL_SHARES)
             let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
             let dustAmount = amount * PrizeSavings.VIRTUAL_SHARES / effectiveShares
-            let userAmount = amount - dustAmount
+            let actualSavings = amount - dustAmount
             
-            self.totalAssets = self.totalAssets + userAmount
-            self.totalDistributed = self.totalDistributed + userAmount
+            self.totalAssets = self.totalAssets + actualSavings
+            self.totalDistributed = self.totalDistributed + actualSavings
             
-            return dustAmount
+            return actualSavings
         }
         
         /// Calculate elapsed balance-seconds since last update.
@@ -1820,8 +1820,8 @@ access(all) contract PrizeSavings {
                     )
                     self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
                     destroy from
-                    let dustAmount = self.savingsDistributor.accrueYield(amount: amount)
-                    let actualSavings = amount - dustAmount
+                    let actualSavings = self.savingsDistributor.accrueYield(amount: amount)
+                    let dustAmount = amount - actualSavings
                     self.totalStaked = self.totalStaked + actualSavings
                     emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
                     
@@ -1999,8 +1999,8 @@ access(all) contract PrizeSavings {
             var savingsDust: UFix64 = 0.0
             
             if plan.savingsAmount > 0.0 {
-                savingsDust = self.savingsDistributor.accrueYield(amount: plan.savingsAmount)
-                let actualSavings = plan.savingsAmount - savingsDust
+                let actualSavings = self.savingsDistributor.accrueYield(amount: plan.savingsAmount)
+                savingsDust = plan.savingsAmount - actualSavings
                 self.totalStaked = self.totalStaked + actualSavings
                 emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
                 
