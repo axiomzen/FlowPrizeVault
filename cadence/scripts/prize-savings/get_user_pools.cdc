@@ -8,7 +8,7 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 /// Returns: Array of pool IDs the user is registered with
 access(all) fun main(address: Address): [UInt64] {
     let collectionCap = getAccount(address)
-        .capabilities.get<&{PrizeSavings.PoolPositionCollectionPublic}>(
+        .capabilities.get<&PrizeSavings.PoolPositionCollection>(
             PrizeSavings.PoolPositionCollectionPublicPath
         )
     

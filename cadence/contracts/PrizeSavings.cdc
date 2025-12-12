@@ -41,9 +41,13 @@ import "PrizeWinnerTracker"
 import "Xorshift128plus"
 
 access(all) contract PrizeSavings {
+    // Admin entitlements
     access(all) entitlement ConfigOps
     access(all) entitlement CriticalOps
     access(all) entitlement OwnerOnly
+    
+    // User collection entitlement - protects deposit, withdraw, and claim operations
+    access(all) entitlement PositionOps
     
     /// Virtual offset constants for ERC4626 inflation attack protection.
     /// These create "dead" shares/assets that prevent share price manipulation.
@@ -2587,19 +2591,6 @@ access(all) contract PrizeSavings {
         }
     }
     
-    access(all) resource interface PoolPositionCollectionPublic {
-        access(all) view fun getRegisteredPoolIDs(): [UInt64]
-        access(all) view fun isRegisteredWithPool(poolID: UInt64): Bool
-        access(all) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault})
-        access(all) fun withdraw(poolID: UInt64, amount: UFix64): @{FungibleToken.Vault}
-        access(all) fun claimPendingNFT(poolID: UInt64, nftIndex: Int): @{NonFungibleToken.NFT}
-        access(all) view fun getPendingSavingsInterest(poolID: UInt64): UFix64
-        access(all) fun getPoolBalance(poolID: UInt64): PoolBalance
-        access(all) view fun getPendingNFTCount(poolID: UInt64): Int
-        access(all) fun getPendingNFTIDs(poolID: UInt64): [UInt64]
-        access(all) view fun getReceiverID(): UInt64
-    }
-    
     /// PoolPositionCollection represents a user's position across all prize pools.
     /// 
     /// ⚠️ IMPORTANT: This resource's UUID serves as the account key for all deposits.
@@ -2612,7 +2603,7 @@ access(all) contract PrizeSavings {
     /// - Implement clear UI warnings about this behavior
     /// - Consider enabling emergency admin recovery for extreme cases
     /// - Backup account access is critical
-    access(all) resource PoolPositionCollection: PoolPositionCollectionPublic {
+    access(all) resource PoolPositionCollection {
         access(self) let registeredPools: {UInt64: Bool}
         
         init() {
@@ -2639,7 +2630,7 @@ access(all) contract PrizeSavings {
             return self.registeredPools[poolID] == true
         }
         
-        access(all) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}) {
+        access(PositionOps) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}) {
             if self.registeredPools[poolID] == nil {
                 self.registerWithPool(poolID: poolID)
             }
@@ -2650,7 +2641,7 @@ access(all) contract PrizeSavings {
             poolRef.deposit(from: <- from, receiverID: self.uuid)
         }
         
-        access(all) fun withdraw(poolID: UInt64, amount: UFix64): @{FungibleToken.Vault} {
+        access(PositionOps) fun withdraw(poolID: UInt64, amount: UFix64): @{FungibleToken.Vault} {
             pre {
                 self.registeredPools[poolID] == true: "Not registered with pool"
             }
@@ -2661,7 +2652,7 @@ access(all) contract PrizeSavings {
             return <- poolRef.withdraw(amount: amount, receiverID: self.uuid)
         }
         
-        access(all) fun claimPendingNFT(poolID: UInt64, nftIndex: Int): @{NonFungibleToken.NFT} {
+        access(PositionOps) fun claimPendingNFT(poolID: UInt64, nftIndex: Int): @{NonFungibleToken.NFT} {
             pre {
                 self.registeredPools[poolID] == true: "Not registered with pool"
             }

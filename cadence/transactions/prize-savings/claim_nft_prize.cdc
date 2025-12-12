@@ -8,12 +8,12 @@ import NonFungibleToken from "NonFungibleToken"
 /// - nftIndex: Index of the NFT to claim (0 for first pending NFT)
 /// - nftReceiverPath: Storage path where NFTs should be deposited
 transaction(poolID: UInt64, nftIndex: Int, nftReceiverPath: StoragePath) {
-    let collectionRef: &PrizeSavings.PoolPositionCollection
+    let collectionRef: auth(PrizeSavings.PositionOps) &PrizeSavings.PoolPositionCollection
     let nftReceiverRef: &{NonFungibleToken.CollectionPublic}
     
     prepare(signer: auth(Storage) &Account) {
-        // Borrow pool position collection (claimPendingNFT is access(all))
-        self.collectionRef = signer.storage.borrow<&PrizeSavings.PoolPositionCollection>(
+        // Borrow pool position collection with Withdraw entitlement for claiming NFTs
+        self.collectionRef = signer.storage.borrow<auth(PrizeSavings.PositionOps) &PrizeSavings.PoolPositionCollection>(
             from: PrizeSavings.PoolPositionCollectionStoragePath
         ) ?? panic("PoolPositionCollection not found")
         
