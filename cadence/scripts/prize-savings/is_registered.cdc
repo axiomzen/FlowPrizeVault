@@ -9,7 +9,7 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 /// Returns: Boolean indicating if the user is registered
 access(all) fun main(address: Address, poolID: UInt64): Bool {
     let collectionCap = getAccount(address)
-        .capabilities.get<&{PrizeSavings.PoolPositionCollectionPublic}>(
+        .capabilities.get<&PrizeSavings.PoolPositionCollection>(
             PrizeSavings.PoolPositionCollectionPublicPath
         )
     

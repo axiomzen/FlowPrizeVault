@@ -9,7 +9,7 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 /// Returns: PoolBalance struct with deposits, prizes, savings, and total balance
 access(all) fun main(address: Address, poolID: UInt64): PrizeSavings.PoolBalance {
     let collectionRef = getAccount(address)
-        .capabilities.borrow<&{PrizeSavings.PoolPositionCollectionPublic}>(
+        .capabilities.borrow<&PrizeSavings.PoolPositionCollection>(
             PrizeSavings.PoolPositionCollectionPublicPath
         ) ?? panic("No collection found at address")
     
