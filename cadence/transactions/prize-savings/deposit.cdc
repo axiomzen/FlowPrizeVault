@@ -10,12 +10,12 @@ import FlowToken from "FlowToken"
 /// - amount: The amount of FLOW tokens to deposit
 transaction(poolID: UInt64, amount: UFix64) {
     
-    let collectionRef: &PrizeSavings.PoolPositionCollection
+    let collectionRef: auth(PrizeSavings.PositionOps) &PrizeSavings.PoolPositionCollection
     let vaultRef: auth(FungibleToken.Withdraw) &FlowToken.Vault
     
     prepare(signer: auth(Storage) &Account) {
-        // Borrow the collection
-        self.collectionRef = signer.storage.borrow<&PrizeSavings.PoolPositionCollection>(
+        // Borrow the collection with Withdraw entitlement for deposit
+        self.collectionRef = signer.storage.borrow<auth(PrizeSavings.PositionOps) &PrizeSavings.PoolPositionCollection>(
             from: PrizeSavings.PoolPositionCollectionStoragePath
         ) ?? panic("No PoolPositionCollection found. Run setup_collection.cdc first")
         

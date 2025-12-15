@@ -10,12 +10,12 @@ import FlowToken from "FlowToken"
 /// - amount: The amount of tokens to withdraw
 transaction(poolID: UInt64, amount: UFix64) {
     
-    let collectionRef: &PrizeSavings.PoolPositionCollection
+    let collectionRef: auth(PrizeSavings.PositionOps) &PrizeSavings.PoolPositionCollection
     let receiverRef: &{FungibleToken.Receiver}
     
     prepare(signer: auth(Storage) &Account) {
-        // Borrow the collection
-        self.collectionRef = signer.storage.borrow<&PrizeSavings.PoolPositionCollection>(
+        // Borrow the collection with Withdraw entitlement for withdraw
+        self.collectionRef = signer.storage.borrow<auth(PrizeSavings.PositionOps) &PrizeSavings.PoolPositionCollection>(
             from: PrizeSavings.PoolPositionCollectionStoragePath
         ) ?? panic("No PoolPositionCollection found")
         
