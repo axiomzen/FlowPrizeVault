@@ -2779,6 +2779,16 @@ access(all) contract PrizeSavings {
             }
             return PoolBalance(deposits: 0.0, totalEarnedPrizes: 0.0, savingsEarned: 0.0)
         }
+        
+        /// Returns the user's entry count for the current draw.
+        /// Entries represent lottery weight - higher entries = better odds.
+        /// Example: $10 deposited at start = 10 entries, $10 halfway = 5 entries
+        access(all) view fun getPoolEntries(poolID: UInt64): UFix64 {
+            if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
+                return poolRef.getUserEntries(receiverID: self.uuid)
+            }
+            return 0.0
+        }
     }
     
     access(contract) fun createPool(
