@@ -2571,6 +2571,83 @@ access(all) contract PrizeSavings {
             self.treasuryRecipientCap = cap
         }
         
+        // ============================================================
+        // ENTRY VIEW FUNCTIONS - Human-readable UI helpers
+        // ============================================================
+        // "Entries" represent the user's lottery weight for the current draw.
+        // Formula: entries = projectedTWAB / drawInterval
+        // 
+        // This normalizes balance-seconds to human-readable whole numbers:
+        // - $10 deposited at start of 7-day draw → 10 entries
+        // - $10 deposited halfway through → 5 entries (prorated for this draw)
+        // - At next round: same $10 deposit → 10 entries (full period credit)
+        //
+        // The TWAB naturally handles:
+        // - Multiple deposits at different times (weighted correctly)
+        // - Partial withdrawals (reduces entry count)
+        // - Yield compounding (higher balance = more entries over time)
+        // ============================================================
+        
+        /// Internal: Returns the user's current accumulated entries (TWAB / drawInterval).
+        /// This represents their lottery weight accumulated so far, NOT their final weight.
+        access(self) view fun getCurrentEntries(receiverID: UInt64): UFix64 {
+            let twab = self.savingsDistributor.getTimeWeightedBalance(receiverID: receiverID)
+            let drawInterval = self.config.drawIntervalSeconds
+            if drawInterval == 0.0 {
+                return 0.0
+            }
+            return twab / drawInterval
+        }
+        
+        /// Returns the user's entry count for this draw.
+        /// Projects TWAB forward to draw time assuming no balance changes.
+        /// Formula: (currentTWAB + balance × remainingTime) / drawInterval
+        /// 
+        /// Examples:
+        /// - $10 deposited at start of draw → 10 entries
+        /// - $10 deposited halfway through draw → 5 entries
+        /// - At next round, same $10 → 10 entries (full credit)
+        access(all) view fun getUserEntries(receiverID: UInt64): UFix64 {
+            let drawInterval = self.config.drawIntervalSeconds
+            if drawInterval == 0.0 {
+                return 0.0
+            }
+            
+            let currentTwab = self.savingsDistributor.getTimeWeightedBalance(receiverID: receiverID)
+            let currentBalance = self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
+            let remainingTime = self.getTimeUntilNextDraw()
+            
+            // Project TWAB forward: current + (balance × remaining time)
+            let projectedTwab = currentTwab + (currentBalance * remainingTime)
+            return projectedTwab / drawInterval
+        }
+        
+        /// Returns how far through the current draw period we are (0.0 to 1.0+).
+        /// - 0.0 = draw just started
+        /// - 0.5 = halfway through draw period
+        /// - 1.0 = draw period complete, ready for next draw
+        access(all) view fun getDrawProgressPercent(): UFix64 {
+            let epochStart = self.savingsDistributor.getEpochStartTime()
+            let elapsed = getCurrentBlock().timestamp - epochStart
+            let drawInterval = self.config.drawIntervalSeconds
+            if drawInterval == 0.0 {
+                return 0.0
+            }
+            return elapsed / drawInterval
+        }
+        
+        /// Returns time remaining until next draw is available (in seconds).
+        /// Returns 0.0 if draw can happen now.
+        access(all) view fun getTimeUntilNextDraw(): UFix64 {
+            let epochStart = self.savingsDistributor.getEpochStartTime()
+            let elapsed = getCurrentBlock().timestamp - epochStart
+            let drawInterval = self.config.drawIntervalSeconds
+            if elapsed >= drawInterval {
+                return 0.0
+            }
+            return drawInterval - elapsed
+        }
+        
     }
     
     access(all) struct PoolBalance {
@@ -2745,6 +2822,41 @@ access(all) contract PrizeSavings {
     
     access(all) fun createPoolPositionCollection(): @PoolPositionCollection {
         return <- create PoolPositionCollection()
+    }
+    
+    // ============================================================
+    // ENTRY QUERY FUNCTIONS - Contract-level convenience accessors
+    // ============================================================
+    // These functions provide easy access to entry information for UI/scripts.
+    // "Entries" represent the user's lottery weight for the current draw:
+    // - entries = projectedTWAB / drawInterval
+    // - $10 deposited at start of draw = 10 entries
+    // - $10 deposited halfway through = 5 entries (prorated)
+    // ============================================================
+    
+    /// Get a user's entry count for the current draw.
+    /// Projects TWAB forward to draw time assuming no balance changes.
+    access(all) view fun getUserEntries(poolID: UInt64, receiverID: UInt64): UFix64 {
+        if let poolRef = self.borrowPool(poolID: poolID) {
+            return poolRef.getUserEntries(receiverID: receiverID)
+        }
+        return 0.0
+    }
+    
+    /// Get the draw progress as a percentage (0.0 to 1.0+).
+    access(all) view fun getDrawProgressPercent(poolID: UInt64): UFix64 {
+        if let poolRef = self.borrowPool(poolID: poolID) {
+            return poolRef.getDrawProgressPercent()
+        }
+        return 0.0
+    }
+    
+    /// Get time remaining until next draw (in seconds).
+    access(all) view fun getTimeUntilNextDraw(poolID: UInt64): UFix64 {
+        if let poolRef = self.borrowPool(poolID: poolID) {
+            return poolRef.getTimeUntilNextDraw()
+        }
+        return 0.0
     }
     
     init() {
