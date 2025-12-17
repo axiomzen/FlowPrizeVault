@@ -268,11 +268,7 @@ access(all) contract PrizeSavings {
         access(ConfigOps) fun updatePoolMinimumDeposit(
             poolID: UInt64,
             newMinimum: UFix64
-        ) {
-            pre {
-                newMinimum >= 0.0: "Minimum deposit cannot be negative"
-            }
-            
+        ) { 
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             let oldMinimum = poolRef.getConfig().minimumDeposit
@@ -287,6 +283,9 @@ access(all) contract PrizeSavings {
         }
         
         access(CriticalOps) fun enableEmergencyMode(poolID: UInt64, reason: String) {
+            pre {
+                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString())
+            }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.setEmergencyMode(reason: reason)
             emit PoolEmergencyEnabled(poolID: poolID, reason: reason, adminUUID: self.uuid, timestamp: getCurrentBlock().timestamp)
@@ -299,6 +298,9 @@ access(all) contract PrizeSavings {
         }
         
         access(CriticalOps) fun setEmergencyPartialMode(poolID: UInt64, reason: String) {
+            pre {
+                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString())
+            }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.setPartialMode(reason: reason)
             emit PoolPartialModeEnabled(poolID: poolID, reason: reason, adminUUID: self.uuid, timestamp: getCurrentBlock().timestamp)
@@ -397,7 +399,7 @@ access(all) contract PrizeSavings {
             recipientCap: Capability<&{FungibleToken.Receiver}>?
         ) {
             pre {
-                recipientCap?.check() ?? true: "Treasury recipient capability must be valid"
+                recipientCap?.check() ?? true: "Treasury recipient capability is invalid or cannot be borrowed. Pool ID: ".concat(poolID.toString()).concat(", Recipient address: ").concat(recipientCap?.address?.toString() ?? "nil")
             }
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
@@ -418,7 +420,7 @@ access(all) contract PrizeSavings {
             reason: String
         ) {
             pre {
-                bonusWeight >= 0.0: "Bonus weight cannot be negative"
+                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString()).concat(", Receiver ID: ").concat(receiverID.toString())
             }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
@@ -432,7 +434,8 @@ access(all) contract PrizeSavings {
             reason: String
         ) {
             pre {
-                additionalWeight > 0.0: "Additional weight must be positive"
+                additionalWeight > 0.0: "Additional weight must be positive (greater than 0). Pool ID: ".concat(poolID.toString()).concat(", Receiver ID: ").concat(receiverID.toString()).concat(", Received weight: ").concat(additionalWeight.toString())
+                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString()).concat(", Receiver ID: ").concat(receiverID.toString())
             }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
