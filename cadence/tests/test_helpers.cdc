@@ -132,6 +132,20 @@ fun createTestPoolWithShortInterval(): UInt64 {
 }
 
 access(all)
+fun createTestPoolWithMediumInterval(): UInt64 {
+    let deployerAccount = getDeployerAccount()
+    let createResult = _executeTransaction(
+        "../transactions/test/create_test_pool_medium_interval.cdc",
+        [],
+        deployerAccount
+    )
+    assertTransactionSucceeded(createResult, context: "Create pool with medium interval (60s)")
+    
+    let poolCount = getPoolCount()
+    return UInt64(poolCount - 1)
+}
+
+access(all)
 fun ensurePoolExists() {
     let poolCount = getPoolCount()
     if poolCount == 0 {
@@ -203,6 +217,27 @@ fun getUserPrizes(_ userAddress: Address, _ poolID: UInt64): {String: UFix64} {
     return scriptResult.returnValue! as! {String: UFix64}
 }
 
+access(all)
+fun getUserEntries(_ userAddress: Address, _ poolID: UInt64): UFix64 {
+    let scriptResult = _executeScript("../scripts/test/get_user_entries.cdc", [userAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
+}
+
+access(all)
+fun getDrawProgress(_ poolID: UInt64): {String: UFix64} {
+    let scriptResult = _executeScript("../scripts/test/get_draw_progress.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: UFix64}
+}
+
+access(all)
+fun getUserEntriesDebug(_ userAddress: Address, _ poolID: UInt64): {String: AnyStruct} {
+    let scriptResult = _executeScript("../scripts/test/get_user_entries_debug.cdc", [userAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: AnyStruct}
+}
+
 // ============================================================================
 // USER ACTION HELPERS
 // ============================================================================
@@ -215,6 +250,16 @@ fun depositToPool(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64) {
         account
     )
     assertTransactionSucceeded(depositResult, context: "Deposit to pool")
+}
+
+access(all)
+fun withdrawFromPool(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64) {
+    let withdrawResult = _executeTransaction(
+        "../transactions/test/withdraw_from_pool.cdc",
+        [poolID, amount],
+        account
+    )
+    assertTransactionSucceeded(withdrawResult, context: "Withdraw from pool")
 }
 
 access(all)
