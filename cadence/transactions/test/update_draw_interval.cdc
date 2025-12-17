@@ -9,8 +9,7 @@ transaction(poolID: UInt64, newInterval: UFix64) {
         
         admin.updatePoolDrawInterval(
             poolID: poolID,
-            newInterval: newInterval,
-            updatedBy: signer.address
+            newInterval: newInterval
         )
         
         log("Updated draw interval for pool ".concat(poolID.toString()))

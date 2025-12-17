@@ -30,7 +30,6 @@ transaction(poolID: UInt64, amount: UFix64) {
             poolID: poolID,
             destination: PrizeSavings.PoolFundingDestination.Lottery,
             from: <- tokens,
-            sponsor: self.vaultRef.owner!.address,
             purpose: "Test funding",
             metadata: nil
         )

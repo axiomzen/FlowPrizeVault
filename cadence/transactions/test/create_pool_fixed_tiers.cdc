@@ -62,8 +62,7 @@ transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierN
         
         let poolID = admin.createPool(
             config: config,
-            emergencyConfig: nil,
-            createdBy: signer.address
+            emergencyConfig: nil
         )
         
         log("Created pool with ID: ".concat(poolID.toString()).concat(" with FixedPrizeTiers"))

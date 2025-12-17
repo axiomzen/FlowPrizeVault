@@ -14,8 +14,7 @@ transaction(poolID: UInt64, state: UInt8, reason: String) {
         adminRef.setPoolState(
             poolID: poolID,
             state: PrizeSavings.PoolEmergencyState(rawValue: state)!,
-            reason: reason,
-            setBy: signer.address
+            reason: reason
         )
         
         log("Delegate set pool state for pool ".concat(poolID.toString()))

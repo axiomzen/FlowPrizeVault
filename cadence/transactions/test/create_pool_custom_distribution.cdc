@@ -56,8 +56,7 @@ transaction(savingsPercent: UFix64, lotteryPercent: UFix64, treasuryPercent: UFi
         
         let poolID = admin.createPool(
             config: config,
-            emergencyConfig: nil,
-            createdBy: signer.address
+            emergencyConfig: nil
         )
         
         log("Created pool with ID: ".concat(poolID.toString()).concat(" with custom distribution"))

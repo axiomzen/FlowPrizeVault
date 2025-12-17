@@ -74,38 +74,38 @@ access(all) contract PrizeSavings {
     access(all) event LotteryPrizePoolFunded(poolID: UInt64, amount: UFix64, source: String)
     access(all) event NewEpochStarted(poolID: UInt64, epochID: UInt64, startTime: UFix64)
     
-    access(all) event DistributionStrategyUpdated(poolID: UInt64, oldStrategy: String, newStrategy: String, updatedBy: Address)
-    access(all) event WinnerSelectionStrategyUpdated(poolID: UInt64, oldStrategy: String, newStrategy: String, updatedBy: Address)
-    access(all) event WinnerTrackerUpdated(poolID: UInt64, hasOldTracker: Bool, hasNewTracker: Bool, updatedBy: Address)
-    access(all) event DrawIntervalUpdated(poolID: UInt64, oldInterval: UFix64, newInterval: UFix64, updatedBy: Address)
-    access(all) event MinimumDepositUpdated(poolID: UInt64, oldMinimum: UFix64, newMinimum: UFix64, updatedBy: Address)
-    access(all) event PoolCreatedByAdmin(poolID: UInt64, assetType: String, strategy: String, createdBy: Address)
+    access(all) event DistributionStrategyUpdated(poolID: UInt64, oldStrategy: String, newStrategy: String, adminUUID: UInt64)
+    access(all) event WinnerSelectionStrategyUpdated(poolID: UInt64, oldStrategy: String, newStrategy: String, adminUUID: UInt64)
+    access(all) event WinnerTrackerUpdated(poolID: UInt64, hasOldTracker: Bool, hasNewTracker: Bool, adminUUID: UInt64)
+    access(all) event DrawIntervalUpdated(poolID: UInt64, oldInterval: UFix64, newInterval: UFix64, adminUUID: UInt64)
+    access(all) event MinimumDepositUpdated(poolID: UInt64, oldMinimum: UFix64, newMinimum: UFix64, adminUUID: UInt64)
+    access(all) event PoolCreatedByAdmin(poolID: UInt64, assetType: String, strategy: String, adminUUID: UInt64)
     
-    access(all) event PoolPaused(poolID: UInt64, pausedBy: Address, reason: String)
-    access(all) event PoolUnpaused(poolID: UInt64, unpausedBy: Address)
+    access(all) event PoolPaused(poolID: UInt64, adminUUID: UInt64, reason: String)
+    access(all) event PoolUnpaused(poolID: UInt64, adminUUID: UInt64)
     access(all) event TreasuryFunded(poolID: UInt64, amount: UFix64, source: String)
-    access(all) event TreasuryRecipientUpdated(poolID: UInt64, newRecipient: Address?, updatedBy: Address)
+    access(all) event TreasuryRecipientUpdated(poolID: UInt64, newRecipient: Address?, adminUUID: UInt64)
     access(all) event TreasuryForwarded(poolID: UInt64, amount: UFix64, recipient: Address)
     
-    access(all) event BonusLotteryWeightSet(poolID: UInt64, receiverID: UInt64, bonusWeight: UFix64, reason: String, setBy: Address, timestamp: UFix64)
-    access(all) event BonusLotteryWeightAdded(poolID: UInt64, receiverID: UInt64, additionalWeight: UFix64, newTotalBonus: UFix64, reason: String, addedBy: Address, timestamp: UFix64)
-    access(all) event BonusLotteryWeightRemoved(poolID: UInt64, receiverID: UInt64, previousBonus: UFix64, removedBy: Address, timestamp: UFix64)
+    access(all) event BonusLotteryWeightSet(poolID: UInt64, receiverID: UInt64, bonusWeight: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64)
+    access(all) event BonusLotteryWeightAdded(poolID: UInt64, receiverID: UInt64, additionalWeight: UFix64, newTotalBonus: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64)
+    access(all) event BonusLotteryWeightRemoved(poolID: UInt64, receiverID: UInt64, previousBonus: UFix64, adminUUID: UInt64, timestamp: UFix64)
     
-    access(all) event NFTPrizeDeposited(poolID: UInt64, nftID: UInt64, nftType: String, depositedBy: Address)
+    access(all) event NFTPrizeDeposited(poolID: UInt64, nftID: UInt64, nftType: String, adminUUID: UInt64)
     access(all) event NFTPrizeAwarded(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String, round: UInt64)
     access(all) event NFTPrizeStored(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String, reason: String)
     access(all) event NFTPrizeClaimed(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String)
-    access(all) event NFTPrizeWithdrawn(poolID: UInt64, nftID: UInt64, nftType: String, withdrawnBy: Address)
+    access(all) event NFTPrizeWithdrawn(poolID: UInt64, nftID: UInt64, nftType: String, adminUUID: UInt64)
     
-    access(all) event PoolEmergencyEnabled(poolID: UInt64, reason: String, enabledBy: Address, timestamp: UFix64)
-    access(all) event PoolEmergencyDisabled(poolID: UInt64, disabledBy: Address, timestamp: UFix64)
-    access(all) event PoolPartialModeEnabled(poolID: UInt64, reason: String, setBy: Address, timestamp: UFix64)
+    access(all) event PoolEmergencyEnabled(poolID: UInt64, reason: String, adminUUID: UInt64, timestamp: UFix64)
+    access(all) event PoolEmergencyDisabled(poolID: UInt64, adminUUID: UInt64, timestamp: UFix64)
+    access(all) event PoolPartialModeEnabled(poolID: UInt64, reason: String, adminUUID: UInt64, timestamp: UFix64)
     access(all) event EmergencyModeAutoTriggered(poolID: UInt64, reason: String, healthScore: UFix64, timestamp: UFix64)
     access(all) event EmergencyModeAutoRecovered(poolID: UInt64, reason: String, healthScore: UFix64?, duration: UFix64?, timestamp: UFix64)
-    access(all) event EmergencyConfigUpdated(poolID: UInt64, updatedBy: Address)
+    access(all) event EmergencyConfigUpdated(poolID: UInt64, adminUUID: UInt64)
     access(all) event WithdrawalFailure(poolID: UInt64, receiverID: UInt64, amount: UFix64, consecutiveFailures: Int, yieldAvailable: UFix64)
     
-    access(all) event DirectFundingReceived(poolID: UInt64, destination: UInt8, destinationName: String, amount: UFix64, sponsor: Address, purpose: String, metadata: {String: String})
+    access(all) event DirectFundingReceived(poolID: UInt64, destination: UInt8, destinationName: String, amount: UFix64, adminUUID: UInt64, purpose: String, metadata: {String: String})
     
     // TODO: How can we prevent pools from getting too big and taking up too much storage?
     access(self) var pools: @{UInt64: Pool}
@@ -127,9 +127,9 @@ access(all) contract PrizeSavings {
         access(all) let bonusWeight: UFix64
         access(all) let reason: String
         access(all) let addedAt: UFix64
-        access(all) let addedBy: Address
+        access(all) let adminUUID: UInt64
         
-        init(bonusWeight: UFix64, reason: String, addedBy: Address) {
+        init(bonusWeight: UFix64, reason: String, adminUUID: UInt64) {
             pre {
                 bonusWeight > 0.0: "Bonus weight must be greater than zero"
                 reason.length > 0: "Reason cannot be empty"
@@ -137,7 +137,7 @@ access(all) contract PrizeSavings {
             self.bonusWeight = bonusWeight
             self.reason = reason
             self.addedAt = getCurrentBlock().timestamp
-            self.addedBy = addedBy
+            self.adminUUID = adminUUID
         }
     }
     
@@ -190,14 +190,13 @@ access(all) contract PrizeSavings {
     access(all) resource Admin {
         access(self) var metadata: {String: {String: AnyStruct}}
         
-        access(contract) init() {
+        init() {
             self.metadata = {}
         }
 
         access(CriticalOps) fun updatePoolDistributionStrategy(
             poolID: UInt64,
-            newStrategy: {DistributionStrategy},
-            updatedBy: Address
+            newStrategy: {DistributionStrategy}
         ) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
@@ -209,14 +208,13 @@ access(all) contract PrizeSavings {
                 poolID: poolID,
                 oldStrategy: oldStrategyName,
                 newStrategy: newStrategyName,
-                updatedBy: updatedBy
+                adminUUID: self.uuid
             )
         }
         
         access(CriticalOps) fun updatePoolWinnerSelectionStrategy(
             poolID: UInt64,
-            newStrategy: {WinnerSelectionStrategy},
-            updatedBy: Address
+            newStrategy: {WinnerSelectionStrategy}
         ) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
@@ -228,14 +226,13 @@ access(all) contract PrizeSavings {
                 poolID: poolID,
                 oldStrategy: oldStrategyName,
                 newStrategy: newStrategyName,
-                updatedBy: updatedBy
+                adminUUID: self.uuid
             )
         }
         
         access(ConfigOps) fun updatePoolWinnerTracker(
             poolID: UInt64,
-            newTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?,
-            updatedBy: Address
+            newTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?
         ) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
@@ -247,14 +244,13 @@ access(all) contract PrizeSavings {
                 poolID: poolID,
                 hasOldTracker: hasOldTracker,
                 hasNewTracker: hasNewTracker,
-                updatedBy: updatedBy
+                adminUUID: self.uuid
             )
         }
         
         access(ConfigOps) fun updatePoolDrawInterval(
             poolID: UInt64,
-            newInterval: UFix64,
-            updatedBy: Address
+            newInterval: UFix64
         ) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
@@ -265,14 +261,13 @@ access(all) contract PrizeSavings {
                 poolID: poolID,
                 oldInterval: oldInterval,
                 newInterval: newInterval,
-                updatedBy: updatedBy
+                adminUUID: self.uuid
             )
         }
         
         access(ConfigOps) fun updatePoolMinimumDeposit(
             poolID: UInt64,
-            newMinimum: UFix64,
-            updatedBy: Address
+            newMinimum: UFix64
         ) {
             pre {
                 newMinimum >= 0.0: "Minimum deposit cannot be negative"
@@ -287,52 +282,51 @@ access(all) contract PrizeSavings {
                 poolID: poolID,
                 oldMinimum: oldMinimum,
                 newMinimum: newMinimum,
-                updatedBy: updatedBy
+                adminUUID: self.uuid
             )
         }
         
-        access(CriticalOps) fun enableEmergencyMode(poolID: UInt64, reason: String, enabledBy: Address) {
+        access(CriticalOps) fun enableEmergencyMode(poolID: UInt64, reason: String) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.setEmergencyMode(reason: reason)
-            emit PoolEmergencyEnabled(poolID: poolID, reason: reason, enabledBy: enabledBy, timestamp: getCurrentBlock().timestamp)
+            emit PoolEmergencyEnabled(poolID: poolID, reason: reason, adminUUID: self.uuid, timestamp: getCurrentBlock().timestamp)
         }
         
-        access(CriticalOps) fun disableEmergencyMode(poolID: UInt64, disabledBy: Address) {
+        access(CriticalOps) fun disableEmergencyMode(poolID: UInt64) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.clearEmergencyMode()
-            emit PoolEmergencyDisabled(poolID: poolID, disabledBy: disabledBy, timestamp: getCurrentBlock().timestamp)
+            emit PoolEmergencyDisabled(poolID: poolID, adminUUID: self.uuid, timestamp: getCurrentBlock().timestamp)
         }
         
-        access(CriticalOps) fun setEmergencyPartialMode(poolID: UInt64, reason: String, setBy: Address) {
+        access(CriticalOps) fun setEmergencyPartialMode(poolID: UInt64, reason: String) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.setPartialMode(reason: reason)
-            emit PoolPartialModeEnabled(poolID: poolID, reason: reason, setBy: setBy, timestamp: getCurrentBlock().timestamp)
+            emit PoolPartialModeEnabled(poolID: poolID, reason: reason, adminUUID: self.uuid, timestamp: getCurrentBlock().timestamp)
         }
         
-        access(CriticalOps) fun updateEmergencyConfig(poolID: UInt64, newConfig: EmergencyConfig, updatedBy: Address) {
+        access(CriticalOps) fun updateEmergencyConfig(poolID: UInt64, newConfig: EmergencyConfig) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.setEmergencyConfig(config: newConfig)
-            emit EmergencyConfigUpdated(poolID: poolID, updatedBy: updatedBy)
+            emit EmergencyConfigUpdated(poolID: poolID, adminUUID: self.uuid)
         }
         
         access(CriticalOps) fun fundPoolDirect(
             poolID: UInt64,
             destination: PoolFundingDestination,
             from: @{FungibleToken.Vault},
-            sponsor: Address,
             purpose: String,
             metadata: {String: String}?
         ) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             let amount = from.balance
-            poolRef.fundDirectInternal(destination: destination, from: <- from, sponsor: sponsor, purpose: purpose, metadata: metadata ?? {})
+            poolRef.fundDirectInternal(destination: destination, from: <- from, adminUUID: self.uuid, purpose: purpose, metadata: metadata ?? {})
             
             emit DirectFundingReceived(
                 poolID: poolID,
                 destination: destination.rawValue,
                 destinationName: self.getDestinationName(destination),
                 amount: amount,
-                sponsor: sponsor,
+                adminUUID: self.uuid,
                 purpose: purpose,
                 metadata: metadata ?? {}
             )
@@ -348,8 +342,7 @@ access(all) contract PrizeSavings {
         
         access(CriticalOps) fun createPool(
             config: PoolConfig,
-            emergencyConfig: EmergencyConfig?,
-            createdBy: Address
+            emergencyConfig: EmergencyConfig?
         ): UInt64 {
             let finalEmergencyConfig = emergencyConfig 
                 ?? PrizeSavings.createDefaultEmergencyConfig()
@@ -363,7 +356,7 @@ access(all) contract PrizeSavings {
                 poolID: poolID,
                 assetType: config.assetType.identifier,
                 strategy: config.distributionStrategy.getStrategyName(),
-                createdBy: createdBy
+                adminUUID: self.uuid
             )
             
             return poolID
@@ -375,20 +368,20 @@ access(all) contract PrizeSavings {
             poolRef.processRewards()
         }
         
-        access(CriticalOps) fun setPoolState(poolID: UInt64, state: PoolEmergencyState, reason: String?, setBy: Address) {
+        access(CriticalOps) fun setPoolState(poolID: UInt64, state: PoolEmergencyState, reason: String?) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             poolRef.setState(state: state, reason: reason)
             
             switch state {
                 case PoolEmergencyState.Normal:
-                    emit PoolUnpaused(poolID: poolID, unpausedBy: setBy)
+                    emit PoolUnpaused(poolID: poolID, adminUUID: self.uuid)
                 case PoolEmergencyState.Paused:
-                    emit PoolPaused(poolID: poolID, pausedBy: setBy, reason: reason ?? "Manual pause")
+                    emit PoolPaused(poolID: poolID, adminUUID: self.uuid, reason: reason ?? "Manual pause")
                 case PoolEmergencyState.EmergencyMode:
-                    emit PoolEmergencyEnabled(poolID: poolID, reason: reason ?? "Emergency", enabledBy: setBy, timestamp: getCurrentBlock().timestamp)
+                    emit PoolEmergencyEnabled(poolID: poolID, reason: reason ?? "Emergency", adminUUID: self.uuid, timestamp: getCurrentBlock().timestamp)
                 case PoolEmergencyState.PartialMode:
-                    emit PoolPartialModeEnabled(poolID: poolID, reason: reason ?? "Partial mode", setBy: setBy, timestamp: getCurrentBlock().timestamp)
+                    emit PoolPartialModeEnabled(poolID: poolID, reason: reason ?? "Partial mode", adminUUID: self.uuid, timestamp: getCurrentBlock().timestamp)
             }
         }
         
@@ -401,8 +394,7 @@ access(all) contract PrizeSavings {
         /// For multi-sig protection, store Admin in a multi-sig account.
         access(OwnerOnly) fun setPoolTreasuryRecipient(
             poolID: UInt64,
-            recipientCap: Capability<&{FungibleToken.Receiver}>?,
-            updatedBy: Address
+            recipientCap: Capability<&{FungibleToken.Receiver}>?
         ) {
             pre {
                 recipientCap?.check() ?? true: "Treasury recipient capability must be valid"
@@ -415,7 +407,7 @@ access(all) contract PrizeSavings {
             emit TreasuryRecipientUpdated(
                 poolID: poolID,
                 newRecipient: recipientCap?.address,
-                updatedBy: updatedBy
+                adminUUID: self.uuid
             )
         }
         
@@ -423,46 +415,42 @@ access(all) contract PrizeSavings {
             poolID: UInt64,
             receiverID: UInt64,
             bonusWeight: UFix64,
-            reason: String,
-            setBy: Address
+            reason: String
         ) {
             pre {
                 bonusWeight >= 0.0: "Bonus weight cannot be negative"
             }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            poolRef.setBonusWeight(receiverID: receiverID, bonusWeight: bonusWeight, reason: reason, setBy: setBy)
+            poolRef.setBonusWeight(receiverID: receiverID, bonusWeight: bonusWeight, reason: reason, adminUUID: self.uuid)
         }
         
         access(ConfigOps) fun addBonusLotteryWeight(
             poolID: UInt64,
             receiverID: UInt64,
             additionalWeight: UFix64,
-            reason: String,
-            addedBy: Address
+            reason: String
         ) {
             pre {
                 additionalWeight > 0.0: "Additional weight must be positive"
             }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            poolRef.addBonusWeight(receiverID: receiverID, additionalWeight: additionalWeight, reason: reason, addedBy: addedBy)
+            poolRef.addBonusWeight(receiverID: receiverID, additionalWeight: additionalWeight, reason: reason, adminUUID: self.uuid)
         }
         
         access(ConfigOps) fun removeBonusLotteryWeight(
             poolID: UInt64,
-            receiverID: UInt64,
-            removedBy: Address
+            receiverID: UInt64
         ) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            poolRef.removeBonusWeight(receiverID: receiverID, removedBy: removedBy)
+            poolRef.removeBonusWeight(receiverID: receiverID, adminUUID: self.uuid)
         }
         
         access(ConfigOps) fun depositNFTPrize(
             poolID: UInt64,
-            nft: @{NonFungibleToken.NFT},
-            depositedBy: Address
+            nft: @{NonFungibleToken.NFT}
         ) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
@@ -475,14 +463,13 @@ access(all) contract PrizeSavings {
                 poolID: poolID,
                 nftID: nftID,
                 nftType: nftType,
-                depositedBy: depositedBy
+                adminUUID: self.uuid
             )
         }
         
         access(ConfigOps) fun withdrawNFTPrize(
             poolID: UInt64,
-            nftID: UInt64,
-            withdrawnBy: Address
+            nftID: UInt64
         ): @{NonFungibleToken.NFT} {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
@@ -493,7 +480,7 @@ access(all) contract PrizeSavings {
                 poolID: poolID,
                 nftID: nftID,
                 nftType: nftType,
-                withdrawnBy: withdrawnBy
+                adminUUID: self.uuid
             )
             
             return <- nft
@@ -1738,7 +1725,7 @@ access(all) contract PrizeSavings {
         access(contract) fun fundDirectInternal(
             destination: PoolFundingDestination,
             from: @{FungibleToken.Vault},
-            sponsor: Address,
+            adminUUID: UInt64,
             purpose: String,
             metadata: {String: String}
         ) {
@@ -2228,9 +2215,9 @@ access(all) contract PrizeSavings {
             self.config.setMinimumDeposit(minimum: minimum)
         }
         
-        access(contract) fun setBonusWeight(receiverID: UInt64, bonusWeight: UFix64, reason: String, setBy: Address) {
+        access(contract) fun setBonusWeight(receiverID: UInt64, bonusWeight: UFix64, reason: String, adminUUID: UInt64) {
             let timestamp = getCurrentBlock().timestamp
-            let record = BonusWeightRecord(bonusWeight: bonusWeight, reason: reason, addedBy: setBy)
+            let record = BonusWeightRecord(bonusWeight: bonusWeight, reason: reason, adminUUID: adminUUID)
             self.receiverBonusWeights[receiverID] = record
             
             emit BonusLotteryWeightSet(
@@ -2238,17 +2225,17 @@ access(all) contract PrizeSavings {
                 receiverID: receiverID,
                 bonusWeight: bonusWeight,
                 reason: reason,
-                setBy: setBy,
+                adminUUID: adminUUID,
                 timestamp: timestamp
             )
         }
         
-        access(contract) fun addBonusWeight(receiverID: UInt64, additionalWeight: UFix64, reason: String, addedBy: Address) {
+        access(contract) fun addBonusWeight(receiverID: UInt64, additionalWeight: UFix64, reason: String, adminUUID: UInt64) {
             let timestamp = getCurrentBlock().timestamp
             let currentBonus = self.receiverBonusWeights[receiverID]?.bonusWeight ?? 0.0
             let newTotalBonus = currentBonus + additionalWeight
             
-            let record = BonusWeightRecord(bonusWeight: newTotalBonus, reason: reason, addedBy: addedBy)
+            let record = BonusWeightRecord(bonusWeight: newTotalBonus, reason: reason, adminUUID: adminUUID)
             self.receiverBonusWeights[receiverID] = record
             
             emit BonusLotteryWeightAdded(
@@ -2257,12 +2244,12 @@ access(all) contract PrizeSavings {
                 additionalWeight: additionalWeight,
                 newTotalBonus: newTotalBonus,
                 reason: reason,
-                addedBy: addedBy,
+                adminUUID: adminUUID,
                 timestamp: timestamp
             )
         }
         
-        access(contract) fun removeBonusWeight(receiverID: UInt64, removedBy: Address) {
+        access(contract) fun removeBonusWeight(receiverID: UInt64, adminUUID: UInt64) {
             let timestamp = getCurrentBlock().timestamp
             let previousBonus = self.receiverBonusWeights[receiverID]?.bonusWeight ?? 0.0
             
@@ -2272,7 +2259,7 @@ access(all) contract PrizeSavings {
                 poolID: self.poolID,
                 receiverID: receiverID,
                 previousBonus: previousBonus,
-                removedBy: removedBy,
+                adminUUID: adminUUID,
                 timestamp: timestamp
             )
         }

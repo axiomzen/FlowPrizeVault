@@ -20,15 +20,12 @@ import FungibleToken from "FungibleToken"
 /// 3. No further action needed - fully automated
 transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath) {
     let adminRef: auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin
-    let signerAddress: Address
     
     prepare(signer: auth(Storage) &Account) {
         // Borrow with OwnerOnly entitlement - only account owner can do this
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Admin resource not found. Call setup_admin first.")
-        
-        self.signerAddress = signer.address
     }
     
     execute {
@@ -40,8 +37,7 @@ transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath)
         
         self.adminRef.setPoolTreasuryRecipient(
             poolID: poolID,
-            recipientCap: receiverCap,
-            updatedBy: self.signerAddress
+            recipientCap: receiverCap
         )
         
         log("✅ Treasury auto-forwarding enabled to: ".concat(recipientAddress.toString()))

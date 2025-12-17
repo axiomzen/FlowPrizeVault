@@ -7,7 +7,7 @@ transaction(poolID: UInt64) {
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Could not borrow Admin resource")
         
-        admin.disableEmergencyMode(poolID: poolID, disabledBy: signer.address)
+        admin.disableEmergencyMode(poolID: poolID)
         
         log("Emergency mode disabled for pool ".concat(poolID.toString()))
     }

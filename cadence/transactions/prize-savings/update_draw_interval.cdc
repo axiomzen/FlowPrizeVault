@@ -8,11 +8,8 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 transaction(poolID: UInt64, newInterval: UFix64) {
     
     let adminRef: auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin
-    let signerAddress: Address
     
     prepare(signer: auth(Storage, BorrowValue) &Account) {
-        self.signerAddress = signer.address
-        
         // Borrow the Admin resource with ConfigOps entitlement
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
@@ -22,8 +19,7 @@ transaction(poolID: UInt64, newInterval: UFix64) {
     execute {
         self.adminRef.updatePoolDrawInterval(
             poolID: poolID,
-            newInterval: newInterval,
-            updatedBy: self.signerAddress
+            newInterval: newInterval
         )
         
         log("Updated draw interval for pool ".concat(poolID.toString()).concat(" to ").concat(newInterval.toString()).concat(" seconds"))

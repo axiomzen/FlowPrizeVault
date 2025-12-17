@@ -10,21 +10,17 @@ import FungibleToken from "FungibleToken"
 /// - poolID: The pool to configure
 transaction(poolID: UInt64) {
     let adminRef: auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin
-    let signerAddress: Address
     
     prepare(signer: auth(Storage) &Account) {
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Admin resource not found. Deploy contract and setup admin first.")
-        
-        self.signerAddress = signer.address
     }
     
     execute {
         self.adminRef.setPoolTreasuryRecipient(
             poolID: poolID,
-            recipientCap: nil,
-            updatedBy: self.signerAddress
+            recipientCap: nil
         )
     }
 }

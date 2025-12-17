@@ -28,8 +28,7 @@ transaction(poolID: UInt64, nftID: UInt64, nftReceiverPath: StoragePath) {
         // Withdraw the NFT from the pool
         let nft <- self.adminRef.withdrawNFTPrize(
             poolID: poolID,
-            nftID: nftID,
-            withdrawnBy: self.adminRef.owner!.address
+            nftID: nftID
         )
         
         let withdrawnNFTID = nft.uuid

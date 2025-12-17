@@ -15,8 +15,7 @@ transaction(poolID: UInt64, savingsPercent: UFix64, lotteryPercent: UFix64, trea
         
         admin.updatePoolDistributionStrategy(
             poolID: poolID,
-            newStrategy: newStrategy,
-            updatedBy: signer.address
+            newStrategy: newStrategy
         )
         
         log("Updated distribution strategy for pool ".concat(poolID.toString()))

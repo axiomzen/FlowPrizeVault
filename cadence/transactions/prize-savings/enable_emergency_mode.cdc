@@ -9,11 +9,8 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 transaction(poolID: UInt64, reason: String) {
     
     let adminRef: auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin
-    let signerAddress: Address
     
     prepare(signer: auth(Storage, BorrowValue) &Account) {
-        self.signerAddress = signer.address
-        
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Admin resource not found")
@@ -22,8 +19,7 @@ transaction(poolID: UInt64, reason: String) {
     execute {
         self.adminRef.enableEmergencyMode(
             poolID: poolID,
-            reason: reason,
-            enabledBy: self.signerAddress
+            reason: reason
         )
         
         log("Emergency mode enabled for pool ".concat(poolID.toString()))

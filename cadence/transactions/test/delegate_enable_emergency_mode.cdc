@@ -13,8 +13,7 @@ transaction(poolID: UInt64, reason: String) {
         
         adminRef.enableEmergencyMode(
             poolID: poolID,
-            reason: reason,
-            enabledBy: signer.address
+            reason: reason
         )
         
         log("Delegate enabled emergency mode for pool ".concat(poolID.toString()))
