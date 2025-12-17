@@ -78,7 +78,6 @@ transaction(
         let poolID = self.adminRef.createPool(
             config: config,
             emergencyConfig: nil,  // Uses defaults
-            fundingPolicy: nil,    // Uses defaults
             createdBy: self.signerAddress
         )
         

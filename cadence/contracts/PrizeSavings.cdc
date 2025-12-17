@@ -175,35 +175,6 @@ access(all) contract PrizeSavings {
         }
     }
     
-    access(all) struct FundingPolicy {
-        access(all) let maxDirectLottery: UFix64?
-        access(all) let maxDirectSavings: UFix64?
-        access(all) var totalDirectLottery: UFix64
-        access(all) var totalDirectSavings: UFix64
-        
-        init(maxDirectLottery: UFix64?, maxDirectSavings: UFix64?) {
-            self.maxDirectLottery = maxDirectLottery
-            self.maxDirectSavings = maxDirectSavings
-            self.totalDirectLottery = 0.0
-            self.totalDirectSavings = 0.0
-        }
-        
-        access(contract) fun recordDirectFunding(destination: PoolFundingDestination, amount: UFix64) {
-            switch destination {
-                case PoolFundingDestination.Lottery:
-                    self.totalDirectLottery = self.totalDirectLottery + amount
-                    if let maxDirectLottery = self.maxDirectLottery {
-                        assert(self.totalDirectLottery <= maxDirectLottery, message: "Direct lottery funding limit exceeded")
-                    }
-                case PoolFundingDestination.Savings:
-                    self.totalDirectSavings = self.totalDirectSavings + amount
-                    if let maxDirectSavings = self.maxDirectSavings {
-                        assert(self.totalDirectSavings <= maxDirectSavings, message: "Direct savings funding limit exceeded")
-                    }
-            }
-        }
-    }
-    
     access(all) fun createDefaultEmergencyConfig(): EmergencyConfig {
         return EmergencyConfig(
             maxEmergencyDuration: 86400.0,
@@ -213,13 +184,6 @@ access(all) contract PrizeSavings {
             partialModeDepositLimit: 100.0,
             minBalanceThreshold: 0.95,
             minRecoveryHealth: 0.5
-        )
-    }
-    
-    access(all) fun createDefaultFundingPolicy(): FundingPolicy {
-        return FundingPolicy(
-            maxDirectLottery: nil,
-            maxDirectSavings: nil
         )
     }
     
@@ -385,18 +349,14 @@ access(all) contract PrizeSavings {
         access(CriticalOps) fun createPool(
             config: PoolConfig,
             emergencyConfig: EmergencyConfig?,
-            fundingPolicy: FundingPolicy?,
             createdBy: Address
         ): UInt64 {
             let finalEmergencyConfig = emergencyConfig 
                 ?? PrizeSavings.createDefaultEmergencyConfig()
-            let finalFundingPolicy = fundingPolicy 
-                ?? PrizeSavings.createDefaultFundingPolicy()
             
             let poolID = PrizeSavings.createPool(
                 config: config,
-                emergencyConfig: finalEmergencyConfig,
-                fundingPolicy: finalFundingPolicy
+                emergencyConfig: finalEmergencyConfig
             )
             
             emit PoolCreatedByAdmin(
@@ -1553,8 +1513,6 @@ access(all) contract PrizeSavings {
         access(self) var emergencyConfig: EmergencyConfig
         access(self) var consecutiveWithdrawFailures: Int
         
-        access(self) var fundingPolicy: FundingPolicy
-        
         access(contract) fun setPoolID(id: UInt64) {
             self.poolID = id
         }
@@ -1594,8 +1552,7 @@ access(all) contract PrizeSavings {
         
         init(
             config: PoolConfig, 
-            emergencyConfig: EmergencyConfig?,
-            fundingPolicy: FundingPolicy?
+            emergencyConfig: EmergencyConfig?
         ) {
             self.config = config
             self.poolID = 0
@@ -1605,8 +1562,6 @@ access(all) contract PrizeSavings {
             self.emergencyActivatedAt = nil
             self.emergencyConfig = emergencyConfig ?? PrizeSavings.createDefaultEmergencyConfig()
             self.consecutiveWithdrawFailures = 0
-            
-            self.fundingPolicy = fundingPolicy ?? PrizeSavings.createDefaultFundingPolicy()
             
             self.receiverDeposits = {}
             self.receiverTotalEarnedPrizes = {}
@@ -1792,11 +1747,6 @@ access(all) contract PrizeSavings {
                 from.getType() == self.config.assetType: "Invalid vault type"
             }
             
-            let amount = from.balance
-            var policy = self.fundingPolicy
-            policy.recordDirectFunding(destination: destination, amount: amount)
-            self.fundingPolicy = policy
-            
             switch destination {
                 case PoolFundingDestination.Lottery:
                     self.lotteryDistributor.fundPrizePool(vault: <- from)
@@ -1806,6 +1756,7 @@ access(all) contract PrizeSavings {
                         self.savingsDistributor.getTotalShares() > 0.0,
                         message: "Cannot fund savings with no depositors - funds would be orphaned"
                     )
+                    let amount = from.balance
                     self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
                     destroy from
                     let actualSavings = self.savingsDistributor.accrueYield(amount: amount)
@@ -1831,15 +1782,6 @@ access(all) contract PrizeSavings {
                     }
                 default:
                     panic("Unsupported funding destination")
-            }
-        }
-        
-        access(all) view fun getFundingStats(): {String: UFix64} {
-            return {
-                "totalDirectLottery": self.fundingPolicy.totalDirectLottery,
-                "totalDirectSavings": self.fundingPolicy.totalDirectSavings,
-                "maxDirectLottery": self.fundingPolicy.maxDirectLottery ?? 0.0,
-                "maxDirectSavings": self.fundingPolicy.maxDirectSavings ?? 0.0
             }
         }
         
@@ -2773,13 +2715,11 @@ access(all) contract PrizeSavings {
     
     access(contract) fun createPool(
         config: PoolConfig,
-        emergencyConfig: EmergencyConfig?,
-        fundingPolicy: FundingPolicy?
+        emergencyConfig: EmergencyConfig?
     ): UInt64 {
         let pool <- create Pool(
             config: config, 
-            emergencyConfig: emergencyConfig,
-            fundingPolicy: fundingPolicy
+            emergencyConfig: emergencyConfig
         )
         
         let poolID = self.nextPoolID

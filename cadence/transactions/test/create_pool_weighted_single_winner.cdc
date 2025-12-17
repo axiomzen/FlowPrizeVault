@@ -49,7 +49,6 @@ transaction(nftIDs: [UInt64]) {
         let poolID = admin.createPool(
             config: config,
             emergencyConfig: nil,
-            fundingPolicy: nil,
             createdBy: signer.address
         )
         

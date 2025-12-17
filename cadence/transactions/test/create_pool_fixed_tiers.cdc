@@ -63,7 +63,6 @@ transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierN
         let poolID = admin.createPool(
             config: config,
             emergencyConfig: nil,
-            fundingPolicy: nil,
             createdBy: signer.address
         )
         

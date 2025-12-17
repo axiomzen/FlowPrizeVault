@@ -6,18 +6,15 @@ access(all) struct TreasuryStats {
     access(all) let totalForwarded: UFix64
     access(all) let recipient: Address?
     access(all) let hasRecipient: Bool
-    access(all) let fundingStats: {String: UFix64}
     
     init(
         totalForwarded: UFix64,
         recipient: Address?,
-        hasRecipient: Bool,
-        fundingStats: {String: UFix64}
+        hasRecipient: Bool
     ) {
         self.totalForwarded = totalForwarded
         self.recipient = recipient
         self.hasRecipient = hasRecipient
-        self.fundingStats = fundingStats
     }
 }
 
@@ -34,8 +31,7 @@ access(all) fun main(poolID: UInt64): TreasuryStats {
     return TreasuryStats(
         totalForwarded: poolRef.getTotalTreasuryForwarded(),
         recipient: poolRef.getTreasuryRecipient(),
-        hasRecipient: poolRef.hasTreasuryRecipient(),
-        fundingStats: poolRef.getFundingStats()
+        hasRecipient: poolRef.hasTreasuryRecipient()
     )
 }
 

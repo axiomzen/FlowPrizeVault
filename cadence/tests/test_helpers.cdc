@@ -559,35 +559,6 @@ fun getEmergencyConfigDetails(_ poolID: UInt64): {String: AnyStruct} {
 }
 
 // ============================================================================
-// FUNDING POLICY HELPERS
-// ============================================================================
-
-access(all)
-fun createPoolWithFundingPolicy(
-    maxDirectLottery: UFix64?,
-    maxDirectSavings: UFix64?
-): UInt64 {
-    let deployerAccount = getDeployerAccount()
-    // Convert nil to 0.0 for transaction (0.0 = unlimited)
-    let result = _executeTransaction(
-        "../transactions/test/create_pool_custom_funding_policy.cdc",
-        [maxDirectLottery ?? 0.0, maxDirectSavings ?? 0.0],
-        deployerAccount
-    )
-    assertTransactionSucceeded(result, context: "Create pool with custom funding policy")
-    
-    let poolCount = getPoolCount()
-    return UInt64(poolCount - 1)
-}
-
-access(all)
-fun getFundingStats(_ poolID: UInt64): {String: UFix64} {
-    let scriptResult = _executeScript("../scripts/test/get_funding_stats.cdc", [poolID])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! {String: UFix64}
-}
-
-// ============================================================================
 // ADMIN OPERATION HELPERS
 // ============================================================================
 
