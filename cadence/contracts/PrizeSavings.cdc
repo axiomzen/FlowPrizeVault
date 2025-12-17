@@ -107,6 +107,7 @@ access(all) contract PrizeSavings {
     
     access(all) event DirectFundingReceived(poolID: UInt64, destination: UInt8, destinationName: String, amount: UFix64, sponsor: Address, purpose: String, metadata: {String: String})
     
+    // TODO: How can we prevent pools from getting too big and taking up too much storage?
     access(self) var pools: @{UInt64: Pool}
     access(self) var nextPoolID: UInt64
     
@@ -128,7 +129,11 @@ access(all) contract PrizeSavings {
         access(all) let addedAt: UFix64
         access(all) let addedBy: Address
         
-        access(contract) init(bonusWeight: UFix64, reason: String, addedBy: Address) {
+        init(bonusWeight: UFix64, reason: String, addedBy: Address) {
+            pre {
+                bonusWeight > 0.0: "Bonus weight must be greater than zero"
+                reason.length > 0: "Reason cannot be empty"
+            }
             self.bonusWeight = bonusWeight
             self.reason = reason
             self.addedAt = getCurrentBlock().timestamp
@@ -155,10 +160,10 @@ access(all) contract PrizeSavings {
             minRecoveryHealth: UFix64?
         ) {
             pre {
-                minYieldSourceHealth >= 0.0 && minYieldSourceHealth <= 1.0: "Health must be between 0.0 and 1.0"
-                maxWithdrawFailures > 0: "Must allow at least 1 withdrawal failure"
-                minBalanceThreshold >= 0.8 && minBalanceThreshold <= 1.0: "Balance threshold must be between 0.8 and 1.0"
-                (minRecoveryHealth ?? 0.5) >= 0.0 && (minRecoveryHealth ?? 0.5) <= 1.0: "minRecoveryHealth must be between 0.0 and 1.0"
+                minYieldSourceHealth >= 0.0 && minYieldSourceHealth <= 1.0: "minYieldSourceHealth must be between 0.0 and 1.0 but got ".concat(minYieldSourceHealth.toString())
+                maxWithdrawFailures > 0: "maxWithdrawFailures must be at least 1 but got ".concat(maxWithdrawFailures.toString())
+                minBalanceThreshold >= 0.8 && minBalanceThreshold <= 1.0: "minBalanceThreshold must be between 0.8 and 1.0 but got ".concat(minBalanceThreshold.toString())
+                (minRecoveryHealth ?? 0.5) >= 0.0 && (minRecoveryHealth ?? 0.5) <= 1.0: "minRecoveryHealth must be between 0.0 and 1.0 but got ".concat((minRecoveryHealth ?? 0.5).toString())
             }
             self.maxEmergencyDuration = maxEmergencyDuration
             self.autoRecoveryEnabled = autoRecoveryEnabled
@@ -230,8 +235,7 @@ access(all) contract PrizeSavings {
             newStrategy: {DistributionStrategy},
             updatedBy: Address
         ) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             let oldStrategyName = poolRef.getDistributionStrategyName()
             poolRef.setDistributionStrategy(strategy: newStrategy)
@@ -250,8 +254,7 @@ access(all) contract PrizeSavings {
             newStrategy: {WinnerSelectionStrategy},
             updatedBy: Address
         ) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             let oldStrategyName = poolRef.getWinnerSelectionStrategyName()
             poolRef.setWinnerSelectionStrategy(strategy: newStrategy)
@@ -270,8 +273,7 @@ access(all) contract PrizeSavings {
             newTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?,
             updatedBy: Address
         ) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             let hasOldTracker = poolRef.hasWinnerTracker()
             poolRef.setWinnerTrackerCap(cap: newTrackerCap)
@@ -290,8 +292,7 @@ access(all) contract PrizeSavings {
             newInterval: UFix64,
             updatedBy: Address
         ) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             let oldInterval = poolRef.getConfig().drawIntervalSeconds
             poolRef.setDrawIntervalSeconds(interval: newInterval)
@@ -313,8 +314,7 @@ access(all) contract PrizeSavings {
                 newMinimum >= 0.0: "Minimum deposit cannot be negative"
             }
             
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             let oldMinimum = poolRef.getConfig().minimumDeposit
             poolRef.setMinimumDeposit(minimum: newMinimum)
@@ -328,29 +328,25 @@ access(all) contract PrizeSavings {
         }
         
         access(CriticalOps) fun enableEmergencyMode(poolID: UInt64, reason: String, enabledBy: Address) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.setEmergencyMode(reason: reason)
             emit PoolEmergencyEnabled(poolID: poolID, reason: reason, enabledBy: enabledBy, timestamp: getCurrentBlock().timestamp)
         }
         
         access(CriticalOps) fun disableEmergencyMode(poolID: UInt64, disabledBy: Address) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.clearEmergencyMode()
             emit PoolEmergencyDisabled(poolID: poolID, disabledBy: disabledBy, timestamp: getCurrentBlock().timestamp)
         }
         
         access(CriticalOps) fun setEmergencyPartialMode(poolID: UInt64, reason: String, setBy: Address) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.setPartialMode(reason: reason)
             emit PoolPartialModeEnabled(poolID: poolID, reason: reason, setBy: setBy, timestamp: getCurrentBlock().timestamp)
         }
         
         access(CriticalOps) fun updateEmergencyConfig(poolID: UInt64, newConfig: EmergencyConfig, updatedBy: Address) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.setEmergencyConfig(config: newConfig)
             emit EmergencyConfigUpdated(poolID: poolID, updatedBy: updatedBy)
         }
@@ -363,8 +359,7 @@ access(all) contract PrizeSavings {
             purpose: String,
             metadata: {String: String}?
         ) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             let amount = from.balance
             poolRef.fundDirectInternal(destination: destination, from: <- from, sponsor: sponsor, purpose: purpose, metadata: metadata ?? {})
             
@@ -415,15 +410,13 @@ access(all) contract PrizeSavings {
         }
         
         access(ConfigOps) fun processPoolRewards(poolID: UInt64) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             poolRef.processRewards()
         }
         
         access(CriticalOps) fun setPoolState(poolID: UInt64, state: PoolEmergencyState, reason: String?, setBy: Address) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             poolRef.setState(state: state, reason: reason)
             
@@ -455,8 +448,7 @@ access(all) contract PrizeSavings {
                 recipientCap?.check() ?? true: "Treasury recipient capability must be valid"
             }
             
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             poolRef.setTreasuryRecipient(cap: recipientCap)
             
@@ -477,8 +469,7 @@ access(all) contract PrizeSavings {
             pre {
                 bonusWeight >= 0.0: "Bonus weight cannot be negative"
             }
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             poolRef.setBonusWeight(receiverID: receiverID, bonusWeight: bonusWeight, reason: reason, setBy: setBy)
         }
@@ -493,8 +484,7 @@ access(all) contract PrizeSavings {
             pre {
                 additionalWeight > 0.0: "Additional weight must be positive"
             }
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             poolRef.addBonusWeight(receiverID: receiverID, additionalWeight: additionalWeight, reason: reason, addedBy: addedBy)
         }
@@ -504,8 +494,7 @@ access(all) contract PrizeSavings {
             receiverID: UInt64,
             removedBy: Address
         ) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             poolRef.removeBonusWeight(receiverID: receiverID, removedBy: removedBy)
         }
@@ -515,8 +504,7 @@ access(all) contract PrizeSavings {
             nft: @{NonFungibleToken.NFT},
             depositedBy: Address
         ) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             let nftID = nft.uuid
             let nftType = nft.getType().identifier
@@ -536,8 +524,7 @@ access(all) contract PrizeSavings {
             nftID: UInt64,
             withdrawnBy: Address
         ): @{NonFungibleToken.NFT} {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             let nft <- poolRef.withdrawNFTPrize(nftID: nftID)
             let nftType = nft.getType().identifier
@@ -555,20 +542,17 @@ access(all) contract PrizeSavings {
         // Batch draw functions (for future scalability when user count grows)
 
         access(CriticalOps) fun startPoolDrawSnapshot(poolID: UInt64) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.startDrawSnapshot()
         }
         
         access(CriticalOps) fun processPoolDrawBatch(poolID: UInt64, limit: Int) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.captureStakesBatch(limit: limit)
         }
         
         access(CriticalOps) fun finalizePoolDraw(poolID: UInt64) {
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.finalizeDrawStart()
         }
         
@@ -2692,8 +2676,7 @@ access(all) contract PrizeSavings {
                 self.registeredPools[poolID] == nil: "Already registered"
             }
             
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Pool does not exist")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             poolRef.registerReceiver(receiverID: self.uuid)
             self.registeredPools[poolID] = true
@@ -2712,8 +2695,7 @@ access(all) contract PrizeSavings {
                 self.registerWithPool(poolID: poolID)
             }
             
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Cannot borrow pool")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             poolRef.deposit(from: <- from, receiverID: self.uuid)
         }
@@ -2723,8 +2705,7 @@ access(all) contract PrizeSavings {
                 self.registeredPools[poolID] == true: "Not registered with pool"
             }
             
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Cannot borrow pool")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             return <- poolRef.withdraw(amount: amount, receiverID: self.uuid)
         }
@@ -2734,8 +2715,7 @@ access(all) contract PrizeSavings {
                 self.registeredPools[poolID] == true: "Not registered with pool"
             }
             
-            let poolRef = PrizeSavings.borrowPoolInternal(poolID)
-                ?? panic("Cannot borrow pool")
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
             
             return <- poolRef.claimPendingNFT(receiverID: self.uuid, nftIndex: nftIndex)
         }
@@ -2824,6 +2804,12 @@ access(all) contract PrizeSavings {
     /// Internal borrow with full authorization for Admin operations
     access(contract) fun borrowPoolInternal(_ poolID: UInt64): auth(CriticalOps, ConfigOps) &Pool? {
         return &self.pools[poolID]
+    }
+
+    /// Internal borrow that panics if pool doesn't exist - reduces boilerplate
+    access(contract) fun getPoolInternal(_ poolID: UInt64): auth(CriticalOps, ConfigOps) &Pool {
+        return (&self.pools[poolID] as auth(CriticalOps, ConfigOps) &Pool?)
+            ?? panic("Cannot get Pool: Pool with ID ".concat(poolID.toString()).concat(" does not exist"))
     }
     
     access(all) view fun getAllPoolIDs(): [UInt64] {
