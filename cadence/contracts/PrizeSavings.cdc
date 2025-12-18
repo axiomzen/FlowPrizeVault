@@ -505,6 +505,18 @@ access(all) contract PrizeSavings {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.finalizeDrawStart()
         }
+
+        /// Start a lottery draw for a pool (admin-only)
+        access(CriticalOps) fun startPoolDraw(poolID: UInt64) {
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            poolRef.startDraw()
+        }
+
+        /// Complete a lottery draw for a pool (admin-only)
+        access(CriticalOps) fun completePoolDraw(poolID: UInt64) {
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            poolRef.completeDraw()
+        }
         
     }
     
@@ -2019,7 +2031,7 @@ access(all) contract PrizeSavings {
         
         /// Start a lottery draw using balance-seconds (TWAB) for fair weighting.
         /// Each user's lottery weight = accumulated (balance × time) during the epoch.
-        access(all) fun startDraw() {
+        access(contract) fun startDraw() {
             pre {
                 self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: \(self.emergencyState.rawValue)"
                 self.pendingDrawReceipt == nil: "Draw already in progress"
@@ -2110,7 +2122,7 @@ access(all) contract PrizeSavings {
             panic("Batch draw not yet implemented")
         }
         
-        access(all) fun completeDraw() {
+        access(contract) fun completeDraw() {
             pre {
                 self.pendingDrawReceipt != nil: "No draw in progress"
             }
@@ -2720,7 +2732,7 @@ access(all) contract PrizeSavings {
             return 0.0
         }
         
-        access(all) view fun getPoolBalance(poolID: UInt64): PoolBalance {
+        access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
             if self.registeredPools[poolID] == nil {
                 return PoolBalance(deposits: 0.0, totalEarnedPrizes: 0.0, savingsEarned: 0.0)
             }

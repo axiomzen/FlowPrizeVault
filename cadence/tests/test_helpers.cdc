@@ -279,24 +279,30 @@ fun fundLotteryPool(_ poolID: UInt64, amount: UFix64) {
 
 // ============================================================================
 // DRAW OPERATION HELPERS
+// Note: Draw operations are admin-only. The account parameter is kept for
+// backward compatibility but the deployer account is always used as the signer.
 // ============================================================================
 
 access(all)
 fun startDraw(_ account: Test.TestAccount, poolID: UInt64) {
+    // Draws are admin-only, so we always use the deployer account
+    let deployerAccount = getDeployerAccount()
     let startResult = _executeTransaction(
         "../transactions/test/start_draw.cdc",
         [poolID],
-        account
+        deployerAccount
     )
     assertTransactionSucceeded(startResult, context: "Start draw")
 }
 
 access(all)
 fun completeDraw(_ account: Test.TestAccount, poolID: UInt64) {
+    // Draws are admin-only, so we always use the deployer account
+    let deployerAccount = getDeployerAccount()
     let completeResult = _executeTransaction(
         "../transactions/test/complete_draw.cdc",
         [poolID],
-        account
+        deployerAccount
     )
     assertTransactionSucceeded(completeResult, context: "Complete draw")
 }
@@ -310,6 +316,7 @@ fun commitBlocksForRandomness() {
 
 access(all)
 fun executeFullDraw(_ account: Test.TestAccount, poolID: UInt64) {
+    // Draws are admin-only, so we always use the deployer account
     startDraw(account, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(account, poolID: poolID)

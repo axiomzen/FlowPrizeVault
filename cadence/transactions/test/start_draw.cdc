@@ -1,18 +1,14 @@
 import "PrizeSavings"
 
-/// Start a lottery draw for a pool
+/// Start a lottery draw for a pool (Admin only)
 transaction(poolID: UInt64) {
     
-    prepare(signer: &Account) {
-        // No storage needed - just calling public function
-    }
-    
-    execute {
-        let poolRef = PrizeSavings.borrowPool(poolID: poolID)
-            ?? panic("Pool does not exist")
+    prepare(signer: auth(Storage) &Account) {
+        let admin = signer.storage.borrow<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>(
+            from: PrizeSavings.AdminStoragePath
+        ) ?? panic("Could not borrow Admin resource")
         
-        poolRef.startDraw()
+        admin.startPoolDraw(poolID: poolID)
         log("Draw started for pool ".concat(poolID.toString()))
     }
 }
-
