@@ -1782,8 +1782,8 @@ access(all) contract PrizeSavings {
             metadata: {String: String}
         ) {
             pre {
-                self.emergencyState == PoolEmergencyState.Normal: "Direct funding only in normal state"
-                from.getType() == self.config.assetType: "Invalid vault type"
+                self.emergencyState == PoolEmergencyState.Normal: "Direct funding only in normal state. Current state: ".concat(self.emergencyState.rawValue.toString())
+                from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
             }
             
             switch destination {
@@ -1793,7 +1793,7 @@ access(all) contract PrizeSavings {
                     // Prevent orphaned funds: savings distribution requires depositors
                     assert(
                         self.savingsDistributor.getTotalShares() > 0.0,
-                        message: "Cannot fund savings with no depositors - funds would be orphaned"
+                        message: "Cannot fund savings with no depositors - funds would be orphaned. Amount: ".concat(from.balance.toString()).concat(", totalShares: ").concat(self.savingsDistributor.getTotalShares().toString())
                     )
                     let amount = from.balance
                     self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
@@ -1820,16 +1820,16 @@ access(all) contract PrizeSavings {
                         }
                     }
                 default:
-                    panic("Unsupported funding destination")
+                    panic("Unsupported funding destination. Destination rawValue: ".concat(destination.rawValue.toString()))
             }
         }
         
         /// Deposit funds for a receiver. Only callable within contract (by PoolPositionCollection).
         access(contract) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64) {
             pre {
-                from.balance > 0.0: "Deposit amount must be positive"
-                from.getType() == self.config.assetType: "Invalid vault type"
-                self.registeredReceivers[receiverID] != nil: "Receiver not registered"
+                from.balance > 0.0: "Deposit amount must be positive. Amount: ".concat(from.balance.toString())
+                from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
+                self.registeredReceivers[receiverID] != nil: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
             }
             
             // TODO: Future batch draw support - add check here:
@@ -1837,15 +1837,15 @@ access(all) contract PrizeSavings {
             
             switch self.emergencyState {
                 case PoolEmergencyState.Normal:
-                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit of \(self.config.minimumDeposit)")
+                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit. Required: ".concat(self.config.minimumDeposit.toString()).concat(", got: ").concat(from.balance.toString()))
                 case PoolEmergencyState.PartialMode:
                     let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
-                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured")
-                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit of \(depositLimit)")
+                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: ".concat(receiverID.toString()))
+                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: ".concat(depositLimit.toString()).concat(", got: ").concat(from.balance.toString()))
                 case PoolEmergencyState.EmergencyMode:
-                    panic("Deposits disabled in emergency mode. Withdrawals only.")
+                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
                 case PoolEmergencyState.Paused:
-                    panic("Pool is paused. No operations allowed.")
+                    panic("Pool is paused. No operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
             }
             
             if self.getAvailableYieldRewards() > 0.0 {
@@ -1866,14 +1866,13 @@ access(all) contract PrizeSavings {
         /// Withdraw funds for a receiver. Only callable within contract (by PoolPositionCollection).
         access(contract) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Vault} {
             pre {
-                amount > 0.0: "Withdrawal amount must be positive"
-                self.registeredReceivers[receiverID] != nil: "Receiver not registered"
+                self.registeredReceivers[receiverID] != nil: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
             }
             
             // TODO: Future batch draw support - add check here:
             // assert(self.batchDrawState == nil, message: "Withdrawals locked during batch draw processing")
             
-            assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed")
+            assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(amount.toString()))
             
             if self.emergencyState == PoolEmergencyState.EmergencyMode {
                 let _ = self.checkAndAutoRecover()
@@ -2233,7 +2232,7 @@ access(all) contract PrizeSavings {
             )
         }
         
-        access(contract) fun getDistributionStrategyName(): String {
+        access(all) view fun getDistributionStrategyName(): String {
             return self.config.distributionStrategy.getStrategyName()
         }
         
@@ -2241,7 +2240,7 @@ access(all) contract PrizeSavings {
             self.config.setDistributionStrategy(strategy: strategy)
         }
         
-        access(contract) fun getWinnerSelectionStrategyName(): String {
+        access(all) view fun getWinnerSelectionStrategyName(): String {
             return self.config.winnerSelectionStrategy.getStrategyName()
         }
         
@@ -2249,7 +2248,7 @@ access(all) contract PrizeSavings {
             self.config.setWinnerSelectionStrategy(strategy: strategy)
         }
         
-        access(all) fun hasWinnerTracker(): Bool {
+        access(all) view fun hasWinnerTracker(): Bool {
             return self.config.winnerTrackerCap != nil
         }
         
@@ -2721,7 +2720,7 @@ access(all) contract PrizeSavings {
             return 0.0
         }
         
-        access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
+        access(all) view fun getPoolBalance(poolID: UInt64): PoolBalance {
             if self.registeredPools[poolID] == nil {
                 return PoolBalance(deposits: 0.0, totalEarnedPrizes: 0.0, savingsEarned: 0.0)
             }
