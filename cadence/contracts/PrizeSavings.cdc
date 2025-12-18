@@ -522,6 +522,12 @@ access(all) contract PrizeSavings {
         }
     }
     
+    /// Defines a pluggable yield distribution algorithm (Strategy Pattern).
+    /// Implementations determine how yield is split between savings, lottery, and treasury pools.
+    /// This is an interface to enable polymorphism: pools can work with any conforming strategy,
+    /// and strategies can be swapped at runtime via updatePoolDistributionStrategy().
+    /// Validation preconditions (e.g., percentages summing to 1.0) should be enforced
+    /// in concrete implementations' init functions.
     access(all) struct interface DistributionStrategy {
         access(all) fun calculateDistribution(totalAmount: UFix64): DistributionPlan
         access(all) view fun getStrategyName(): String
@@ -537,8 +543,12 @@ access(all) contract PrizeSavings {
         /// If using thirds, use 0.33, 0.33, 0.34 to sum exactly to 1.0.
         init(savings: UFix64, lottery: UFix64, treasury: UFix64) {
             pre {
-                savings + lottery + treasury == 1.0: "Percentages must sum to exactly 1.0 (e.g., 0.4 + 0.4 + 0.2)"
-                savings >= 0.0 && lottery >= 0.0 && treasury >= 0.0: "Must be non-negative"
+                savings + lottery + treasury == 1.0:
+                    "FixedPercentageStrategy: Percentages must sum to exactly 1.0, but got "
+                    .concat(savings.toString()).concat(" + ")
+                    .concat(lottery.toString()).concat(" + ")
+                    .concat(treasury.toString()).concat(" = ")
+                    .concat((savings + lottery + treasury).toString())
             }
             self.savingsPercent = savings
             self.lotteryPercent = lottery
@@ -571,6 +581,9 @@ access(all) contract PrizeSavings {
         // Uses current balance (shares × share_price) so yield counts toward lottery odds
         access(self) let userCumulativeBalanceSeconds: {UInt64: UFix64}
         access(self) let userLastUpdateTime: {UInt64: UFix64}
+        /// Tracks the last epoch each user participated in (receiverID -> epochID).
+        /// When a user's epoch is less than currentEpochID, their cumulative balance-seconds
+        /// are reset on their next interaction, ensuring each lottery period starts fresh.
         access(self) let userEpochID: {UInt64: UInt64}
         access(self) var currentEpochID: UInt64
         access(self) var epochStartTime: UFix64
@@ -613,7 +626,7 @@ access(all) contract PrizeSavings {
         /// Uses current balance (shares × share_price) so yield is included in lottery weight.
         access(all) view fun getElapsedBalanceSeconds(receiverID: UInt64): UFix64 {
             let now = getCurrentBlock().timestamp
-            let userEpoch = self.userEpochID[receiverID] ?? 0
+            let userEpoch = self.getUserEpochID(receiverID: receiverID)
             let currentBalance = self.getUserAssetValue(receiverID: receiverID)
             
             let effectiveLastUpdate = userEpoch < self.currentEpochID 
@@ -628,7 +641,7 @@ access(all) contract PrizeSavings {
         }
         
         access(all) view fun getEffectiveAccumulated(receiverID: UInt64): UFix64 {
-            let userEpoch = self.userEpochID[receiverID] ?? 0
+            let userEpoch = self.getUserEpochID(receiverID: receiverID)
             if userEpoch < self.currentEpochID {
                 return 0.0  // Would be reset on next accumulation
             }
@@ -636,7 +649,7 @@ access(all) contract PrizeSavings {
         }
         
         access(contract) fun accumulateTime(receiverID: UInt64) {
-            let userEpoch = self.userEpochID[receiverID] ?? 0
+            let userEpoch = self.getUserEpochID(receiverID: receiverID)
             
             if userEpoch < self.currentEpochID {
                 self.userCumulativeBalanceSeconds[receiverID] = 0.0
@@ -708,11 +721,26 @@ access(all) contract PrizeSavings {
             self.accumulateTime(receiverID: receiverID)
             
             let userShareBalance = self.userShares[receiverID] ?? 0.0
-            assert(userShareBalance > 0.0, message: "No shares to withdraw")
-            assert(self.totalShares > 0.0 && self.totalAssets > 0.0, message: "Invalid distributor state")
+            assert(
+                userShareBalance > 0.0,
+                message: "SavingsDistributor.withdraw: No shares to withdraw for receiver "
+                    .concat(receiverID.toString())
+            )
+            assert(
+                self.totalShares > 0.0 && self.totalAssets > 0.0,
+                message: "SavingsDistributor.withdraw: Invalid distributor state - totalShares: "
+                    .concat(self.totalShares.toString())
+                    .concat(", totalAssets: ").concat(self.totalAssets.toString())
+            )
             
             let currentAssetValue = self.convertToAssets(userShareBalance)
-            assert(amount <= currentAssetValue, message: "Insufficient balance")
+            assert(
+                amount <= currentAssetValue,
+                message: "SavingsDistributor.withdraw: Insufficient balance - requested "
+                    .concat(amount.toString())
+                    .concat(" but receiver ").concat(receiverID.toString())
+                    .concat(" only has ").concat(currentAssetValue.toString())
+            )
             
             let sharesToBurn = self.convertToShares(amount)
             
@@ -723,26 +751,21 @@ access(all) contract PrizeSavings {
             return amount
         }
         
-        access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
+        /// Returns the current share price (assets per share) using ERC4626-style virtual offsets.
+        /// Virtual shares/assets prevent inflation attacks and ensure share price starts near 1.0.
+        /// Formula: sharePrice = (totalAssets + VIRTUAL_ASSETS) / (totalShares + VIRTUAL_SHARES)
+        access(all) view fun getSharePrice(): UFix64 {
             let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
             let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS
-            
-            // Calculate share price first to avoid overflow in assets * effectiveShares
-            // share_price = effectiveAssets / effectiveShares (close to 1.0)
-            // shares = assets / share_price
-            let sharePrice = effectiveAssets / effectiveShares
-            return assets / sharePrice
+            return effectiveAssets / effectiveShares
+        }
+        
+        access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
+            return assets / self.getSharePrice()
         }
         
         access(all) view fun convertToAssets(_ shares: UFix64): UFix64 {
-            let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
-            let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS
-            
-            // Calculate share price first to avoid overflow in shares * effectiveAssets
-            // share_price = effectiveAssets / effectiveShares (close to 1.0)
-            // Then: assets = shares * share_price
-            let sharePrice = effectiveAssets / effectiveShares
-            return shares * sharePrice
+            return shares * self.getSharePrice()
         }
         
         access(all) view fun getUserAssetValue(receiverID: UInt64): UFix64 {
@@ -774,13 +797,16 @@ access(all) contract PrizeSavings {
             return self.userLastUpdateTime[receiverID] ?? self.epochStartTime
         }
         
+        /// Returns the user's epoch ID, or 0 if uninitialized.
+        /// 0 is a sentinel: since currentEpochID >= 1, uninitialized users trigger the
+        /// reset branch (0 < currentEpochID), ensuring proper state initialization.
         access(all) view fun getUserEpochID(receiverID: UInt64): UInt64 {
             return self.userEpochID[receiverID] ?? 0
         }
         
         /// Calculate projected balance-seconds at a specific time (no state change)
         access(all) view fun calculateBalanceSecondsAtTime(receiverID: UInt64, targetTime: UFix64): UFix64 {
-            let userEpoch = self.userEpochID[receiverID] ?? 0
+            let userEpoch = self.getUserEpochID(receiverID: receiverID)
             let balance = self.getUserAssetValue(receiverID: receiverID)
             
             if userEpoch < self.currentEpochID {
@@ -2363,11 +2389,7 @@ access(all) contract PrizeSavings {
         }
         
         access(all) view fun getSavingsSharePrice(): UFix64 {
-            let totalShares = self.savingsDistributor.getTotalShares()
-            let totalAssets = self.savingsDistributor.getTotalAssets()
-            let effectiveShares = totalShares + PrizeSavings.VIRTUAL_SHARES
-            let effectiveAssets = totalAssets + PrizeSavings.VIRTUAL_ASSETS
-            return effectiveAssets / effectiveShares
+            return self.savingsDistributor.getSharePrice()
         }
         
         access(all) view fun getUserTimeWeightedBalance(receiverID: UInt64): UFix64 {
