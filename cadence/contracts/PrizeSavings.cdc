@@ -1083,17 +1083,19 @@ access(all) contract PrizeSavings {
         
         init(winnerCount: Int, prizeSplits: [UFix64], nftIDs: [UInt64]) {
             pre {
-                winnerCount > 0: "Must have at least one winner"
-                prizeSplits.length == winnerCount: "Prize splits must match winner count"
+                winnerCount > 0: "Must have at least one winner. winnerCount: ".concat(winnerCount.toString())
+                prizeSplits.length == winnerCount: "Prize splits must match winner count. prizeSplits.length: ".concat(prizeSplits.length.toString()).concat(", winnerCount: ").concat(winnerCount.toString())
             }
             
             var total: UFix64 = 0.0
+            var splitIndex = 0
             for split in prizeSplits {
-                assert(split >= 0.0 && split <= 1.0, message: "Each split must be between 0 and 1")
+                assert(split >= 0.0 && split <= 1.0, message: "Each split must be between 0 and 1. split: ".concat(split.toString()).concat(", index: ").concat(splitIndex.toString()))
                 total = total + split
+                splitIndex = splitIndex + 1
             }
             
-            assert(total == 1.0, message: "Prize splits must sum to 1.0")
+            assert(total == 1.0, message: "Prize splits must sum to 1.0. actual total: ".concat(total.toString()))
             
             self.RANDOM_SCALING_FACTOR = 1_000_000_000
             self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
@@ -1250,7 +1252,7 @@ access(all) contract PrizeSavings {
                 let expectedLast = totalPrizeAmount * self.prizeSplits[selectedWinners.length - 1]
                 let deviation = lastPrize > expectedLast ? lastPrize - expectedLast : expectedLast - lastPrize
                 let maxDeviation = totalPrizeAmount * 0.01
-                assert(deviation <= maxDeviation, message: "Last prize deviation too large - check splits")
+                assert(deviation <= maxDeviation, message: "Last prize deviation too large. deviation: ".concat(deviation.toString()).concat(", maxDeviation: ").concat(maxDeviation.toString()).concat(", lastPrize: ").concat(lastPrize.toString()).concat(", expectedLast: ").concat(expectedLast.toString()))
             }
             
             var nftIDsArray: [[UInt64]] = []
@@ -1440,12 +1442,12 @@ access(all) contract PrizeSavings {
     
     access(all) struct PoolConfig {
         access(all) let assetType: Type
-        access(all) let yieldConnector: {DeFiActions.Sink, DeFiActions.Source}
         access(all) var minimumDeposit: UFix64
         access(all) var drawIntervalSeconds: UFix64
-        access(all) var distributionStrategy: {DistributionStrategy}
-        access(all) var winnerSelectionStrategy: {WinnerSelectionStrategy}
-        access(all) var winnerTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?
+        access(contract) let yieldConnector: {DeFiActions.Sink, DeFiActions.Source}
+        access(contract) var distributionStrategy: {DistributionStrategy}
+        access(contract) var winnerSelectionStrategy: {WinnerSelectionStrategy}
+        access(contract) var winnerTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?
         
         init(
             assetType: Type,
@@ -1489,6 +1491,26 @@ access(all) contract PrizeSavings {
                 minimum >= 0.0: "Minimum deposit cannot be negative"
             }
             self.minimumDeposit = minimum
+        }
+        
+        /// Public getter for distribution strategy name
+        access(all) view fun getDistributionStrategyName(): String {
+            return self.distributionStrategy.getStrategyName()
+        }
+        
+        /// Public getter for winner selection strategy name
+        access(all) view fun getWinnerSelectionStrategyName(): String {
+            return self.winnerSelectionStrategy.getStrategyName()
+        }
+        
+        /// Public getter to check if winner tracker is configured
+        access(all) view fun hasWinnerTracker(): Bool {
+            return self.winnerTrackerCap != nil
+        }
+        
+        /// Public function to calculate distribution for a given amount
+        access(all) fun calculateDistribution(totalAmount: UFix64): DistributionPlan {
+            return self.distributionStrategy.calculateDistribution(totalAmount: totalAmount)
         }
     }
     
