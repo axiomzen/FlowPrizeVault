@@ -858,7 +858,7 @@ access(all) contract PrizeSavings {
             return self.prizeVault.balance
         }
         
-        access(contract) fun awardPrize(receiverID: UInt64, amount: UFix64, yieldSource: auth(FungibleToken.Withdraw) &{DeFiActions.Source}?): @{FungibleToken.Vault} {
+        access(contract) fun withdrawPrize(amount: UFix64, yieldSource: auth(FungibleToken.Withdraw) &{DeFiActions.Source}?): @{FungibleToken.Vault} {
             self.totalPrizesDistributed = self.totalPrizesDistributed + amount
             
             var result <- DeFiActionsUtils.getEmptyVault(self.prizeVault.getType())
@@ -891,10 +891,11 @@ access(all) contract PrizeSavings {
             if let nft <- self.nftPrizeSavings.remove(key: nftID) {
                 return <- nft
             }
-            panic("NFT not found in prize vault")
+            panic("NFT not found in prize vault: ".concat(nftID.toString()))
         }
         
         access(contract) fun storePendingNFT(receiverID: UInt64, nft: @{NonFungibleToken.NFT}) {
+            let nftID = nft.uuid
             if self.pendingNFTClaims[receiverID] == nil {
                 self.pendingNFTClaims[receiverID] <-! []
             }
@@ -902,7 +903,7 @@ access(all) contract PrizeSavings {
                 arrayRef.append(<- nft)
             } else {
                 destroy nft
-                panic("Failed to store NFT in pending claims")
+                panic("Failed to store NFT in pending claims. NFTID: ".concat(nftID.toString()).concat(", receiverID: ").concat(receiverID.toString()))
             }
         }
         
@@ -937,7 +938,7 @@ access(all) contract PrizeSavings {
             if let nftsRef = &self.pendingNFTClaims[receiverID] as auth(Remove) &[{NonFungibleToken.NFT}]? {
                 return <- nftsRef.remove(at: nftIndex)
             }
-            panic("Failed to access pending NFT claims")
+            panic("Failed to access pending NFT claims. receiverID: ".concat(receiverID.toString()).concat(", nftIndex: ").concat(nftIndex.toString()))
         }
     }
     
@@ -2135,8 +2136,7 @@ access(all) contract PrizeSavings {
                 let prizeAmount = prizeAmounts[i]
                 let nftIDsForWinner = nftIDsPerWinner[i]
                 
-                let prizeVault <- self.lotteryDistributor.awardPrize(
-                    receiverID: winnerID,
+                let prizeVault <- self.lotteryDistributor.withdrawPrize(
                     amount: prizeAmount,
                     yieldSource: nil
                 )
