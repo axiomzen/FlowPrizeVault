@@ -1,6 +1,6 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 
-/// Lottery entries (balance-seconds) information for a user
+/// Lottery entries (share-seconds) information for a user
 access(all) struct UserLotteryEntries {
     access(all) let receiverID: UInt64
     access(all) let currentBalance: UFix64
@@ -44,7 +44,7 @@ access(all) struct UserLotteryEntries {
     }
 }
 
-/// Get lottery entries (balance-seconds) information for a user
+/// Get lottery entries (share-seconds) information for a user
 ///
 /// Parameters:
 /// - address: The account address
@@ -102,12 +102,12 @@ access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
     let nextDrawTime = lastDraw + config.drawIntervalSeconds
     let secondsUntilDraw = nextDrawTime > now ? nextDrawTime - now : 0.0
     
-    // Current lottery entries (balance-seconds)
-    let currentEntries = poolRef.getUserTimeWeightedBalance(receiverID: receiverID)
+    // Current lottery entries (share-seconds)
+    let currentEntries = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
     let currentBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
     
     // Projected entries at draw time
-    let projectedEntries = poolRef.getUserProjectedBalanceSeconds(receiverID: receiverID, atTime: nextDrawTime)
+    let projectedEntries = poolRef.getUserProjectedShareSeconds(receiverID: receiverID, atTime: nextDrawTime)
     
     // Bonus weight info
     let bonusWeight = poolRef.getBonusWeight(receiverID: receiverID)
