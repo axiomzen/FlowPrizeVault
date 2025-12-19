@@ -285,6 +285,162 @@ access(all) fun testLotteryShortfallFallsToSavings() {
     // (verified by the share price decrease being more than just the savings portion)
 }
 
+access(all) fun testTreasuryShortfallFallsToLottery() {
+    // Setup: Create pool with 40/40/20 distribution
+    // We'll create a scenario where treasury can't cover its share
+    let poolID = setupPoolWithDeposit(savings: 0.4, lottery: 0.4, treasury: 0.2, depositAmount: 100.0)
+    let poolIndex = Int(poolID)
+    
+    // Add small yield: 5 FLOW total
+    // savings gets 2, lottery gets 2, treasury gets 1
+    simulateYieldAppreciation(poolIndex: poolIndex, amount: 5.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    let afterYieldInfo = getPoolSavingsInfo(poolID)
+    let afterYieldTotalStaked = afterYieldInfo["totalStaked"]!
+    let afterYieldPendingLottery = afterYieldInfo["pendingLotteryYield"]!
+    let afterYieldPendingTreasury = afterYieldInfo["pendingTreasuryYield"]!
+    
+    // Verify initial state: ~102, ~2, ~1
+    Test.assert(afterYieldTotalStaked > 101.0 && afterYieldTotalStaked < 103.0,
+        message: "totalStaked should be ~102. Got: ".concat(afterYieldTotalStaked.toString()))
+    Test.assert(afterYieldPendingLottery > 1.5 && afterYieldPendingLottery < 2.5,
+        message: "pendingLotteryYield should be ~2. Got: ".concat(afterYieldPendingLottery.toString()))
+    Test.assert(afterYieldPendingTreasury > 0.5 && afterYieldPendingTreasury < 1.5,
+        message: "pendingTreasuryYield should be ~1. Got: ".concat(afterYieldPendingTreasury.toString()))
+    
+    // Now simulate 10 FLOW deficit
+    // Target losses: treasury = 2 (20%), lottery = 4 (40%), savings = 4 (40%)
+    // But treasury only has ~1, so shortfall of ~1 goes to lottery
+    // Lottery needs to absorb: 4 + 1 = 5, but only has ~2, shortfall of ~3 goes to savings
+    // Savings absorbs: 4 + 3 = 7
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    let finalInfo = getPoolSavingsInfo(poolID)
+    let finalTotalStaked = finalInfo["totalStaked"]!
+    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
+    let finalPendingTreasury = finalInfo["pendingTreasuryYield"]!
+    
+    // Treasury should be depleted (absorbed all ~1 it had)
+    Test.assert(finalPendingTreasury < 0.1,
+        message: "Treasury should be depleted. Got: ".concat(finalPendingTreasury.toString()))
+    
+    // Lottery should be depleted (absorbed all ~2 it had)
+    Test.assert(finalPendingLottery < 0.1,
+        message: "Lottery should be depleted. Got: ".concat(finalPendingLottery.toString()))
+    
+    // Savings absorbed its share + all shortfalls
+    // Original totalStaked ~102, absorbed ~7, should be ~95
+    let savingsLoss = afterYieldTotalStaked - finalTotalStaked
+    Test.assert(savingsLoss > 6.0 && savingsLoss < 8.0,
+        message: "Savings should absorb ~7 (its share + shortfalls). Actual: ".concat(savingsLoss.toString()))
+    
+    // Total absorbed should equal deficit
+    let totalAbsorbed = savingsLoss + afterYieldPendingLottery + afterYieldPendingTreasury - finalPendingLottery - finalPendingTreasury
+    Test.assert(totalAbsorbed > 9.5 && totalAbsorbed < 10.5,
+        message: "Total absorbed should be ~10. Got: ".concat(totalAbsorbed.toString()))
+}
+
+access(all) fun testShortfallPriorityChain() {
+    // This test explicitly verifies the priority: Treasury → Lottery → Savings
+    // Setup: 30% savings, 30% lottery, 40% treasury
+    let poolID = setupPoolWithDeposit(savings: 0.3, lottery: 0.3, treasury: 0.4, depositAmount: 100.0)
+    let poolIndex = Int(poolID)
+    
+    // Add exactly 10 FLOW yield
+    // savings gets 3, lottery gets 3, treasury gets 4
+    simulateYieldAppreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    let afterYieldInfo = getPoolSavingsInfo(poolID)
+    let afterYieldTotalStaked = afterYieldInfo["totalStaked"]!
+    let afterYieldPendingLottery = afterYieldInfo["pendingLotteryYield"]!
+    let afterYieldPendingTreasury = afterYieldInfo["pendingTreasuryYield"]!
+    
+    // State: totalStaked ~103, lottery ~3, treasury ~4
+    // allocatedFunds = 103 + 3 + 4 = 110
+    
+    // Simulate 20 FLOW deficit (larger than total yield accumulated)
+    // Target losses: treasury = 8 (40%), lottery = 6 (30%), savings = 6 (30%)
+    // Treasury has 4, absorbs 4, shortfall = 4
+    // Lottery needs 6 + 4 = 10, has 3, absorbs 3, shortfall = 7
+    // Savings absorbs 6 + 7 = 13
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: 20.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    let finalInfo = getPoolSavingsInfo(poolID)
+    let finalTotalStaked = finalInfo["totalStaked"]!
+    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
+    let finalPendingTreasury = finalInfo["pendingTreasuryYield"]!
+    
+    // Treasury should be completely depleted
+    Test.assert(finalPendingTreasury < 0.01,
+        message: "Treasury should be fully depleted. Got: ".concat(finalPendingTreasury.toString()))
+    
+    // Lottery should be completely depleted
+    Test.assert(finalPendingLottery < 0.01,
+        message: "Lottery should be fully depleted. Got: ".concat(finalPendingLottery.toString()))
+    
+    // Savings absorbed its share plus all shortfalls (~13)
+    let savingsLoss = afterYieldTotalStaked - finalTotalStaked
+    Test.assert(savingsLoss > 12.0 && savingsLoss < 14.0,
+        message: "Savings should absorb ~13 (6 own + 7 shortfall). Actual: ".concat(savingsLoss.toString()))
+    
+    // Final totalStaked should be ~90 (103 - 13)
+    Test.assert(finalTotalStaked > 89.0 && finalTotalStaked < 91.0,
+        message: "Final totalStaked should be ~90. Got: ".concat(finalTotalStaked.toString()))
+}
+
+access(all) fun testNoShortfallWhenSufficientFunds() {
+    // Test that when all allocations have sufficient funds, no shortfall cascading occurs
+    let poolID = setupPoolWithDeposit(savings: 0.5, lottery: 0.3, treasury: 0.2, depositAmount: 100.0)
+    let poolIndex = Int(poolID)
+    
+    // Add 40 FLOW yield to build up substantial reserves
+    // savings gets 20, lottery gets 12, treasury gets 8
+    simulateYieldAppreciation(poolIndex: poolIndex, amount: 40.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    let afterYieldInfo = getPoolSavingsInfo(poolID)
+    let afterYieldTotalStaked = afterYieldInfo["totalStaked"]!
+    let afterYieldPendingLottery = afterYieldInfo["pendingLotteryYield"]!
+    let afterYieldPendingTreasury = afterYieldInfo["pendingTreasuryYield"]!
+    
+    // Simulate 10 FLOW deficit (each allocation can fully cover its share)
+    // Target: treasury = 2, lottery = 3, savings = 5
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    let finalInfo = getPoolSavingsInfo(poolID)
+    let finalTotalStaked = finalInfo["totalStaked"]!
+    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
+    let finalPendingTreasury = finalInfo["pendingTreasuryYield"]!
+    
+    // Each allocation absorbed exactly its proportional share
+    let treasuryLoss = afterYieldPendingTreasury - finalPendingTreasury
+    let lotteryLoss = afterYieldPendingLottery - finalPendingLottery
+    let savingsLoss = afterYieldTotalStaked - finalTotalStaked
+    
+    // Treasury absorbed exactly 20% = 2
+    Test.assert(treasuryLoss > 1.5 && treasuryLoss < 2.5,
+        message: "Treasury should absorb exactly ~2 (20%). Actual: ".concat(treasuryLoss.toString()))
+    
+    // Lottery absorbed exactly 30% = 3
+    Test.assert(lotteryLoss > 2.5 && lotteryLoss < 3.5,
+        message: "Lottery should absorb exactly ~3 (30%). Actual: ".concat(lotteryLoss.toString()))
+    
+    // Savings absorbed exactly 50% = 5
+    Test.assert(savingsLoss > 4.5 && savingsLoss < 5.5,
+        message: "Savings should absorb exactly ~5 (50%). Actual: ".concat(savingsLoss.toString()))
+    
+    // None of the allocations were fully depleted
+    Test.assert(finalPendingTreasury > 5.0,
+        message: "Treasury should still have funds. Got: ".concat(finalPendingTreasury.toString()))
+    Test.assert(finalPendingLottery > 8.0,
+        message: "Lottery should still have funds. Got: ".concat(finalPendingLottery.toString()))
+}
+
 // ============================================================================
 // TESTS - Edge Cases
 // ============================================================================
