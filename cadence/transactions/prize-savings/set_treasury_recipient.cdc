@@ -1,10 +1,10 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 import FungibleToken from "FungibleToken"
 
-/// Set the treasury recipient for automatic forwarding during processRewards.
+/// Set the treasury recipient for automatic forwarding during syncWithYieldSource.
 /// 
 /// Once set, treasury funds are automatically forwarded to the recipient
-/// whenever processRewards() is called (during deposits, withdrawals, etc.)
+/// whenever syncWithYieldSource() is called (during deposits, withdrawals, etc.)
 ///
 /// Parameters:
 /// - poolID: The pool to configure

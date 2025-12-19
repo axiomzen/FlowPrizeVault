@@ -1,7 +1,7 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 import FungibleToken from "FungibleToken"
 
-/// Set the treasury recipient for automatic forwarding during processRewards.
+/// Set the treasury recipient for automatic forwarding during syncWithYieldSource.
 /// 
 /// **SECURITY MODEL**: This function requires OwnerOnly entitlement which is
 /// NEVER issued via capabilities. Only the account owner (private key holder)
@@ -16,7 +16,7 @@ import FungibleToken from "FungibleToken"
 ///
 /// Example flow:
 /// 1. Account owner calls this once to set recipient address
-/// 2. Every processRewards() automatically forwards treasury to recipient
+/// 2. Every syncWithYieldSource() automatically forwards treasury to recipient
 /// 3. No further action needed - fully automated
 transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath) {
     let adminRef: auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin

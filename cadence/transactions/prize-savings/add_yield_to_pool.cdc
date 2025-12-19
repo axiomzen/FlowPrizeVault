@@ -3,7 +3,7 @@ import FlowToken from "FlowToken"
 
 /// Add Yield to Pool - Simulates yield generation by adding funds to the test yield vault
 /// This is for testing purposes - the funds added will be available as "yield"
-/// when processRewards is called
+/// when syncWithYieldSource is called
 ///
 /// Parameters:
 /// - amount: Amount of FLOW to add as simulated yield

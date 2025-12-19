@@ -121,6 +121,13 @@ access(all) contract PrizeSavings {
     /// @param amount - Amount of yield accrued (increases share price for all depositors)
     access(all) event SavingsYieldAccrued(poolID: UInt64, amount: UFix64)
     
+    /// Emitted when a deficit is applied across allocations.
+    /// @param poolID - Pool experiencing the deficit
+    /// @param totalDeficit - Total deficit amount detected
+    /// @param absorbedByLottery - Amount absorbed by pending lottery yield
+    /// @param absorbedBySavings - Amount absorbed by savings (decreases share price)
+    access(all) event DeficitApplied(poolID: UInt64, totalDeficit: UFix64, absorbedByLottery: UFix64, absorbedBySavings: UFix64)
+    
     /// Emitted when rounding dust from savings distribution is sent to treasury.
     /// This occurs due to virtual shares absorbing a tiny fraction of yield.
     /// @param poolID - Pool generating dust
@@ -780,7 +787,7 @@ access(all) contract PrizeSavings {
         access(ConfigOps) fun processPoolRewards(poolID: UInt64) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            poolRef.processRewards()
+            poolRef.syncWithYieldSource()
         }
         
         /// Directly sets the pool's operational state.
@@ -807,7 +814,7 @@ access(all) contract PrizeSavings {
         }
         
         /// Set the treasury recipient for automatic forwarding.
-        /// Once set, treasury funds are auto-forwarded during processRewards().
+        /// Once set, treasury funds are auto-forwarded during syncWithYieldSource().
         /// Pass nil to disable auto-forwarding (funds stored in distributor).
         /// 
         /// SECURITY: Requires OwnerOnly entitlement - NEVER issue capabilities with this.
@@ -1210,6 +1217,31 @@ access(all) contract PrizeSavings {
             self.totalDistributed = self.totalDistributed + actualSavings
             
             return actualSavings
+        }
+        
+        /// Decreases total assets to reflect a loss in the yield source.
+        /// This effectively decreases share price for all depositors proportionally.
+        /// 
+        /// Unlike accrueYield, this does NOT apply virtual share dust calculation
+        /// because losses should be fully socialized across all depositors.
+        /// 
+        /// @param amount - Loss amount to socialize
+        /// @return Actual amount decreased (capped at totalAssets to prevent underflow)
+        access(contract) fun decreaseTotalAssets(amount: UFix64): UFix64 {
+            if amount == 0.0 || self.totalAssets == 0.0 {
+                return 0.0
+            }
+            
+            // Cap at totalAssets to prevent underflow
+            let actualDecrease = amount > self.totalAssets ? self.totalAssets : amount
+            
+            // Decrease total assets, which decreases share price for everyone
+            self.totalAssets = self.totalAssets - actualDecrease
+            
+            // Note: We do NOT decrease totalDistributed - that's historical tracking
+            // Note: We do NOT burn shares - share price naturally adjusts
+            
+            return actualDecrease
         }
         
         /// Calculates elapsed share-seconds since the user's last update.
@@ -2605,7 +2637,7 @@ access(all) contract PrizeSavings {
     /// 1. Admin creates pool with createPool()
     /// 2. Users deposit via PoolPositionCollection.deposit()
     /// 3. Yield accrues from connected DeFi source
-    /// 4. processRewards() distributes yield per strategy
+    /// 4. syncWithYieldSource() distributes yield per strategy
     /// 5. Admin calls startDraw() → completeDraw() for lottery
     /// 6. Winners receive auto-compounded prizes
     /// 7. Users withdraw via PoolPositionCollection.withdraw()
@@ -3101,7 +3133,7 @@ access(all) contract PrizeSavings {
             
             // Process pending yield before deposit to ensure fair share price
             if self.getAvailableYieldRewards() > 0.0 {
-                self.processRewards()
+                self.syncWithYieldSource()
             }
             
             let amount = from.balance
@@ -3160,7 +3192,7 @@ access(all) contract PrizeSavings {
             
             // Process pending yield before withdrawal (if in normal mode)
             if self.emergencyState == PoolEmergencyState.Normal && self.getAvailableYieldRewards() > 0.0 {
-                self.processRewards()
+                self.syncWithYieldSource()
             }
             
             // Validate user has sufficient balance
@@ -3249,33 +3281,65 @@ access(all) contract PrizeSavings {
         }
         
         // ============================================================
-        // REWARD PROCESSING
+        // YIELD SOURCE SYNCHRONIZATION
         // ============================================================
         
-        /// Processes available yield and distributes according to strategy.
+        /// Syncs internal accounting with the yield source balance.
         /// 
-        /// FLOW:
-        /// 1. Calculate available yield (yieldBalance - allocatedFunds)
+        /// Compares actual yield source balance to internal allocations and
+        /// adjusts accounting to match reality. Handles both appreciation (excess)
+        /// and depreciation (deficit).
+        /// 
+        /// EXCESS (yieldBalance > allocatedFunds):
+        /// 1. Calculate excess amount
         /// 2. Apply distribution strategy (savings/lottery/treasury split)
         /// 3. Accrue savings yield to share price
-        /// 4. Add lottery yield to pendingLotteryYield (stays in yield source)
-        /// 5. Forward treasury to configured recipient (if any)
+        /// 4. Add lottery yield to pendingLotteryYield
+        /// 5. Forward treasury to configured recipient
+        /// 
+        /// DEFICIT (yieldBalance < allocatedFunds):
+        /// 1. Calculate deficit amount
+        /// 2. Apply distribution strategy proportions (excluding treasury)
+        /// 3. Reduce pendingLotteryYield by lottery's share
+        /// 4. Reduce savings (share price) by savings' share
+        /// 5. Any lottery shortfall falls to savings
+        /// 
+        /// Example: 30% savings, 50% lottery, 20% treasury strategy
+        /// - Savings absorbs: 30/(30+50) = 37.5% of deficit
+        /// - Lottery absorbs: 50/(30+50) = 62.5% of deficit
         /// 
         /// Called automatically during deposits and withdrawals.
         /// Can also be called manually by admin.
-        access(contract) fun processRewards() {
-            // Calculate how much yield is available (above what's allocated)
+        access(contract) fun syncWithYieldSource() {
             let yieldBalance = self.config.yieldConnector.minimumAvailable()
             let allocatedFunds = self.totalStaked + self.pendingLotteryYield
-            let availableYield: UFix64 = yieldBalance > allocatedFunds ? yieldBalance - allocatedFunds : 0.0
             
-            // No yield to process
-            if availableYield == 0.0 {
+            // === EXCESS: Apply gains ===
+            if yieldBalance > allocatedFunds {
+                let excess = yieldBalance - allocatedFunds
+                self.applyExcess(amount: excess)
+                return
+            }
+            
+            // === DEFICIT: Apply shortfall ===
+            if yieldBalance < allocatedFunds {
+                let deficit = allocatedFunds - yieldBalance
+                self.applyDeficit(amount: deficit)
+                return
+            }
+            
+            // === BALANCED: Nothing to do ===
+        }
+        
+        /// Applies excess funds (appreciation) according to the distribution strategy.
+        /// @param amount - Total excess amount to distribute
+        access(self) fun applyExcess(amount: UFix64) {
+            if amount == 0.0 {
                 return
             }
             
             // Apply distribution strategy
-            let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: availableYield)
+            let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
             
             var savingsDust: UFix64 = 0.0
             
@@ -3329,9 +3393,78 @@ access(all) contract PrizeSavings {
             
             emit RewardsProcessed(
                 poolID: self.poolID,
-                totalAmount: availableYield,
+                totalAmount: amount,
                 savingsAmount: plan.savingsAmount - savingsDust,
                 lotteryAmount: plan.lotteryAmount
+            )
+        }
+        
+        /// Applies a deficit (depreciation) from the yield source across the pool.
+        /// 
+        /// Deficit is distributed proportionally according to the distribution strategy,
+        /// matching how excess is distributed. Treasury portion is excluded since
+        /// those funds are already forwarded out.
+        /// 
+        /// Example: If strategy is 30% savings, 50% lottery, 20% treasury:
+        /// - Savings absorbs: 30/(30+50) = 37.5% of deficit
+        /// - Lottery absorbs: 50/(30+50) = 62.5% of deficit
+        /// 
+        /// If pendingLotteryYield can't cover its share, shortfall goes to savings.
+        /// 
+        /// @param amount - Total deficit to absorb
+        access(self) fun applyDeficit(amount: UFix64) {
+            if amount == 0.0 {
+                return
+            }
+            
+            // Use distribution strategy to calculate proportions
+            // We use a unit amount to get the percentages
+            let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: 1.0)
+            
+            // Calculate savings and lottery shares (excluding treasury since it's already forwarded)
+            let savingsAndLotteryTotal = plan.savingsAmount + plan.lotteryAmount
+            
+            // Edge case: if both are 0 (100% treasury strategy), all loss goes to savings
+            var targetSavingsLoss: UFix64 = amount
+            var targetLotteryLoss: UFix64 = 0.0
+            
+            if savingsAndLotteryTotal > 0.0 {
+                // Normalize to get proportions excluding treasury
+                let savingsShare = plan.savingsAmount / savingsAndLotteryTotal
+                let lotteryShare = plan.lotteryAmount / savingsAndLotteryTotal
+                
+                targetSavingsLoss = amount * savingsShare
+                targetLotteryLoss = amount * lotteryShare
+            }
+            
+            // Apply lottery loss (capped by available pendingLotteryYield)
+            var absorbedByLottery: UFix64 = 0.0
+            var lotteryShortfall: UFix64 = 0.0
+            
+            if targetLotteryLoss > 0.0 {
+                if self.pendingLotteryYield >= targetLotteryLoss {
+                    absorbedByLottery = targetLotteryLoss
+                } else {
+                    absorbedByLottery = self.pendingLotteryYield
+                    lotteryShortfall = targetLotteryLoss - absorbedByLottery
+                }
+                self.pendingLotteryYield = self.pendingLotteryYield - absorbedByLottery
+            }
+            
+            // Apply savings loss (target + any shortfall from lottery)
+            let totalSavingsLoss = targetSavingsLoss + lotteryShortfall
+            var absorbedBySavings: UFix64 = 0.0
+            
+            if totalSavingsLoss > 0.0 {
+                absorbedBySavings = self.savingsDistributor.decreaseTotalAssets(amount: totalSavingsLoss)
+                self.totalStaked = self.totalStaked - absorbedBySavings
+            }
+            
+            emit DeficitApplied(
+                poolID: self.poolID,
+                totalDeficit: amount,
+                absorbedByLottery: absorbedByLottery,
+                absorbedBySavings: absorbedBySavings
             )
         }
         
@@ -3943,7 +4076,7 @@ access(all) contract PrizeSavings {
         access(all) fun getAvailableYieldRewards(): UFix64 {
             let yieldSource = &self.config.yieldConnector as &{DeFiActions.Source}
             let available = yieldSource.minimumAvailable()
-            // Exclude already-allocated funds (same logic as processRewards)
+            // Exclude already-allocated funds (same logic as syncWithYieldSource)
             let allocatedFunds = self.totalStaked + self.pendingLotteryYield
             if available > allocatedFunds {
                 return available - allocatedFunds
