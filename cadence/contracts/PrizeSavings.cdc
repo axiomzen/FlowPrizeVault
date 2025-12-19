@@ -997,7 +997,43 @@ access(all) contract PrizeSavings {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.completeDraw()
         }
-        
+
+        /// Withdraws unclaimed treasury funds from a pool.
+        /// 
+        /// Treasury funds accumulate in the unclaimed vault when no treasury recipient
+        /// is configured at draw time. This function allows admin to withdraw those funds.
+        /// 
+        /// @param poolID - ID of the pool to withdraw from
+        /// @param amount - Amount to withdraw (will be capped at available balance)
+        /// @param recipient - Capability to receive the withdrawn funds
+        /// @return Actual amount withdrawn (may be less than requested if insufficient balance)
+        access(CriticalOps) fun withdrawUnclaimedTreasury(
+            poolID: UInt64,
+            amount: UFix64,
+            recipient: Capability<&{FungibleToken.Receiver}>
+        ): UFix64 {
+            pre {
+                recipient.check(): "Recipient capability is invalid"
+                amount > 0.0: "Amount must be greater than 0"
+            }
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            let withdrawn <- poolRef.withdrawUnclaimedTreasury(amount: amount)
+            let actualAmount = withdrawn.balance
+            
+            if actualAmount > 0.0 {
+                recipient.borrow()!.deposit(from: <- withdrawn)
+                emit TreasuryForwarded(
+                    poolID: poolID,
+                    amount: actualAmount,
+                    recipient: recipient.address
+                )
+            } else {
+                destroy withdrawn
+            }
+            
+            return actualAmount
+        }
+
     }
     
     /// Storage path for the Admin resource.
@@ -2733,12 +2769,20 @@ access(all) contract PrizeSavings {
         /// Transferred to prize vault at draw time.
         access(all) var pendingLotteryYield: UFix64
         
-        /// Cumulative treasury amount auto-forwarded to recipient.
+        /// Treasury funds still earning in yield source (not yet materialized).
+        /// Transferred to recipient or unclaimed vault at draw time.
+        access(all) var pendingTreasuryYield: UFix64
+        
+        /// Cumulative treasury amount forwarded to recipient.
         access(all) var totalTreasuryForwarded: UFix64
         
-        /// Capability to treasury recipient for auto-forwarding.
-        /// If nil, treasury is not auto-forwarded.
+        /// Capability to treasury recipient for forwarding at draw time.
+        /// If nil, treasury goes to unclaimedTreasuryVault instead.
         access(self) var treasuryRecipientCap: Capability<&{FungibleToken.Receiver}>?
+        
+        /// Holds treasury funds when no recipient is configured.
+        /// Admin can withdraw from this vault at any time.
+        access(self) var unclaimedTreasuryVault: @{FungibleToken.Vault}
         
         // ============================================================
         // NESTED RESOURCES
@@ -2788,8 +2832,12 @@ access(all) contract PrizeSavings {
             self.totalStaked = 0.0
             self.lastDrawTimestamp = 0.0
             self.pendingLotteryYield = 0.0
+            self.pendingTreasuryYield = 0.0
             self.totalTreasuryForwarded = 0.0
             self.treasuryRecipientCap = nil
+            
+            // Create vault for unclaimed treasury (when no recipient configured)
+            self.unclaimedTreasuryVault <- DeFiActionsUtils.getEmptyVault(config.assetType)
             
             // Create nested resources
             self.savingsDistributor <- create SavingsDistributor(vaultType: config.assetType)
@@ -3062,21 +3110,10 @@ access(all) contract PrizeSavings {
                     self.totalStaked = self.totalStaked + actualSavings
                     emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
                     
-                    // Route dust to treasury if recipient configured
+                    // Route dust to pending treasury
                     if dustAmount > 0.0 {
                         emit SavingsRoundingDustToTreasury(poolID: self.poolID, amount: dustAmount)
-                        if let cap = self.treasuryRecipientCap {
-                            if let recipientRef = cap.borrow() {
-                                let dustVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: dustAmount)
-                                if dustVault.balance > 0.0 {
-                                    recipientRef.deposit(from: <- dustVault)
-                                    self.totalTreasuryForwarded = self.totalTreasuryForwarded + dustAmount
-                                    emit TreasuryForwarded(poolID: self.poolID, amount: dustAmount, recipient: cap.address)
-                                } else {
-                                    destroy dustVault
-                                }
-                            }
-                        }
+                        self.pendingTreasuryYield = self.pendingTreasuryYield + dustAmount
                     }
                     
                 default:
@@ -3290,29 +3327,29 @@ access(all) contract PrizeSavings {
         /// adjusts accounting to match reality. Handles both appreciation (excess)
         /// and depreciation (deficit).
         /// 
+        /// ALLOCATED FUNDS:
+        /// allocatedFunds = totalStaked + pendingLotteryYield + pendingTreasuryYield
+        /// This must always equal the yield source balance after sync.
+        /// 
         /// EXCESS (yieldBalance > allocatedFunds):
         /// 1. Calculate excess amount
         /// 2. Apply distribution strategy (savings/lottery/treasury split)
-        /// 3. Accrue savings yield to share price
+        /// 3. Accrue savings yield to share price (increases totalStaked)
         /// 4. Add lottery yield to pendingLotteryYield
-        /// 5. Forward treasury to configured recipient
+        /// 5. Add treasury yield to pendingTreasuryYield
         /// 
         /// DEFICIT (yieldBalance < allocatedFunds):
         /// 1. Calculate deficit amount
-        /// 2. Apply distribution strategy proportions (excluding treasury)
-        /// 3. Reduce pendingLotteryYield by lottery's share
-        /// 4. Reduce savings (share price) by savings' share
-        /// 5. Any lottery shortfall falls to savings
-        /// 
-        /// Example: 30% savings, 50% lottery, 20% treasury strategy
-        /// - Savings absorbs: 30/(30+50) = 37.5% of deficit
-        /// - Lottery absorbs: 50/(30+50) = 62.5% of deficit
+        /// 2. Distribute proportionally across all allocations
+        /// 3. Reduce pendingTreasuryYield first (protocol absorbs loss first)
+        /// 4. Reduce pendingLotteryYield second
+        /// 5. Reduce savings (share price) last - protecting user principal
         /// 
         /// Called automatically during deposits and withdrawals.
         /// Can also be called manually by admin.
         access(contract) fun syncWithYieldSource() {
             let yieldBalance = self.config.yieldConnector.minimumAvailable()
-            let allocatedFunds = self.totalStaked + self.pendingLotteryYield
+            let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
             
             // === EXCESS: Apply gains ===
             if yieldBalance > allocatedFunds {
@@ -3332,6 +3369,10 @@ access(all) contract PrizeSavings {
         }
         
         /// Applies excess funds (appreciation) according to the distribution strategy.
+        /// 
+        /// All portions stay in the yield source and are tracked via pending variables.
+        /// Actual transfers happen at draw time (lottery → prize pool, treasury → recipient/vault).
+        /// 
         /// @param amount - Total excess amount to distribute
         access(self) fun applyExcess(amount: UFix64) {
             if amount == 0.0 {
@@ -3366,29 +3407,15 @@ access(all) contract PrizeSavings {
                 )
             }
             
-            // Process treasury portion + savings dust
+            // Process treasury portion + savings dust - stays in yield source until draw
             let totalTreasuryAmount = plan.treasuryAmount + savingsDust
-            
             if totalTreasuryAmount > 0.0 {
-                // Auto-forward to treasury recipient if configured
-                if let cap = self.treasuryRecipientCap {
-                    if let recipientRef = cap.borrow() {
-                        let treasuryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: totalTreasuryAmount)
-                        let actualAmount = treasuryVault.balance
-                        if actualAmount > 0.0 {
-                            recipientRef.deposit(from: <- treasuryVault)
-                            self.totalTreasuryForwarded = self.totalTreasuryForwarded + actualAmount
-                            emit TreasuryForwarded(
-                                poolID: self.poolID,
-                                amount: actualAmount,
-                                recipient: cap.address
-                            )
-                        } else {
-                            destroy treasuryVault
-                        }
-                    }
-                }
-                // If no recipient configured, treasury portion stays in yield source
+                self.pendingTreasuryYield = self.pendingTreasuryYield + totalTreasuryAmount
+                emit TreasuryFunded(
+                    poolID: self.poolID,
+                    amount: totalTreasuryAmount,
+                    source: "yield_pending"
+                )
             }
             
             emit RewardsProcessed(
@@ -3401,15 +3428,17 @@ access(all) contract PrizeSavings {
         
         /// Applies a deficit (depreciation) from the yield source across the pool.
         /// 
-        /// Deficit is distributed proportionally according to the distribution strategy,
-        /// matching how excess is distributed. Treasury portion is excluded since
-        /// those funds are already forwarded out.
+        /// Deficit is distributed proportionally according to the distribution strategy.
         /// 
-        /// Example: If strategy is 30% savings, 50% lottery, 20% treasury:
-        /// - Savings absorbs: 30/(30+50) = 37.5% of deficit
-        /// - Lottery absorbs: 50/(30+50) = 62.5% of deficit
+        /// Example: If strategy is 50% savings, 30% lottery, 20% treasury:
+        /// - Savings absorbs: 50% of deficit
+        /// - Lottery absorbs: 30% of deficit
+        /// - Treasury absorbs: 20% of deficit
         /// 
-        /// If pendingLotteryYield can't cover its share, shortfall goes to savings.
+        /// SHORTFALL HANDLING (priority order - protect user principal):
+        /// 1. Treasury absorbs its share first (capped by pendingTreasuryYield)
+        /// 2. Lottery absorbs its share + treasury shortfall (capped by pendingLotteryYield)
+        /// 3. Savings absorbs remainder (share price decrease affects all users)
         /// 
         /// @param amount - Total deficit to absorb
         access(self) fun applyDeficit(amount: UFix64) {
@@ -3418,40 +3447,43 @@ access(all) contract PrizeSavings {
             }
             
             // Use distribution strategy to calculate proportions
-            // We use a unit amount to get the percentages
-            let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: 1.0)
+            let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
             
-            // Calculate savings and lottery shares (excluding treasury since it's already forwarded)
-            let savingsAndLotteryTotal = plan.savingsAmount + plan.lotteryAmount
+            // Target losses for each allocation
+            var targetTreasuryLoss = plan.treasuryAmount
+            var targetLotteryLoss = plan.lotteryAmount
+            var targetSavingsLoss = plan.savingsAmount
             
-            // Edge case: if both are 0 (100% treasury strategy), all loss goes to savings
-            var targetSavingsLoss: UFix64 = amount
-            var targetLotteryLoss: UFix64 = 0.0
+            // === STEP 1: Treasury absorbs first (protocol takes loss before users) ===
+            var absorbedByTreasury: UFix64 = 0.0
+            var treasuryShortfall: UFix64 = 0.0
             
-            if savingsAndLotteryTotal > 0.0 {
-                // Normalize to get proportions excluding treasury
-                let savingsShare = plan.savingsAmount / savingsAndLotteryTotal
-                let lotteryShare = plan.lotteryAmount / savingsAndLotteryTotal
-                
-                targetSavingsLoss = amount * savingsShare
-                targetLotteryLoss = amount * lotteryShare
+            if targetTreasuryLoss > 0.0 {
+                if self.pendingTreasuryYield >= targetTreasuryLoss {
+                    absorbedByTreasury = targetTreasuryLoss
+                } else {
+                    absorbedByTreasury = self.pendingTreasuryYield
+                    treasuryShortfall = targetTreasuryLoss - absorbedByTreasury
+                }
+                self.pendingTreasuryYield = self.pendingTreasuryYield - absorbedByTreasury
             }
             
-            // Apply lottery loss (capped by available pendingLotteryYield)
+            // === STEP 2: Lottery absorbs its share + treasury shortfall ===
             var absorbedByLottery: UFix64 = 0.0
             var lotteryShortfall: UFix64 = 0.0
+            let totalLotteryTarget = targetLotteryLoss + treasuryShortfall
             
-            if targetLotteryLoss > 0.0 {
-                if self.pendingLotteryYield >= targetLotteryLoss {
-                    absorbedByLottery = targetLotteryLoss
+            if totalLotteryTarget > 0.0 {
+                if self.pendingLotteryYield >= totalLotteryTarget {
+                    absorbedByLottery = totalLotteryTarget
                 } else {
                     absorbedByLottery = self.pendingLotteryYield
-                    lotteryShortfall = targetLotteryLoss - absorbedByLottery
+                    lotteryShortfall = totalLotteryTarget - absorbedByLottery
                 }
                 self.pendingLotteryYield = self.pendingLotteryYield - absorbedByLottery
             }
             
-            // Apply savings loss (target + any shortfall from lottery)
+            // === STEP 3: Savings absorbs remainder (share price decrease) ===
             let totalSavingsLoss = targetSavingsLoss + lotteryShortfall
             var absorbedBySavings: UFix64 = 0.0
             
@@ -3535,6 +3567,33 @@ access(all) contract PrizeSavings {
                 let actualWithdrawn = lotteryVault.balance
                 self.lotteryDistributor.fundPrizePool(vault: <- lotteryVault)
                 self.pendingLotteryYield = self.pendingLotteryYield - actualWithdrawn
+            }
+            
+            // Materialize pending treasury funds from yield source
+            if self.pendingTreasuryYield > 0.0 {
+                let treasuryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.pendingTreasuryYield)
+                let actualWithdrawn = treasuryVault.balance
+                self.pendingTreasuryYield = self.pendingTreasuryYield - actualWithdrawn
+                
+                // Forward to recipient if configured, otherwise store in unclaimed vault
+                if let cap = self.treasuryRecipientCap {
+                    if let recipientRef = cap.borrow() {
+                        let forwardedAmount = treasuryVault.balance
+                        recipientRef.deposit(from: <- treasuryVault)
+                        self.totalTreasuryForwarded = self.totalTreasuryForwarded + forwardedAmount
+                        emit TreasuryForwarded(
+                            poolID: self.poolID,
+                            amount: forwardedAmount,
+                            recipient: cap.address
+                        )
+                    } else {
+                        // Recipient capability invalid - store in unclaimed vault
+                        self.unclaimedTreasuryVault.deposit(from: <- treasuryVault)
+                    }
+                } else {
+                    // No recipient configured - store in unclaimed vault for admin withdrawal
+                    self.unclaimedTreasuryVault.deposit(from: <- treasuryVault)
+                }
             }
             
             let prizeAmount = self.lotteryDistributor.getPrizePoolBalance()
@@ -4077,7 +4136,7 @@ access(all) contract PrizeSavings {
             let yieldSource = &self.config.yieldConnector as &{DeFiActions.Source}
             let available = yieldSource.minimumAvailable()
             // Exclude already-allocated funds (same logic as syncWithYieldSource)
-            let allocatedFunds = self.totalStaked + self.pendingLotteryYield
+            let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
             if available > allocatedFunds {
                 return available - allocatedFunds
             }
@@ -4091,7 +4150,15 @@ access(all) contract PrizeSavings {
         access(all) view fun getPendingLotteryYield(): UFix64 {
             return self.pendingLotteryYield
         }
-        
+
+        access(all) view fun getPendingTreasuryYield(): UFix64 {
+            return self.pendingTreasuryYield
+        }
+
+        access(all) view fun getUnclaimedTreasuryBalance(): UFix64 {
+            return self.unclaimedTreasuryVault.balance
+        }
+
         access(all) view fun getTreasuryRecipient(): Address? {
             return self.treasuryRecipientCap?.address
         }
@@ -4107,11 +4174,21 @@ access(all) contract PrizeSavings {
             return self.totalTreasuryForwarded
         }
         
-        /// Set treasury recipient for auto-forwarding. Only callable by account owner.
+        /// Set treasury recipient for forwarding at draw time.
         access(contract) fun setTreasuryRecipient(cap: Capability<&{FungibleToken.Receiver}>?) {
             self.treasuryRecipientCap = cap
         }
-        
+
+        /// Withdraws funds from the unclaimed treasury vault.
+        /// Called by Admin.withdrawUnclaimedTreasury.
+        /// @param amount - Maximum amount to withdraw
+        /// @return Vault containing withdrawn funds (may be less than requested)
+        access(contract) fun withdrawUnclaimedTreasury(amount: UFix64): @{FungibleToken.Vault} {
+            let available = self.unclaimedTreasuryVault.balance
+            let withdrawAmount = amount > available ? available : amount
+            return <- self.unclaimedTreasuryVault.withdraw(amount: withdrawAmount)
+        }
+
         // ============================================================
         // ENTRY VIEW FUNCTIONS - Human-readable UI helpers
         // ============================================================

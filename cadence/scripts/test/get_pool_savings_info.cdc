@@ -18,7 +18,9 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
         "totalShares": poolRef.getTotalSavingsShares(),
         "sharePrice": poolRef.getSavingsSharePrice(),
         "pendingLotteryYield": poolRef.getPendingLotteryYield(),
+        "pendingTreasuryYield": poolRef.getPendingTreasuryYield(),
         "lotteryPoolBalance": poolRef.getLotteryPoolBalance(),
+        "unclaimedTreasuryBalance": poolRef.getUnclaimedTreasuryBalance(),
         "availableYieldRewards": poolRef.getAvailableYieldRewards()
     }
 }
