@@ -4,11 +4,11 @@ import "FlowToken"
 import "DeFiActions"
 import "MockYieldConnector"
 
-/// Transaction to create a pool with FixedPrizeTiers strategy
+/// Transaction to create a pool with FixedAmountTiers distribution
 transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierNFTIDs: [[UInt64]]) {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         let currentPoolCount = PrizeSavings.getAllPoolIDs().length
-        let vaultPath = StoragePath(identifier: "testYieldVaultFT_".concat(currentPoolCount.toString()))!
+        let vaultPath = StoragePath(identifier: "testYieldVaultFAT_".concat(currentPoolCount.toString()))!
         
         let testVault <- FlowToken.createEmptyVault(vaultType: Type<@FlowToken.Vault>())
         signer.storage.save(<-testVault, to: vaultPath)
@@ -42,9 +42,9 @@ transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierN
             i = i + 1
         }
         
-        let winnerStrategy = PrizeSavings.FixedPrizeTiers(
+        let prizeDistribution = PrizeSavings.FixedAmountTiers(
             tiers: tiers
-        ) as {PrizeSavings.WinnerSelectionStrategy}
+        ) as {PrizeSavings.PrizeDistribution}
         
         let config = PrizeSavings.PoolConfig(
             assetType: Type<@FlowToken.Vault>(),
@@ -52,7 +52,7 @@ transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierN
             minimumDeposit: 1.0,
             drawIntervalSeconds: 1.0,
             distributionStrategy: distributionStrategy,
-            winnerSelectionStrategy: winnerStrategy,
+            prizeDistribution: prizeDistribution,
             winnerTrackerCap: nil
         )
         
@@ -65,7 +65,7 @@ transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierN
             emergencyConfig: nil
         )
         
-        log("Created pool with ID: ".concat(poolID.toString()).concat(" with FixedPrizeTiers"))
+        log("Created pool with ID: ".concat(poolID.toString()).concat(" with FixedAmountTiers"))
     }
 }
 

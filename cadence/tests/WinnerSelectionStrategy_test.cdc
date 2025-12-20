@@ -10,11 +10,11 @@ access(all) fun setup() {
 }
 
 // ============================================================================
-// TESTS - WeightedSingleWinner Strategy
+// TESTS - SingleWinnerPrize Distribution
 // ============================================================================
 
-access(all) fun testWeightedSingleWinnerSelectsOne() {
-    // Create a pool with WeightedSingleWinner strategy (default)
+access(all) fun testSingleWinnerPrizeSelectsOne() {
+    // Create a pool with SingleWinnerPrize distribution (default)
     let poolID = createTestPoolWithShortInterval()
     
     // Setup multiple users with deposits
@@ -41,28 +41,28 @@ access(all) fun testWeightedSingleWinnerSelectsOne() {
     Test.assert(poolDetails["poolID"] != nil, message: "Pool should exist after draw")
 }
 
-access(all) fun testWeightedSingleWinnerWithNFTs() {
-    // Create pool with WeightedSingleWinner strategy and NFT IDs
-    let poolID = createPoolWithWeightedSingleWinner(nftIDs: [1, 2, 3])
+access(all) fun testSingleWinnerPrizeWithNFTs() {
+    // Create pool with SingleWinnerPrize distribution and NFT IDs
+    let poolID = createPoolWithSingleWinnerPrize(nftIDs: [1, 2, 3])
     
-    let details = getWinnerSelectionStrategyDetails(poolID)
-    Test.assertEqual("Weighted Single Winner", details["strategyName"]! as! String)
+    let details = getPrizeDistributionDetails(poolID)
+    Test.assertEqual("Single Winner (100%)", details["distributionName"]! as! String)
 }
 
-access(all) fun testWeightedSingleWinnerEmptyDeposits() {
-    // Test that with no deposits, the strategy handles gracefully
+access(all) fun testSingleWinnerPrizeEmptyDeposits() {
+    // Test that with no deposits, the distribution handles gracefully
     let poolID = createTestPoolWithShortInterval()
     
     // Fund lottery but don't have any deposits
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // The draw should handle empty deposits gracefully
-    // Note: This test verifies the strategy doesn't panic with empty receivers
+    // Note: This test verifies the distribution doesn't panic with empty receivers
     let poolDetails = getPoolDetails(poolID)
     Test.assert(poolDetails["poolID"] != nil, message: "Pool should exist")
 }
 
-access(all) fun testWeightedSingleWinnerSingleDepositor() {
+access(all) fun testSingleWinnerPrizeSingleDepositor() {
     // Single depositor should always win
     let poolID = createTestPoolWithShortInterval()
     
@@ -72,6 +72,7 @@ access(all) fun testWeightedSingleWinnerSingleDepositor() {
     
     // Fund lottery and execute draw
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    Test.moveTime(by: 2.0)
     
     let deployerAccount = getDeployerAccount()
     executeFullDraw(deployerAccount, poolID: poolID)
@@ -82,39 +83,36 @@ access(all) fun testWeightedSingleWinnerSingleDepositor() {
 }
 
 // ============================================================================
-// TESTS - MultiWinnerSplit Strategy
+// TESTS - PercentageSplit Distribution
 // ============================================================================
 
-access(all) fun testMultiWinnerSplit2Winners() {
+access(all) fun testPercentageSplit2Winners() {
     // Create pool with 2 winners, 70/30 split
-    let poolID = createPoolWithMultiWinnerSplit(
-        winnerCount: 2,
+    let poolID = createPoolWithPercentageSplit(
         splits: [0.7, 0.3],
         nftIDs: []
     )
     
-    let details = getWinnerSelectionStrategyDetails(poolID)
-    let strategyName = details["strategyName"]! as! String
-    Test.assert(strategyName.utf8.length > 0, message: "Strategy name should not be empty")
+    let details = getPrizeDistributionDetails(poolID)
+    let distributionName = details["distributionName"]! as! String
+    Test.assert(distributionName.utf8.length > 0, message: "Distribution name should not be empty")
 }
 
-access(all) fun testMultiWinnerSplit3Winners() {
+access(all) fun testPercentageSplit3Winners() {
     // Create pool with 3 winners, 50/30/20 split
-    let poolID = createPoolWithMultiWinnerSplit(
-        winnerCount: 3,
+    let poolID = createPoolWithPercentageSplit(
         splits: [0.5, 0.3, 0.2],
         nftIDs: []
     )
     
-    let details = getWinnerSelectionStrategyDetails(poolID)
-    let strategyName = details["strategyName"]! as! String
-    Test.assert(strategyName.utf8.length > 0, message: "Strategy name should not be empty")
+    let details = getPrizeDistributionDetails(poolID)
+    let distributionName = details["distributionName"]! as! String
+    Test.assert(distributionName.utf8.length > 0, message: "Distribution name should not be empty")
 }
 
-access(all) fun testMultiWinnerSplitFewerDepositorsThanWinners() {
+access(all) fun testPercentageSplitFewerDepositorsThanWinners() {
     // Create pool expecting 3 winners but only 2 depositors
-    let poolID = createPoolWithMultiWinnerSplit(
-        winnerCount: 3,
+    let poolID = createPoolWithPercentageSplit(
         splits: [0.5, 0.3, 0.2],
         nftIDs: []
     )
@@ -131,6 +129,7 @@ access(all) fun testMultiWinnerSplitFewerDepositorsThanWinners() {
     
     // Fund lottery
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    Test.moveTime(by: 2.0)
     
     // Draw should handle gracefully with fewer depositors than expected winners
     let deployerAccount = getDeployerAccount()
@@ -140,20 +139,18 @@ access(all) fun testMultiWinnerSplitFewerDepositorsThanWinners() {
     Test.assert(poolDetails["poolID"] != nil, message: "Pool should exist after draw")
 }
 
-access(all) fun testMultiWinnerSplitZeroWinnersReverts() {
-    // winnerCount = 0 should fail
-    let success = createPoolWithMultiWinnerSplitExpectFailure(
-        winnerCount: 0,
+access(all) fun testPercentageSplitEmptySplitsReverts() {
+    // Empty splits should fail
+    let success = createPoolWithPercentageSplitExpectFailure(
         splits: [],
         nftIDs: []
     )
     Test.assertEqual(false, success)
 }
 
-access(all) fun testMultiWinnerSplitSumNotOneReverts() {
+access(all) fun testPercentageSplitSumNotOneReverts() {
     // Splits not summing to 1.0 should fail
-    let success = createPoolWithMultiWinnerSplitExpectFailure(
-        winnerCount: 2,
+    let success = createPoolWithPercentageSplitExpectFailure(
         splits: [0.5, 0.3],  // Sum = 0.8, not 1.0
         nftIDs: []
     )
@@ -161,40 +158,40 @@ access(all) fun testMultiWinnerSplitSumNotOneReverts() {
 }
 
 // ============================================================================
-// TESTS - FixedPrizeTiers Strategy
+// TESTS - FixedAmountTiers Distribution
 // ============================================================================
 
-access(all) fun testFixedPrizeTiersSingleTier() {
+access(all) fun testFixedAmountTiersSingleTier() {
     // Create pool with single prize tier
-    let poolID = createPoolWithFixedPrizeTiers(
+    let poolID = createPoolWithFixedAmountTiers(
         tierAmounts: [10.0],
         tierCounts: [1],
         tierNames: ["Grand Prize"],
         tierNFTIDs: [[]]
     )
     
-    let details = getWinnerSelectionStrategyDetails(poolID)
-    let strategyName = details["strategyName"]! as! String
-    Test.assert(strategyName.utf8.length > 0, message: "Strategy name should not be empty")
+    let details = getPrizeDistributionDetails(poolID)
+    let distributionName = details["distributionName"]! as! String
+    Test.assert(distributionName.utf8.length > 0, message: "Distribution name should not be empty")
 }
 
-access(all) fun testFixedPrizeTiersMultipleTiers() {
+access(all) fun testFixedAmountTiersMultipleTiers() {
     // Create pool with multiple prize tiers (Grand/Second/Third)
-    let poolID = createPoolWithFixedPrizeTiers(
+    let poolID = createPoolWithFixedAmountTiers(
         tierAmounts: [100.0, 50.0, 25.0],
         tierCounts: [1, 2, 3],
         tierNames: ["Grand", "Second", "Third"],
         tierNFTIDs: [[], [], []]
     )
     
-    let details = getWinnerSelectionStrategyDetails(poolID)
-    let strategyName = details["strategyName"]! as! String
-    Test.assert(strategyName.utf8.length > 0, message: "Strategy name should not be empty")
+    let details = getPrizeDistributionDetails(poolID)
+    let distributionName = details["distributionName"]! as! String
+    Test.assert(distributionName.utf8.length > 0, message: "Distribution name should not be empty")
 }
 
-access(all) fun testFixedPrizeTiersEmptyReverts() {
+access(all) fun testFixedAmountTiersEmptyReverts() {
     // Empty tiers should fail
-    let success = createPoolWithFixedPrizeTiersExpectFailure(
+    let success = createPoolWithFixedAmountTiersExpectFailure(
         tierAmounts: [],
         tierCounts: [],
         tierNames: [],
@@ -203,9 +200,9 @@ access(all) fun testFixedPrizeTiersEmptyReverts() {
     Test.assertEqual(false, success)
 }
 
-access(all) fun testFixedPrizeTierZeroAmountReverts() {
+access(all) fun testFixedAmountTierZeroAmountReverts() {
     // Tier with amount = 0 should fail
-    let success = createPoolWithFixedPrizeTiersExpectFailure(
+    let success = createPoolWithFixedAmountTiersExpectFailure(
         tierAmounts: [0.0],
         tierCounts: [1],
         tierNames: ["Invalid"],
@@ -214,9 +211,9 @@ access(all) fun testFixedPrizeTierZeroAmountReverts() {
     Test.assertEqual(false, success)
 }
 
-access(all) fun testFixedPrizeTierZeroWinnersReverts() {
+access(all) fun testFixedAmountTierZeroWinnersReverts() {
     // Tier with count = 0 should fail
-    let success = createPoolWithFixedPrizeTiersExpectFailure(
+    let success = createPoolWithFixedAmountTiersExpectFailure(
         tierAmounts: [10.0],
         tierCounts: [0],
         tierNames: ["Invalid"],
@@ -225,9 +222,9 @@ access(all) fun testFixedPrizeTierZeroWinnersReverts() {
     Test.assertEqual(false, success)
 }
 
-access(all) fun testFixedPrizeTiersInsufficientPrizePool() {
+access(all) fun testFixedAmountTiersInsufficientPrizePool() {
     // Test behavior when prize pool is smaller than needed for tiers
-    let poolID = createPoolWithFixedPrizeTiers(
+    let poolID = createPoolWithFixedAmountTiers(
         tierAmounts: [100.0],  // Need 100.0 for single winner
         tierCounts: [1],
         tierNames: ["Grand Prize"],
@@ -247,9 +244,9 @@ access(all) fun testFixedPrizeTiersInsufficientPrizePool() {
     Test.assert(poolDetails["poolID"] != nil, message: "Pool should exist")
 }
 
-access(all) fun testFixedPrizeTiersInsufficientDepositors() {
+access(all) fun testFixedAmountTiersInsufficientDepositors() {
     // Test behavior when fewer depositors than total winners needed
-    let poolID = createPoolWithFixedPrizeTiers(
+    let poolID = createPoolWithFixedAmountTiers(
         tierAmounts: [10.0, 5.0],
         tierCounts: [2, 3],  // Need 5 total winners
         tierNames: ["First", "Second"],
@@ -270,4 +267,3 @@ access(all) fun testFixedPrizeTiersInsufficientDepositors() {
     let poolDetails = getPoolDetails(poolID)
     Test.assert(poolDetails["poolID"] != nil, message: "Pool should exist")
 }
-

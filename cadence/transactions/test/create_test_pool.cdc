@@ -34,10 +34,10 @@ transaction {
             treasury: 0.1
         )
         
-        // Create winner selection strategy
-        let winnerStrategy = PrizeSavings.WeightedSingleWinner(
+        // Create prize distribution
+        let prizeDistribution = PrizeSavings.SingleWinnerPrize(
             nftIDs: []
-        ) as {PrizeSavings.WinnerSelectionStrategy}
+        ) as {PrizeSavings.PrizeDistribution}
         
         // Create pool config
         let config = PrizeSavings.PoolConfig(
@@ -46,7 +46,7 @@ transaction {
             minimumDeposit: 1.0,
             drawIntervalSeconds: 86400.0, // 24 hours
             distributionStrategy: strategy,
-            winnerSelectionStrategy: winnerStrategy,
+            prizeDistribution: prizeDistribution,
             winnerTrackerCap: nil
         )
         

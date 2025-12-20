@@ -4,43 +4,43 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 access(all) struct UserLotteryEntries {
     access(all) let receiverID: UInt64
     access(all) let currentBalance: UFix64
-    access(all) let currentEntries: UFix64
-    access(all) let projectedEntriesAtDraw: UFix64
+    access(all) let projectedEntries: UFix64
     access(all) let bonusWeight: UFix64
     access(all) let scaledBonusAtDraw: UFix64
     access(all) let totalWeightAtDraw: UFix64
-    access(all) let epochID: UInt64
-    access(all) let epochStartTime: UFix64
-    access(all) let epochElapsedSeconds: UFix64
+    access(all) let roundID: UInt64
+    access(all) let roundStartTime: UFix64
+    access(all) let roundElapsedSeconds: UFix64
     access(all) let secondsUntilDraw: UFix64
-    access(all) let nextDrawTime: UFix64
+    access(all) let roundEndTime: UFix64
+    access(all) let isRoundEnded: Bool
     
     init(
         receiverID: UInt64,
         currentBalance: UFix64,
-        currentEntries: UFix64,
-        projectedEntriesAtDraw: UFix64,
+        projectedEntries: UFix64,
         bonusWeight: UFix64,
         scaledBonusAtDraw: UFix64,
         totalWeightAtDraw: UFix64,
-        epochID: UInt64,
-        epochStartTime: UFix64,
-        epochElapsedSeconds: UFix64,
+        roundID: UInt64,
+        roundStartTime: UFix64,
+        roundElapsedSeconds: UFix64,
         secondsUntilDraw: UFix64,
-        nextDrawTime: UFix64
+        roundEndTime: UFix64,
+        isRoundEnded: Bool
     ) {
         self.receiverID = receiverID
         self.currentBalance = currentBalance
-        self.currentEntries = currentEntries
-        self.projectedEntriesAtDraw = projectedEntriesAtDraw
+        self.projectedEntries = projectedEntries
         self.bonusWeight = bonusWeight
         self.scaledBonusAtDraw = scaledBonusAtDraw
         self.totalWeightAtDraw = totalWeightAtDraw
-        self.epochID = epochID
-        self.epochStartTime = epochStartTime
-        self.epochElapsedSeconds = epochElapsedSeconds
+        self.roundID = roundID
+        self.roundStartTime = roundStartTime
+        self.roundElapsedSeconds = roundElapsedSeconds
         self.secondsUntilDraw = secondsUntilDraw
-        self.nextDrawTime = nextDrawTime
+        self.roundEndTime = roundEndTime
+        self.isRoundEnded = isRoundEnded
     }
 }
 
@@ -79,54 +79,50 @@ access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
         return UserLotteryEntries(
             receiverID: 0,
             currentBalance: 0.0,
-            currentEntries: 0.0,
-            projectedEntriesAtDraw: 0.0,
+            projectedEntries: 0.0,
             bonusWeight: 0.0,
             scaledBonusAtDraw: 0.0,
             totalWeightAtDraw: 0.0,
-            epochID: poolRef.getCurrentEpochID(),
-            epochStartTime: poolRef.getEpochStartTime(),
-            epochElapsedSeconds: poolRef.getEpochElapsedTime(),
+            roundID: poolRef.getCurrentRoundID(),
+            roundStartTime: poolRef.getRoundStartTime(),
+            roundElapsedSeconds: poolRef.getRoundElapsedTime(),
             secondsUntilDraw: 0.0,
-            nextDrawTime: 0.0
+            roundEndTime: poolRef.getRoundEndTime(),
+            isRoundEnded: poolRef.isRoundEnded()
         )
     }
     
-    let config = poolRef.getConfig()
-    let now = getCurrentBlock().timestamp
-    let epochStartTime = poolRef.getEpochStartTime()
-    let epochElapsedSeconds = poolRef.getEpochElapsedTime()
+    let roundStartTime = poolRef.getRoundStartTime()
+    let roundDuration = poolRef.getRoundDuration()
+    let roundEndTime = poolRef.getRoundEndTime()
+    let secondsUntilDraw = poolRef.getTimeUntilNextDraw()
     
-    // Calculate next draw time
-    let lastDraw = poolRef.lastDrawTimestamp
-    let nextDrawTime = lastDraw + config.drawIntervalSeconds
-    let secondsUntilDraw = nextDrawTime > now ? nextDrawTime - now : 0.0
-    
-    // Current lottery entries (share-seconds)
-    let currentEntries = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
+    // Current lottery entries (projected share-seconds)
     let currentBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
     
-    // Projected entries at draw time
-    let projectedEntries = poolRef.getUserProjectedShareSeconds(receiverID: receiverID, atTime: nextDrawTime)
+    // Projected entries at draw time (normalized by round duration)
+    let projectedEntries = poolRef.getUserEntries(receiverID: receiverID)
+    
+    // Get raw TWAB for bonus calculation
+    let projectedTwab = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
     
     // Bonus weight info
     let bonusWeight = poolRef.getBonusWeight(receiverID: receiverID)
-    let epochDurationAtDraw = nextDrawTime - epochStartTime
-    let scaledBonusAtDraw = bonusWeight * epochDurationAtDraw
-    let totalWeightAtDraw = projectedEntries + scaledBonusAtDraw
+    let scaledBonusAtDraw = bonusWeight * roundDuration
+    let totalWeightAtDraw = projectedTwab + scaledBonusAtDraw
     
     return UserLotteryEntries(
         receiverID: receiverID,
         currentBalance: currentBalance,
-        currentEntries: currentEntries,
-        projectedEntriesAtDraw: projectedEntries,
+        projectedEntries: projectedEntries,
         bonusWeight: bonusWeight,
         scaledBonusAtDraw: scaledBonusAtDraw,
         totalWeightAtDraw: totalWeightAtDraw,
-        epochID: poolRef.getCurrentEpochID(),
-        epochStartTime: epochStartTime,
-        epochElapsedSeconds: epochElapsedSeconds,
+        roundID: poolRef.getCurrentRoundID(),
+        roundStartTime: roundStartTime,
+        roundElapsedSeconds: poolRef.getRoundElapsedTime(),
         secondsUntilDraw: secondsUntilDraw,
-        nextDrawTime: nextDrawTime
+        roundEndTime: roundEndTime,
+        isRoundEnded: poolRef.isRoundEnded()
     )
 }

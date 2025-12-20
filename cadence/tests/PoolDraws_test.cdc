@@ -58,7 +58,7 @@ access(all) fun testCanDrawAfterIntervalElapsed() {
 // TESTS - Draw Execution
 // ============================================================================
 
-access(all) fun testStartDrawSetsInProgressFlag() {
+access(all) fun testStartDrawSetsBatchInProgressFlag() {
     let poolID = createTestPoolWithShortInterval()
     
     // Setup participant
@@ -70,34 +70,39 @@ access(all) fun testStartDrawSetsInProgressFlag() {
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 2.0)
     
-    // Start draw
+    // Start draw (this only initializes batch processing, doesn't request randomness yet)
     startDraw(participant, poolID: poolID)
     
-    // Verify draw is in progress
+    // Verify batch processing is in progress (but not "draw in progress" which means randomness requested)
     let drawStatus = getDrawStatus(poolID)
+    let isBatchInProgress = drawStatus["isBatchInProgress"]! as! Bool
+    let isPendingDrawInProgress = drawStatus["isPendingDrawInProgress"]! as! Bool
+    Test.assert(isBatchInProgress, message: "Batch processing should be in progress after startDraw")
+    Test.assert(isPendingDrawInProgress, message: "Pending draw round should exist after startDraw")
+    
+    // isDrawInProgress is only true after requestDrawRandomness
     let isDrawInProgress = drawStatus["isDrawInProgress"]! as! Bool
-    Test.assert(isDrawInProgress, message: "Draw should be in progress after starting")
+    Test.assert(!isDrawInProgress, message: "Draw should not be in progress until randomness is requested")
 }
 
 access(all) fun testCompleteLotteryDraw() {
     let depositAmount = DEFAULT_DEPOSIT_AMOUNT
     let prizeAmount = DEFAULT_PRIZE_AMOUNT
     
-    let poolID = createTestPoolWithShortInterval()
+    // Use medium interval (60s) to ensure deposit happens within the round
+    let poolID = createTestPoolWithMediumInterval()
     
     // Setup participant
     let drawParticipant = Test.createAccount()
     setupUserWithFundsAndCollection(drawParticipant, amount: depositAmount + 1.0)
     depositToPool(drawParticipant, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
+    // Fund lottery and advance time past 60s interval
     fundLotteryPool(poolID, amount: prizeAmount)
-    Test.moveTime(by: 2.0)
+    Test.moveTime(by: 61.0)
     
-    // Execute full draw
-    startDraw(drawParticipant, poolID: poolID)
-    commitBlocksForRandomness()
-    completeDraw(drawParticipant, poolID: poolID)
+    // Execute full draw (4-phase: start → batch → randomness → complete)
+    executeFullDraw(drawParticipant, poolID: poolID)
     
     // Verify winner received prize (single participant must win)
     let finalPrizes = getUserPrizes(drawParticipant.address, poolID)
@@ -108,7 +113,8 @@ access(all) fun testPrizeIsReinvestedIntoDeposits() {
     let depositAmount = DEFAULT_DEPOSIT_AMOUNT
     let prizeAmount = DEFAULT_PRIZE_AMOUNT
     
-    let poolID = createTestPoolWithShortInterval()
+    // Use medium interval (60s) to ensure deposit happens within the round
+    let poolID = createTestPoolWithMediumInterval()
     
     // Setup participant
     let participant = Test.createAccount()
@@ -117,7 +123,7 @@ access(all) fun testPrizeIsReinvestedIntoDeposits() {
     
     // Fund and execute draw
     fundLotteryPool(poolID, amount: prizeAmount)
-    Test.moveTime(by: 2.0)
+    Test.moveTime(by: 61.0)
     executeFullDraw(participant, poolID: poolID)
     
     // Verify prize was reinvested
@@ -134,7 +140,8 @@ access(all) fun testDrawWithMultipleParticipants() {
     let depositAmount = DEFAULT_DEPOSIT_AMOUNT
     let prizeAmount = DEFAULT_PRIZE_AMOUNT
     
-    let poolID = createTestPoolWithShortInterval()
+    // Use medium interval (60s) to ensure all deposits happen within the round
+    let poolID = createTestPoolWithMediumInterval()
     
     // Setup multiple participants
     let participant1 = Test.createAccount()
@@ -151,7 +158,7 @@ access(all) fun testDrawWithMultipleParticipants() {
     
     // Fund and execute draw
     fundLotteryPool(poolID, amount: prizeAmount)
-    Test.moveTime(by: 2.0)
+    Test.moveTime(by: 61.0)
     executeFullDraw(participant1, poolID: poolID)
     
     // Verify exactly one winner received the prize

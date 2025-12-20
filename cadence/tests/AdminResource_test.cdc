@@ -48,12 +48,12 @@ access(all) fun testAdminCanUpdateDistributionStrategy() {
     Test.assertEqual(0.2, details["treasuryPercent"]! as! UFix64)
 }
 
-access(all) fun testAdminCanUpdateWinnerSelectionStrategy() {
+access(all) fun testAdminCanUpdatePrizeDistribution() {
     let poolID = createTestPoolWithShortInterval()
     
-    // The pool should have a winner selection strategy
-    let details = getWinnerSelectionStrategyDetails(poolID)
-    Test.assert(details["strategyName"] != nil, message: "Strategy should exist")
+    // The pool should have a prize distribution
+    let details = getPrizeDistributionDetails(poolID)
+    Test.assert(details["distributionName"] != nil, message: "Distribution should exist")
 }
 
 // ============================================================================

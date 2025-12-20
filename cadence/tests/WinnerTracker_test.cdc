@@ -58,6 +58,7 @@ access(all) fun testPoolFunctionsWithoutTracker() {
     
     // Fund lottery and execute draw
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    Test.moveTime(by: 2.0)
     
     let deployerAccount = getDeployerAccount()
     executeFullDraw(deployerAccount, poolID: poolID)
@@ -78,11 +79,13 @@ access(all) fun testMultipleDrawsWithoutTracker() {
     
     // Execute multiple draws
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    Test.moveTime(by: 2.0)
     let deployerAccount = getDeployerAccount()
     executeFullDraw(deployerAccount, poolID: poolID)
     
     // Second draw
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    Test.moveTime(by: 2.0)
     executeFullDraw(deployerAccount, poolID: poolID)
     
     // Pool should still function

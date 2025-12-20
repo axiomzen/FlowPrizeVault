@@ -81,13 +81,13 @@ access(all) fun testNewPoolDrawNotInProgress() {
     Test.assertEqual(false, state["isDrawInProgress"]! as! Bool)
 }
 
-access(all) fun testNewPoolCanDrawNowTrue() {
+access(all) fun testNewPoolCanDrawNowFalse() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    // With lastDrawTimestamp = 0 and current timestamp > 0, canDrawNow should be true
-    Test.assertEqual(true, state["canDrawNow"]! as! Bool)
+    // New pools can't draw until the first round ends (round-based TWAB)
+    Test.assertEqual(false, state["canDrawNow"]! as! Bool)
 }
 
 // ============================================================================
@@ -122,12 +122,12 @@ access(all) fun testNewPoolSharePriceOne() {
     Test.assertEqual(true, state["sharePriceIsOne"]! as! Bool)
 }
 
-access(all) fun testNewPoolEpochIDOne() {
+access(all) fun testNewPoolRoundIDOne() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(UInt64(1), state["currentEpochID"]! as! UInt64)
+    Test.assertEqual(UInt64(1), state["currentRoundID"]! as! UInt64)
 }
 
 access(all) fun testNewPoolTotalSavingsSharesZero() {
