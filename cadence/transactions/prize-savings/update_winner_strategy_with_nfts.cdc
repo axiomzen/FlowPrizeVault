@@ -1,6 +1,6 @@
 import "PrizeSavings"
 
-/// Transaction to update the winner selection strategy to include NFT IDs
+/// Transaction to update the prize distribution to include NFT IDs
 /// This allows NFTs deposited to the pool to be awarded during lottery draws
 transaction(poolID: UInt64, nftIDs: [UInt64]) {
     prepare(signer: auth(Storage) &Account) {
@@ -9,18 +9,18 @@ transaction(poolID: UInt64, nftIDs: [UInt64]) {
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Could not borrow Admin resource")
         
-        // Create new winner selection strategy with NFT IDs
-        let newStrategy = PrizeSavings.WeightedSingleWinner(
+        // Create new prize distribution with NFT IDs
+        let newDistribution = PrizeSavings.SingleWinnerPrize(
             nftIDs: nftIDs
-        ) as {PrizeSavings.WinnerSelectionStrategy}
+        ) as {PrizeSavings.PrizeDistribution}
         
-        // Update the pool's winner selection strategy
-        admin.updatePoolWinnerSelectionStrategy(
+        // Update the pool's prize distribution
+        admin.updatePoolPrizeDistribution(
             poolID: poolID,
-            newStrategy: newStrategy
+            newDistribution: newDistribution
         )
         
-        log("Updated winner selection strategy with ".concat(nftIDs.length.toString()).concat(" NFT IDs"))
+        log("Updated prize distribution with ".concat(nftIDs.length.toString()).concat(" NFT IDs"))
     }
 }
 

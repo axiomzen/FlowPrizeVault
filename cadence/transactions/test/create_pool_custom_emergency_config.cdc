@@ -36,9 +36,9 @@ transaction(
             treasury: 0.1
         )
         
-        let winnerStrategy = PrizeSavings.WeightedSingleWinner(
+        let prizeDistribution = PrizeSavings.SingleWinnerPrize(
             nftIDs: []
-        ) as {PrizeSavings.WinnerSelectionStrategy}
+        ) as {PrizeSavings.PrizeDistribution}
         
         let config = PrizeSavings.PoolConfig(
             assetType: Type<@FlowToken.Vault>(),
@@ -46,7 +46,7 @@ transaction(
             minimumDeposit: 1.0,
             drawIntervalSeconds: 1.0,
             distributionStrategy: distributionStrategy,
-            winnerSelectionStrategy: winnerStrategy,
+            prizeDistribution: prizeDistribution,
             winnerTrackerCap: nil
         )
         

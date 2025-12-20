@@ -33,10 +33,10 @@ transaction(savingsPercent: UFix64, lotteryPercent: UFix64, treasuryPercent: UFi
             treasury: treasuryPercent
         )
         
-        // Create winner selection strategy
-        let winnerStrategy = PrizeSavings.WeightedSingleWinner(
+        // Create prize distribution
+        let prizeDistribution = PrizeSavings.SingleWinnerPrize(
             nftIDs: []
-        ) as {PrizeSavings.WinnerSelectionStrategy}
+        ) as {PrizeSavings.PrizeDistribution}
         
         // Create pool config
         let config = PrizeSavings.PoolConfig(
@@ -45,7 +45,7 @@ transaction(savingsPercent: UFix64, lotteryPercent: UFix64, treasuryPercent: UFi
             minimumDeposit: 1.0,
             drawIntervalSeconds: 86400.0,
             distributionStrategy: strategy,
-            winnerSelectionStrategy: winnerStrategy,
+            prizeDistribution: prizeDistribution,
             winnerTrackerCap: nil
         )
         

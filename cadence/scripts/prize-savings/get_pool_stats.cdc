@@ -17,12 +17,13 @@ access(all) struct PoolStats {
     access(all) let isDrawInProgress: Bool
     access(all) let canDrawNow: Bool
     access(all) let lastDrawTimestamp: UFix64
-    access(all) let drawIntervalSeconds: UFix64
+    access(all) let roundDuration: UFix64
     access(all) let minimumDeposit: UFix64
     access(all) let emergencyState: UInt8
-    access(all) let currentEpochID: UInt64
-    access(all) let epochStartTime: UFix64
-    access(all) let epochElapsedTime: UFix64
+    access(all) let currentRoundID: UInt64
+    access(all) let roundStartTime: UFix64
+    access(all) let roundElapsedTime: UFix64
+    access(all) let isRoundEnded: Bool
     
     init(
         poolID: UInt64,
@@ -40,12 +41,13 @@ access(all) struct PoolStats {
         isDrawInProgress: Bool,
         canDrawNow: Bool,
         lastDrawTimestamp: UFix64,
-        drawIntervalSeconds: UFix64,
+        roundDuration: UFix64,
         minimumDeposit: UFix64,
         emergencyState: UInt8,
-        currentEpochID: UInt64,
-        epochStartTime: UFix64,
-        epochElapsedTime: UFix64
+        currentRoundID: UInt64,
+        roundStartTime: UFix64,
+        roundElapsedTime: UFix64,
+        isRoundEnded: Bool
     ) {
         self.poolID = poolID
         self.totalDeposited = totalDeposited
@@ -62,12 +64,13 @@ access(all) struct PoolStats {
         self.isDrawInProgress = isDrawInProgress
         self.canDrawNow = canDrawNow
         self.lastDrawTimestamp = lastDrawTimestamp
-        self.drawIntervalSeconds = drawIntervalSeconds
+        self.roundDuration = roundDuration
         self.minimumDeposit = minimumDeposit
         self.emergencyState = emergencyState
-        self.currentEpochID = currentEpochID
-        self.epochStartTime = epochStartTime
-        self.epochElapsedTime = epochElapsedTime
+        self.currentRoundID = currentRoundID
+        self.roundStartTime = roundStartTime
+        self.roundElapsedTime = roundElapsedTime
+        self.isRoundEnded = isRoundEnded
     }
 }
 
@@ -99,12 +102,12 @@ access(all) fun main(poolID: UInt64): PoolStats {
         isDrawInProgress: poolRef.isDrawInProgress(),
         canDrawNow: poolRef.canDrawNow(),
         lastDrawTimestamp: poolRef.lastDrawTimestamp,
-        drawIntervalSeconds: config.drawIntervalSeconds,
+        roundDuration: poolRef.getRoundDuration(),
         minimumDeposit: config.minimumDeposit,
         emergencyState: poolRef.getEmergencyState().rawValue,
-        currentEpochID: poolRef.getCurrentEpochID(),
-        epochStartTime: poolRef.getEpochStartTime(),
-        epochElapsedTime: poolRef.getEpochElapsedTime()
+        currentRoundID: poolRef.getCurrentRoundID(),
+        roundStartTime: poolRef.getRoundStartTime(),
+        roundElapsedTime: poolRef.getRoundElapsedTime(),
+        isRoundEnded: poolRef.isRoundEnded()
     )
 }
-

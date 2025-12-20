@@ -281,6 +281,8 @@ fun fundLotteryPool(_ poolID: UInt64, amount: UFix64) {
 // DRAW OPERATION HELPERS
 // Note: Draw operations are admin-only. The account parameter is kept for
 // backward compatibility but the deployer account is always used as the signer.
+// 
+// Draw flow: startDraw() → processDrawBatch() (repeat) → requestDrawRandomness() → completeDraw()
 // ============================================================================
 
 access(all)
@@ -293,6 +295,50 @@ fun startDraw(_ account: Test.TestAccount, poolID: UInt64) {
         deployerAccount
     )
     assertTransactionSucceeded(startResult, context: "Start draw")
+}
+
+access(all)
+fun processDrawBatch(_ account: Test.TestAccount, poolID: UInt64, limit: Int) {
+    // Draws are admin-only, so we always use the deployer account
+    let deployerAccount = getDeployerAccount()
+    let batchResult = _executeTransaction(
+        "../transactions/test/process_draw_batch.cdc",
+        [poolID, limit],
+        deployerAccount
+    )
+    assertTransactionSucceeded(batchResult, context: "Process draw batch")
+}
+
+access(all)
+fun processAllDrawBatches(_ account: Test.TestAccount, poolID: UInt64, batchSize: Int) {
+    // Process batches until complete
+    var remaining = 1  // Start with non-zero to enter loop
+    var iterations = 0
+    let maxIterations = 1000  // Safety limit
+    
+    while remaining > 0 && iterations < maxIterations {
+        processDrawBatch(account, poolID: poolID, limit: batchSize)
+        
+        // Check if complete
+        let drawStatus = getDrawStatus(poolID)
+        let isComplete = drawStatus["isBatchComplete"] as? Bool ?? false
+        if isComplete {
+            remaining = 0
+        }
+        iterations = iterations + 1
+    }
+}
+
+access(all)
+fun requestDrawRandomness(_ account: Test.TestAccount, poolID: UInt64) {
+    // Draws are admin-only, so we always use the deployer account
+    let deployerAccount = getDeployerAccount()
+    let randomnessResult = _executeTransaction(
+        "../transactions/test/request_draw_randomness.cdc",
+        [poolID],
+        deployerAccount
+    )
+    assertTransactionSucceeded(randomnessResult, context: "Request draw randomness")
 }
 
 access(all)
@@ -316,8 +362,18 @@ fun commitBlocksForRandomness() {
 
 access(all)
 fun executeFullDraw(_ account: Test.TestAccount, poolID: UInt64) {
-    // Draws are admin-only, so we always use the deployer account
+    // 4-phase draw process:
+    // 1. Start draw (transitions rounds, inits batch)
     startDraw(account, poolID: poolID)
+    
+    // 2. Process all batches (capture weights)
+    // Use a large batch size to process all in one go for tests
+    processAllDrawBatches(account, poolID: poolID, batchSize: 1000)
+    
+    // 3. Request randomness
+    requestDrawRandomness(account, poolID: poolID)
+    
+    // 4. Wait for randomness and complete
     commitBlocksForRandomness()
     completeDraw(account, poolID: poolID)
 }
@@ -439,64 +495,64 @@ fun setPoolState(_ poolID: UInt64, state: UInt8, reason: String) {
 }
 
 // ============================================================================
-// WINNER SELECTION STRATEGY HELPERS
+// PRIZE DISTRIBUTION HELPERS
 // ============================================================================
 
 access(all)
-fun createPoolWithWeightedSingleWinner(nftIDs: [UInt64]): UInt64 {
+fun createPoolWithSingleWinnerPrize(nftIDs: [UInt64]): UInt64 {
     let deployerAccount = getDeployerAccount()
     let result = _executeTransaction(
         "../transactions/test/create_pool_weighted_single_winner.cdc",
         [nftIDs],
         deployerAccount
     )
-    assertTransactionSucceeded(result, context: "Create pool with WeightedSingleWinner")
+    assertTransactionSucceeded(result, context: "Create pool with SingleWinnerPrize")
     
     let poolCount = getPoolCount()
     return UInt64(poolCount - 1)
 }
 
 access(all)
-fun createPoolWithMultiWinnerSplit(winnerCount: Int, splits: [UFix64], nftIDs: [UInt64]): UInt64 {
+fun createPoolWithPercentageSplit(splits: [UFix64], nftIDs: [UInt64]): UInt64 {
     let deployerAccount = getDeployerAccount()
     let result = _executeTransaction(
         "../transactions/test/create_pool_multi_winner.cdc",
-        [winnerCount, splits, nftIDs],
+        [splits, nftIDs],
         deployerAccount
     )
-    assertTransactionSucceeded(result, context: "Create pool with MultiWinnerSplit")
+    assertTransactionSucceeded(result, context: "Create pool with PercentageSplit")
     
     let poolCount = getPoolCount()
     return UInt64(poolCount - 1)
 }
 
 access(all)
-fun createPoolWithMultiWinnerSplitExpectFailure(winnerCount: Int, splits: [UFix64], nftIDs: [UInt64]): Bool {
+fun createPoolWithPercentageSplitExpectFailure(splits: [UFix64], nftIDs: [UInt64]): Bool {
     let deployerAccount = getDeployerAccount()
     let result = _executeTransaction(
         "../transactions/test/create_pool_multi_winner.cdc",
-        [winnerCount, splits, nftIDs],
+        [splits, nftIDs],
         deployerAccount
     )
     return result.error == nil
 }
 
 access(all)
-fun createPoolWithFixedPrizeTiers(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierNFTIDs: [[UInt64]]): UInt64 {
+fun createPoolWithFixedAmountTiers(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierNFTIDs: [[UInt64]]): UInt64 {
     let deployerAccount = getDeployerAccount()
     let result = _executeTransaction(
         "../transactions/test/create_pool_fixed_tiers.cdc",
         [tierAmounts, tierCounts, tierNames, tierNFTIDs],
         deployerAccount
     )
-    assertTransactionSucceeded(result, context: "Create pool with FixedPrizeTiers")
+    assertTransactionSucceeded(result, context: "Create pool with FixedAmountTiers")
     
     let poolCount = getPoolCount()
     return UInt64(poolCount - 1)
 }
 
 access(all)
-fun createPoolWithFixedPrizeTiersExpectFailure(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierNFTIDs: [[UInt64]]): Bool {
+fun createPoolWithFixedAmountTiersExpectFailure(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierNFTIDs: [[UInt64]]): Bool {
     let deployerAccount = getDeployerAccount()
     let result = _executeTransaction(
         "../transactions/test/create_pool_fixed_tiers.cdc",
@@ -507,8 +563,8 @@ fun createPoolWithFixedPrizeTiersExpectFailure(tierAmounts: [UFix64], tierCounts
 }
 
 access(all)
-fun getWinnerSelectionStrategyDetails(_ poolID: UInt64): {String: AnyStruct} {
-    let scriptResult = _executeScript("../scripts/test/get_winner_selection_strategy_details.cdc", [poolID])
+fun getPrizeDistributionDetails(_ poolID: UInt64): {String: AnyStruct} {
+    let scriptResult = _executeScript("../scripts/test/get_prize_distribution_details.cdc", [poolID])
     Test.expect(scriptResult, Test.beSucceeded())
     return scriptResult.returnValue! as! {String: AnyStruct}
 }
