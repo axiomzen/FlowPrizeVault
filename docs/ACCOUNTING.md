@@ -12,6 +12,7 @@ This document provides an in-depth explanation of the accounting system and ERC4
 - [Withdrawal Flow](#withdrawal-flow)
 - [Yield Distribution](#yield-distribution)
 - [Three-Way Split](#three-way-split)
+- [Deficit Handling](#deficit-handling)
 - [Invariants](#invariants)
 - [Examples](#examples)
 - [Edge Cases & Protections](#edge-cases--protections)
@@ -76,7 +77,12 @@ access(all) var totalDeposited: UFix64
 access(all) var totalStaked: UFix64
 
 /// Lottery funds still earning in yield source (not yet withdrawn)
+/// Materialized to prize pool at draw time
 access(all) var pendingLotteryYield: UFix64
+
+/// Treasury funds still earning in yield source (not yet withdrawn)
+/// Materialized and forwarded to recipient (or unclaimed vault) at draw time
+access(all) var pendingTreasuryYield: UFix64
 ```
 
 ### SavingsDistributor Variables
@@ -112,7 +118,11 @@ access(self) let receiverTotalEarnedPrizes: {UInt64: UFix64}
 │                    ACCOUNTING RELATIONSHIPS                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  totalStaked ≈ yieldSource.balance()                           │
+│  allocatedFunds = totalStaked + pendingLotteryYield             │
+│                 + pendingTreasuryYield                          │
+│                                                                 │
+│  allocatedFunds = yieldSource.balance()                         │
+│  (must be equal after every sync)                               │
 │                                                                 │
 │  totalStaked >= totalDeposited                                  │
 │  (difference = reinvested savings yield)                        │
@@ -319,45 +329,59 @@ This tracking enables analytics and ensures `totalDeposited` accurately reflects
 
 ## Yield Distribution
 
-### The processRewards Function
+### The syncWithYieldSource Function
+
+The `syncWithYieldSource` function synchronizes internal accounting with the actual yield source balance. It handles both **appreciation** (excess yield) and **depreciation** (deficits).
 
 ```cadence
-access(contract) fun processRewards() {
-    // 1. Calculate available yield
+access(contract) fun syncWithYieldSource() {
     let yieldBalance = self.config.yieldConnector.minimumAvailable()
-    let availableYield = yieldBalance > self.totalStaked 
-        ? yieldBalance - self.totalStaked 
-        : 0.0
+    let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
     
-    if availableYield == 0.0 {
-        return
+    if yieldBalance > allocatedFunds {
+        // EXCESS: Yield source has more than we've tracked
+        let excess = yieldBalance - allocatedFunds
+        self.applyExcess(amount: excess)
+    } else if yieldBalance < allocatedFunds {
+        // DEFICIT: Yield source has less than expected (loss)
+        let deficit = allocatedFunds - yieldBalance
+        self.applyDeficit(amount: deficit)
     }
+    // If equal: Nothing to do
+}
+```
+
+### The applyExcess Function
+
+When excess yield is detected, it's distributed according to the pool's strategy:
+
+```cadence
+access(self) fun applyExcess(amount: UFix64) {
+    // 1. Apply distribution strategy (e.g., 50/30/20 split)
+    let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
     
-    // 2. Apply distribution strategy (e.g., 50/40/10 split)
-    let plan = self.config.distributionStrategy.calculateDistribution(
-        totalAmount: availableYield
-    )
-    
-    // 3. Distribute to savings (O(1) - just update totalAssets)
+    // 2. Distribute to savings (O(1) - just update totalAssets)
     if plan.savingsAmount > 0.0 {
         self.savingsDistributor.accrueYield(amount: plan.savingsAmount)
         self.totalStaked = self.totalStaked + plan.savingsAmount
     }
     
-    // 4. Track lottery funds (stay in yield source earning)
+    // 3. Track lottery funds (stay in yield source until draw)
     if plan.lotteryAmount > 0.0 {
         self.pendingLotteryYield = self.pendingLotteryYield + plan.lotteryAmount
     }
     
-    // 5. Withdraw treasury funds
+    // 4. Track treasury funds (stay in yield source until draw)
     if plan.treasuryAmount > 0.0 {
-        let treasuryVault <- self.config.yieldConnector.withdrawAvailable(
-            maxAmount: plan.treasuryAmount
-        )
-        self.treasuryDistributor.deposit(vault: <- treasuryVault)
+        self.pendingTreasuryYield = self.pendingTreasuryYield + plan.treasuryAmount
     }
 }
 ```
+
+**Key Design: All yield stays in the yield source until draw time.** This ensures:
+- `allocatedFunds` always equals the yield source balance after sync
+- No accounting gaps from partially-forwarded funds
+- Clean round boundaries for prize distribution
 
 ### accrueYield - The O(1) Magic
 
@@ -412,23 +436,230 @@ struct DistributionPlan {
 ```cadence
 let strategy = FixedPercentageStrategy(
     savings: 0.50,   // 50% to savings interest
-    lottery: 0.40,   // 40% to lottery prizes
-    treasury: 0.10   // 10% to protocol treasury
+    lottery: 0.30,   // 30% to lottery prizes
+    treasury: 0.20   // 20% to protocol treasury
 )
 
 // With 100 FLOW yield:
-// savings: 50 FLOW → increases share price
-// lottery: 40 FLOW → funds next draw
-// treasury: 10 FLOW → protocol revenue
+// savings: 50 FLOW → increases share price (tracked in totalStaked)
+// lottery: 30 FLOW → tracked in pendingLotteryYield
+// treasury: 20 FLOW → tracked in pendingTreasuryYield
 ```
 
 ### Where Funds Go
 
-| Destination | Storage | Action |
-|-------------|---------|--------|
-| Savings | Stays in yield source | Increases `totalAssets` |
-| Lottery | `pendingLotteryYield` → withdrawn at draw | Funds prize pool |
-| Treasury | `TreasuryDistributor.treasuryVault` | Immediately withdrawn |
+| Destination | Storage | When Materialized |
+|-------------|---------|-------------------|
+| Savings | Stays in yield source, tracked in `totalStaked` | Immediate (share price increases) |
+| Lottery | Stays in yield source, tracked in `pendingLotteryYield` | At draw time → prize pool |
+| Treasury | Stays in yield source, tracked in `pendingTreasuryYield` | At draw time → recipient or unclaimed vault |
+
+### Draw-Time Materialization
+
+At the start of each lottery draw, pending funds are materialized:
+
+```cadence
+// In startDraw():
+// 1. Materialize lottery funds
+if self.pendingLotteryYield > 0.0 {
+    let lotteryVault <- self.config.yieldConnector.withdrawAvailable(
+        maxAmount: self.pendingLotteryYield
+    )
+    self.lotteryDistributor.fundPrizePool(vault: <- lotteryVault)
+    self.pendingLotteryYield = 0.0
+}
+
+// 2. Materialize treasury funds
+if self.pendingTreasuryYield > 0.0 {
+    let treasuryVault <- self.config.yieldConnector.withdrawAvailable(
+        maxAmount: self.pendingTreasuryYield
+    )
+    self.pendingTreasuryYield = 0.0
+    
+    if let recipientRef = self.treasuryRecipientCap?.borrow() {
+        // Forward to configured recipient
+        recipientRef.deposit(from: <- treasuryVault)
+    } else {
+        // Store in unclaimed vault for admin withdrawal
+        self.unclaimedTreasuryVault.deposit(from: <- treasuryVault)
+    }
+}
+```
+
+---
+
+## Deficit Handling
+
+### What is a Deficit?
+
+A **deficit** occurs when the yield source balance is less than `allocatedFunds`. This can happen when:
+
+- The underlying DeFi protocol experiences a loss (slashing, bad debt, etc.)
+- External market conditions reduce asset value
+- A hack or exploit affects the yield source
+
+```
+allocatedFunds = totalStaked + pendingLotteryYield + pendingTreasuryYield
+
+DEFICIT occurs when:
+yieldSource.balance() < allocatedFunds
+```
+
+### Deficit Distribution
+
+Deficits are distributed proportionally according to the same distribution strategy used for yield:
+
+```cadence
+// Example: 50% savings, 30% lottery, 20% treasury strategy
+// With a 100 FLOW deficit:
+//   - Treasury absorbs: 20 FLOW
+//   - Lottery absorbs: 30 FLOW  
+//   - Savings absorbs: 50 FLOW
+```
+
+### Shortfall Priority (Protect User Principal)
+
+When an allocation can't fully cover its share, the shortfall cascades in this priority order:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              DEFICIT ABSORPTION PRIORITY ORDER                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. TREASURY (First)                                            │
+│     → Protocol absorbs loss first                               │
+│     → Capped by pendingTreasuryYield                            │
+│     → Shortfall cascades to lottery                             │
+│                                                                 │
+│  2. LOTTERY (Second)                                            │
+│     → Prize pool absorbs its share + treasury shortfall         │
+│     → Capped by pendingLotteryYield                             │
+│     → Shortfall cascades to savings                             │
+│                                                                 │
+│  3. SAVINGS (Last)                                              │
+│     → User principal is last resort                             │
+│     → Absorbs its share + all shortfalls from above             │
+│     → Decreases share price for all depositors                  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### The applyDeficit Function
+
+```cadence
+access(self) fun applyDeficit(amount: UFix64) {
+    // Calculate target losses per strategy
+    let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
+    
+    // 1. Treasury absorbs first (protocol takes loss before users)
+    var treasuryShortfall: UFix64 = 0.0
+    if plan.treasuryAmount > self.pendingTreasuryYield {
+        treasuryShortfall = plan.treasuryAmount - self.pendingTreasuryYield
+        self.pendingTreasuryYield = 0.0
+    } else {
+        self.pendingTreasuryYield = self.pendingTreasuryYield - plan.treasuryAmount
+    }
+    
+    // 2. Lottery absorbs its share + treasury shortfall
+    let totalLotteryTarget = plan.lotteryAmount + treasuryShortfall
+    var lotteryShortfall: UFix64 = 0.0
+    if totalLotteryTarget > self.pendingLotteryYield {
+        lotteryShortfall = totalLotteryTarget - self.pendingLotteryYield
+        self.pendingLotteryYield = 0.0
+    } else {
+        self.pendingLotteryYield = self.pendingLotteryYield - totalLotteryTarget
+    }
+    
+    // 3. Savings absorbs remainder (share price decrease)
+    let totalSavingsLoss = plan.savingsAmount + lotteryShortfall
+    self.savingsDistributor.decreaseTotalAssets(amount: totalSavingsLoss)
+    self.totalStaked = self.totalStaked - totalSavingsLoss
+}
+```
+
+### Deficit Example
+
+```
+Initial State (after yield accumulation):
+  totalStaked = 110 (100 deposit + 10 savings yield)
+  pendingLotteryYield = 6
+  pendingTreasuryYield = 4
+  allocatedFunds = 110 + 6 + 4 = 120
+
+Deficit of 20 FLOW occurs (yield source now has 100):
+  Strategy: 50% savings, 30% lottery, 20% treasury
+  
+  Target losses:
+    treasury: 20 * 0.20 = 4
+    lottery:  20 * 0.30 = 6
+    savings:  20 * 0.50 = 10
+
+  Step 1: Treasury absorbs 4 (has 4, exactly covers its share)
+    pendingTreasuryYield: 4 → 0
+    treasuryShortfall: 0
+
+  Step 2: Lottery absorbs 6 (has 6, exactly covers its share)
+    pendingLotteryYield: 6 → 0
+    lotteryShortfall: 0
+
+  Step 3: Savings absorbs 10
+    totalStaked: 110 → 100
+    Share price decreases proportionally
+
+Final State:
+  totalStaked = 100
+  pendingLotteryYield = 0
+  pendingTreasuryYield = 0
+  allocatedFunds = 100 (matches yield source balance ✓)
+```
+
+### Shortfall Cascade Example
+
+```
+State:
+  totalStaked = 103
+  pendingLotteryYield = 3
+  pendingTreasuryYield = 4
+  allocatedFunds = 110
+
+Deficit of 20 FLOW (larger than all pending yield):
+  Strategy: 30% savings, 30% lottery, 40% treasury
+
+  Target losses:
+    treasury: 20 * 0.40 = 8
+    lottery:  20 * 0.30 = 6
+    savings:  20 * 0.30 = 6
+
+  Step 1: Treasury absorbs (has 4, needs 8)
+    absorbed: 4
+    treasuryShortfall: 8 - 4 = 4
+    pendingTreasuryYield: 4 → 0
+
+  Step 2: Lottery absorbs (has 3, needs 6 + 4 = 10)
+    absorbed: 3
+    lotteryShortfall: 10 - 3 = 7
+    pendingLotteryYield: 3 → 0
+
+  Step 3: Savings absorbs (its 6 + 7 shortfall = 13)
+    totalStaked: 103 → 90
+    Share price decrease: ~12.6%
+
+Final State:
+  totalStaked = 90
+  pendingLotteryYield = 0
+  pendingTreasuryYield = 0
+  allocatedFunds = 90 (matches yield source balance ✓)
+```
+
+### Why This Priority Order?
+
+1. **Treasury first**: The protocol should absorb losses before users. Treasury represents protocol revenue that hasn't been claimed yet.
+
+2. **Lottery second**: Prize pool losses affect future winners, not current depositors' principal. It's "house money" from unrealized yield.
+
+3. **Savings last**: User principal is the most important to protect. Only after exhausting treasury and lottery buffers do user deposits take a haircut.
+
+This design philosophy prioritizes user trust and principal protection while allowing the protocol to operate as a buffer against losses.
 
 ---
 
@@ -436,30 +667,39 @@ let strategy = FixedPercentageStrategy(
 
 ### Critical Invariants (Must Always Hold)
 
-1. **Sum of User Values = Total Assets**
+1. **Allocated Funds = Yield Source Balance** (after every sync)
+   ```
+   totalStaked + pendingLotteryYield + pendingTreasuryYield == yieldSource.balance()
+   ```
+   This is the most important invariant. It ensures no "ghost" funds exist in the yield source that aren't tracked.
+
+2. **Sum of User Values = Total Assets**
    ```
    Σ(convertToAssets(userShares[id])) == totalAssets
    ```
 
-2. **Total Staked ≥ Total Deposited**
+3. **Total Staked ≥ Total Deposited** (during normal operation)
    ```
    totalStaked >= totalDeposited
    // Difference is reinvested savings yield
+   // Note: May be violated during severe deficits
    ```
 
-3. **Share/Asset Consistency**
+4. **Share/Asset Consistency**
    ```
    convertToAssets(convertToShares(x)) ≈ x  // May differ by rounding
    ```
 
-4. **No Negative Balances**
+5. **No Negative Balances**
    ```
    totalShares >= 0
    totalAssets >= 0
    userShares[id] >= 0
+   pendingLotteryYield >= 0
+   pendingTreasuryYield >= 0
    ```
 
-5. **Withdrawal Limit**
+6. **Withdrawal Limit**
    ```
    maxWithdraw(user) <= getUserAssetValue(user)
    ```
@@ -700,10 +940,17 @@ The shares model provides:
 | **Compound Interest** | Yield stays in pool, increases share value |
 | **Gas Efficiency** | Single state update vs. N user updates |
 | **Simple Withdrawals** | Burn shares proportional to withdrawal |
-| **Auditable State** | `Σ(userValues) == totalAssets` invariant |
+| **Auditable State** | `allocatedFunds == yieldSource.balance()` invariant |
 | **Donation Attack Protection** | Virtual offset prevents share price manipulation |
+| **Principal Protection** | Deficit priority: treasury → lottery → savings |
 
-Key insight: **Shares represent proportional ownership, not absolute balance.** When yield accrues, the pool grows but shares stay constant—everyone's proportional claim on a larger pool automatically increases their value.
+### Key Design Principles
 
-The **virtual offset pattern** (adding 1.0 to both shares and assets in conversions) provides defense-in-depth against the ERC4626 inflation attack, ensuring the protocol remains secure even if future yield connectors allow permissionless deposits.
+1. **Shares represent proportional ownership, not absolute balance.** When yield accrues, the pool grows but shares stay constant—everyone's proportional claim on a larger pool automatically increases their value.
+
+2. **All yield stays in the yield source until draw time.** Lottery and treasury portions are tracked via `pendingLotteryYield` and `pendingTreasuryYield`, ensuring `allocatedFunds` always equals the yield source balance.
+
+3. **Deficits are handled with user protection in mind.** The priority order (treasury → lottery → savings) ensures the protocol absorbs losses before users, and lottery pools buffer savings before user principal is affected.
+
+4. **The virtual offset pattern** (adding 1.0 to both shares and assets in conversions) provides defense-in-depth against the ERC4626 inflation attack, ensuring the protocol remains secure even if future yield connectors allow permissionless deposits.
 

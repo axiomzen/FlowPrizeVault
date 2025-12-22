@@ -88,7 +88,7 @@ access(all) fun main(address: Address, poolID: UInt64): UserSharesInfo {
         receiverID: receiverID,
         shares: poolRef.getUserSavingsShares(receiverID: receiverID),
         shareValue: poolRef.getUserSavingsValue(receiverID: receiverID),
-        timeWeightedStake: poolRef.getUserTimeWeightedBalance(receiverID: receiverID),
+        timeWeightedStake: poolRef.getUserTimeWeightedShares(receiverID: receiverID),
         pendingSavingsInterest: poolRef.getPendingSavingsInterest(receiverID: receiverID),
         principalDeposits: poolRef.getReceiverDeposit(receiverID: receiverID),
         totalEarnedPrizes: poolRef.getReceiverTotalEarnedPrizes(receiverID: receiverID),

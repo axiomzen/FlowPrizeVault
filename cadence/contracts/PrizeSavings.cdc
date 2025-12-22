@@ -6,7 +6,7 @@ Rewards auto-compound into deposits via ERC4626-style shares model.
 
 Architecture:
 - ERC4626-style shares with virtual offset protection (inflation attack resistant)
-- TWAB (time-weighted average balance) using balance-seconds for fair lottery weighting
+- TWAB (time-weighted average shares) using share-seconds for fair lottery weighting
 - On-chain randomness via Flow's RandomConsumer
 - Modular yield sources via DeFi Actions interface
 - Configurable distribution strategies (savings/lottery/treasury split)
@@ -19,13 +19,13 @@ Architecture:
 - Winner tracking integration for leaderboards
 
 Lottery Fairness:
-- Uses balance-seconds (current_balance × time) for lottery weighting
-- Balance = shares × share_price, so yield automatically counts toward lottery odds
-- Users who earn more yield have proportionally higher lottery chances
-- Rewards commitment: longer deposits = more accumulated balance-seconds
+- Uses share-seconds (shares × time) for lottery weighting
+- Share-based TWAB is stable against price fluctuations (yield/loss)
+- Rewards commitment: longer deposits = more accumulated share-seconds
+- Early depositors get more shares per dollar, increasing lottery weight
 
 Core Components:
-- SavingsDistributor: Shares vault with balance-seconds tracking for lottery weights
+- SavingsDistributor: Shares vault with share-seconds tracking for lottery weights
 - LotteryDistributor: Prize pool, NFT prizes, and draw execution
 - Pool: Deposits, withdrawals, yield processing, and prize draws
 - PoolPositionCollection: User's resource for interacting with pools
@@ -120,6 +120,13 @@ access(all) contract PrizeSavings {
     /// @param poolID - Pool accruing yield
     /// @param amount - Amount of yield accrued (increases share price for all depositors)
     access(all) event SavingsYieldAccrued(poolID: UInt64, amount: UFix64)
+    
+    /// Emitted when a deficit is applied across allocations.
+    /// @param poolID - Pool experiencing the deficit
+    /// @param totalDeficit - Total deficit amount detected
+    /// @param absorbedByLottery - Amount absorbed by pending lottery yield
+    /// @param absorbedBySavings - Amount absorbed by savings (decreases share price)
+    access(all) event DeficitApplied(poolID: UInt64, totalDeficit: UFix64, absorbedByLottery: UFix64, absorbedBySavings: UFix64)
     
     /// Emitted when rounding dust from savings distribution is sent to treasury.
     /// This occurs due to virtual shares absorbing a tiny fraction of yield.
@@ -780,7 +787,7 @@ access(all) contract PrizeSavings {
         access(ConfigOps) fun processPoolRewards(poolID: UInt64) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            poolRef.processRewards()
+            poolRef.syncWithYieldSource()
         }
         
         /// Directly sets the pool's operational state.
@@ -807,7 +814,7 @@ access(all) contract PrizeSavings {
         }
         
         /// Set the treasury recipient for automatic forwarding.
-        /// Once set, treasury funds are auto-forwarded during processRewards().
+        /// Once set, treasury funds are auto-forwarded during syncWithYieldSource().
         /// Pass nil to disable auto-forwarding (funds stored in distributor).
         /// 
         /// SECURITY: Requires OwnerOnly entitlement - NEVER issue capabilities with this.
@@ -990,7 +997,43 @@ access(all) contract PrizeSavings {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.completeDraw()
         }
-        
+
+        /// Withdraws unclaimed treasury funds from a pool.
+        /// 
+        /// Treasury funds accumulate in the unclaimed vault when no treasury recipient
+        /// is configured at draw time. This function allows admin to withdraw those funds.
+        /// 
+        /// @param poolID - ID of the pool to withdraw from
+        /// @param amount - Amount to withdraw (will be capped at available balance)
+        /// @param recipient - Capability to receive the withdrawn funds
+        /// @return Actual amount withdrawn (may be less than requested if insufficient balance)
+        access(CriticalOps) fun withdrawUnclaimedTreasury(
+            poolID: UInt64,
+            amount: UFix64,
+            recipient: Capability<&{FungibleToken.Receiver}>
+        ): UFix64 {
+            pre {
+                recipient.check(): "Recipient capability is invalid"
+                amount > 0.0: "Amount must be greater than 0"
+            }
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            let withdrawn <- poolRef.withdrawUnclaimedTreasury(amount: amount)
+            let actualAmount = withdrawn.balance
+            
+            if actualAmount > 0.0 {
+                recipient.borrow()!.deposit(from: <- withdrawn)
+                emit TreasuryForwarded(
+                    poolID: poolID,
+                    amount: actualAmount,
+                    recipient: recipient.address
+                )
+            } else {
+                destroy withdrawn
+            }
+            
+            return actualAmount
+        }
+
     }
     
     /// Storage path for the Admin resource.
@@ -1103,7 +1146,7 @@ access(all) contract PrizeSavings {
     /// This resource manages the savings component of the prize pool:
     /// - Tracks user shares and converts between shares <-> assets
     /// - Accrues yield by increasing share price (not individual balances)
-    /// - Maintains TWAB (time-weighted average balance) for fair lottery weighting
+    /// - Maintains TWAB (time-weighted average shares) for fair lottery weighting
     /// 
     /// KEY CONCEPTS:
     /// 
@@ -1113,11 +1156,11 @@ access(all) contract PrizeSavings {
     /// - All depositors benefit proportionally without individual updates
     /// - Virtual offsets prevent first-depositor inflation attacks
     /// 
-    /// TWAB (Time-Weighted Average Balance):
-    /// - Lottery weight = sum of (balance × time) over the epoch
-    /// - Ensures fair lottery odds based on deposit size AND duration
-    /// - Users who deposit earlier get more "balance-seconds"
-    /// - Yield compounds into balance, naturally increasing lottery odds
+    /// TWAB (Time-Weighted Average Shares):
+    /// - Lottery weight = sum of (shares × time) over the epoch
+    /// - Ensures fair lottery odds based on share ownership AND duration
+    /// - Users who deposit earlier get more "share-seconds"
+    /// - Uses shares for stability against price fluctuations
     /// 
     /// Epoch System:
     /// - Each lottery draw starts a new epoch
@@ -1127,7 +1170,7 @@ access(all) contract PrizeSavings {
     /// INVARIANTS:
     /// - totalAssets should approximately equal Pool.totalStaked
     /// - sum(userShares) == totalShares
-    /// - share price monotonically increases (yield only adds, never subtracts)
+    /// - share price may increase (yield) or decrease (loss socialization)
     access(all) resource SavingsDistributor {
         /// Total shares outstanding across all users.
         access(self) var totalShares: UFix64
@@ -1149,15 +1192,16 @@ access(all) contract PrizeSavings {
         // TWAB TRACKING FIELDS
         // ============================================================
         
-        /// Cumulative balance-seconds for each user within current epoch.
-        /// Uses current balance (shares × share_price) so yield counts toward lottery odds.
-        access(self) let userCumulativeBalanceSeconds: {UInt64: UFix64}
+        /// Cumulative share-seconds for each user within current epoch.
+        /// Uses shares directly (not asset value) for stability against price fluctuations.
+        /// This means yield/loss changes don't affect accumulated lottery weight.
+        access(self) let userCumulativeShareSeconds: {UInt64: UFix64}
         
         /// Timestamp of last TWAB update for each user.
         access(self) let userLastUpdateTime: {UInt64: UFix64}
         
         /// Tracks the last epoch each user participated in (receiverID -> epochID).
-        /// When a user's epoch is less than currentEpochID, their cumulative balance-seconds
+        /// When a user's epoch is less than currentEpochID, their cumulative share-seconds
         /// are reset on their next interaction, ensuring each lottery period starts fresh.
         access(self) let userEpochID: {UInt64: UInt64}
         
@@ -1176,7 +1220,7 @@ access(all) contract PrizeSavings {
             self.totalDistributed = 0.0
             self.vaultType = vaultType
             
-            self.userCumulativeBalanceSeconds = {}
+            self.userCumulativeShareSeconds = {}
             self.userLastUpdateTime = {}
             self.userEpochID = {}
             self.currentEpochID = 1
@@ -1211,17 +1255,43 @@ access(all) contract PrizeSavings {
             return actualSavings
         }
         
-        /// Calculates elapsed balance-seconds since the user's last update.
-        /// Uses current balance (shares × share_price) so yield is included in lottery weight.
+        /// Decreases total assets to reflect a loss in the yield source.
+        /// This effectively decreases share price for all depositors proportionally.
+        /// 
+        /// Unlike accrueYield, this does NOT apply virtual share dust calculation
+        /// because losses should be fully socialized across all depositors.
+        /// 
+        /// @param amount - Loss amount to socialize
+        /// @return Actual amount decreased (capped at totalAssets to prevent underflow)
+        access(contract) fun decreaseTotalAssets(amount: UFix64): UFix64 {
+            if amount == 0.0 || self.totalAssets == 0.0 {
+                return 0.0
+            }
+            
+            // Cap at totalAssets to prevent underflow
+            let actualDecrease = amount > self.totalAssets ? self.totalAssets : amount
+            
+            // Decrease total assets, which decreases share price for everyone
+            self.totalAssets = self.totalAssets - actualDecrease
+            
+            // Note: We do NOT decrease totalDistributed - that's historical tracking
+            // Note: We do NOT burn shares - share price naturally adjusts
+            
+            return actualDecrease
+        }
+        
+        /// Calculates elapsed share-seconds since the user's last update.
+        /// Uses shares directly (not asset value) for stability against price fluctuations.
+        /// This means yield accrual and loss socialization don't affect lottery weight.
         /// 
         /// If user is from a previous epoch, calculates from epoch start instead.
         /// 
         /// @param receiverID - User's receiver ID
-        /// @return Balance-seconds elapsed since last update
-        access(all) view fun getElapsedBalanceSeconds(receiverID: UInt64): UFix64 {
+        /// @return Share-seconds elapsed since last update
+        access(all) view fun getElapsedShareSeconds(receiverID: UInt64): UFix64 {
             let now = getCurrentBlock().timestamp
             let userEpoch = self.getUserEpochID(receiverID: receiverID)
-            let currentBalance = self.getUserAssetValue(receiverID: receiverID)
+            let currentShares = self.userShares[receiverID] ?? 0.0
             
             // If user is from previous epoch, their TWAB resets from epoch start
             let effectiveLastUpdate = userEpoch < self.currentEpochID 
@@ -1233,26 +1303,26 @@ access(all) contract PrizeSavings {
                 return 0.0
             }
             
-            // balance-seconds = balance × time
-            return currentBalance * elapsed
+            // share-seconds = shares × time
+            return currentShares * elapsed
         }
         
-        /// Returns the user's accumulated balance-seconds for current epoch.
+        /// Returns the user's accumulated share-seconds for current epoch.
         /// Returns 0 if user is from a previous epoch (would be reset on next interaction).
         /// @param receiverID - User's receiver ID
-        /// @return Accumulated balance-seconds (0 if epoch mismatch)
+        /// @return Accumulated share-seconds (0 if epoch mismatch)
         access(all) view fun getEffectiveAccumulated(receiverID: UInt64): UFix64 {
             let userEpoch = self.getUserEpochID(receiverID: receiverID)
             if userEpoch < self.currentEpochID {
                 return 0.0  // Would be reset on next accumulation
             }
-            return self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
+            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
         }
         
-        /// Updates a user's TWAB by adding elapsed balance-seconds to their cumulative total.
+        /// Updates a user's TWAB by adding elapsed share-seconds to their cumulative total.
         /// Handles epoch transitions by resetting TWAB for users from previous epochs.
         /// 
-        /// This should be called before any balance-changing operation (deposit/withdraw).
+        /// This should be called before any share-changing operation (deposit/withdraw).
         /// 
         /// @param receiverID - User's receiver ID
         access(contract) fun accumulateTime(receiverID: UInt64) {
@@ -1260,45 +1330,45 @@ access(all) contract PrizeSavings {
             
             // Handle epoch transition - reset TWAB for users from previous epochs
             if userEpoch < self.currentEpochID {
-                self.userCumulativeBalanceSeconds[receiverID] = 0.0
+                self.userCumulativeShareSeconds[receiverID] = 0.0
                 self.userEpochID[receiverID] = self.currentEpochID
                 
-                // If user has balance, they've been earning TWAB since epoch start
-                let currentBalance = self.getUserAssetValue(receiverID: receiverID)
-                if currentBalance > 0.0 {
+                // If user has shares, they've been earning TWAB since epoch start
+                let currentShares = self.userShares[receiverID] ?? 0.0
+                if currentShares > 0.0 {
                     self.userLastUpdateTime[receiverID] = self.epochStartTime
                 } else {
-                    // No balance means no TWAB to accumulate
+                    // No shares means no TWAB to accumulate
                     self.userLastUpdateTime[receiverID] = getCurrentBlock().timestamp
                     return
                 }
             }
             
-            // Add elapsed balance-seconds to cumulative total
-            let elapsed = self.getElapsedBalanceSeconds(receiverID: receiverID)
+            // Add elapsed share-seconds to cumulative total
+            let elapsed = self.getElapsedShareSeconds(receiverID: receiverID)
             if elapsed > 0.0 {
-                let currentAccum = self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
-                self.userCumulativeBalanceSeconds[receiverID] = currentAccum + elapsed
+                let currentAccum = self.userCumulativeShareSeconds[receiverID] ?? 0.0
+                self.userCumulativeShareSeconds[receiverID] = currentAccum + elapsed
             }
             self.userLastUpdateTime[receiverID] = getCurrentBlock().timestamp
         }
         
-        /// Returns total time-weighted balance (balance-seconds) for lottery weight calculation.
-        /// Includes both accumulated balance-seconds AND current elapsed (real-time view).
+        /// Returns total time-weighted shares (share-seconds) for lottery weight calculation.
+        /// Includes both accumulated share-seconds AND current elapsed (real-time view).
         /// @param receiverID - User's receiver ID
         /// @return Total TWAB for lottery weighting
-        access(all) view fun getTimeWeightedBalance(receiverID: UInt64): UFix64 {
+        access(all) view fun getTimeWeightedShares(receiverID: UInt64): UFix64 {
             return self.getEffectiveAccumulated(receiverID: receiverID) 
-                + self.getElapsedBalanceSeconds(receiverID: receiverID)
+                + self.getElapsedShareSeconds(receiverID: receiverID)
         }
         
-        /// Accumulates time and returns the final time-weighted balance.
+        /// Accumulates time and returns the final time-weighted shares.
         /// Used by lottery draw to capture the final lottery weight.
         /// @param receiverID - User's receiver ID
-        /// @return Final accumulated balance-seconds
-        access(contract) fun updateAndGetTimeWeightedBalance(receiverID: UInt64): UFix64 {
+        /// @return Final accumulated share-seconds
+        access(contract) fun updateAndGetTimeWeightedShares(receiverID: UInt64): UFix64 {
             self.accumulateTime(receiverID: receiverID)
-            return self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
+            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
         }
         
         /// Starts a new epoch (called when lottery draw begins).
@@ -1442,11 +1512,11 @@ access(all) contract PrizeSavings {
             return self.userShares[receiverID] ?? 0.0
         }
         
-        /// Returns raw accumulated balance-seconds (without considering epoch).
+        /// Returns raw accumulated share-seconds (without considering epoch).
         /// Use getEffectiveAccumulated() for epoch-aware value.
         /// @param receiverID - User's receiver ID
         access(all) view fun getUserAccumulatedRaw(receiverID: UInt64): UFix64 {
-            return self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
+            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
         }
         
         /// Returns the user's last TWAB update timestamp.
@@ -1463,34 +1533,34 @@ access(all) contract PrizeSavings {
             return self.userEpochID[receiverID] ?? 0
         }
         
-        /// Calculates projected balance-seconds at a specific future time.
+        /// Calculates projected share-seconds at a specific future time.
         /// Useful for previewing lottery weight at draw time.
         /// Does not modify state - pure calculation.
         /// @param receiverID - User's receiver ID
         /// @param targetTime - Target timestamp to project to
-        /// @return Projected balance-seconds at target time
-        access(all) view fun calculateBalanceSecondsAtTime(receiverID: UInt64, targetTime: UFix64): UFix64 {
+        /// @return Projected share-seconds at target time
+        access(all) view fun calculateShareSecondsAtTime(receiverID: UInt64, targetTime: UFix64): UFix64 {
             let userEpoch = self.getUserEpochID(receiverID: receiverID)
-            let balance = self.getUserAssetValue(receiverID: receiverID)
+            let shares = self.userShares[receiverID] ?? 0.0
             
             // User from previous epoch - calculate from epoch start
             if userEpoch < self.currentEpochID {
                 if targetTime <= self.epochStartTime { return 0.0 }
-                return balance * (targetTime - self.epochStartTime)
+                return shares * (targetTime - self.epochStartTime)
             }
             
             let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.epochStartTime
-            let accumulated = self.userCumulativeBalanceSeconds[receiverID] ?? 0.0
+            let accumulated = self.userCumulativeShareSeconds[receiverID] ?? 0.0
             
             // If target time is before last update, we need to "rewind"
             if targetTime <= lastUpdate {
                 let overdraft = lastUpdate - targetTime
-                let overdraftAmount = balance * overdraft
+                let overdraftAmount = shares * overdraft
                 return accumulated >= overdraftAmount ? accumulated - overdraftAmount : 0.0
             }
             
             // Normal case: project forward from last update
-            return accumulated + (balance * (targetTime - lastUpdate))
+            return accumulated + (shares * (targetTime - lastUpdate))
         }
     }
     
@@ -1798,13 +1868,13 @@ access(all) contract PrizeSavings {
     /// - Fixed prize tiers with multiple winners per tier
     /// 
     /// IMPORTANT: receiverWeights are NOT raw deposit balances - they represent
-    /// lottery ticket weights (TWAB balance-seconds + bonus weights). Higher weight
+    /// lottery ticket weights (TWAB share-seconds + bonus weights). Higher weight
     /// = higher probability of selection.
     access(all) struct interface WinnerSelectionStrategy {
         /// Selects winners based on weighted random selection.
         /// @param randomNumber - Source of randomness from Flow's RandomConsumer
         /// @param receiverWeights - Map of receiverID to their selection weight
-        ///   (balance-seconds + bonuses). NOT raw deposit balances!
+        ///   (share-seconds + bonuses). NOT raw deposit balances!
         /// @param totalPrizeAmount - Total prize pool to distribute
         /// @return WinnerSelectionResult with winners, amounts, and NFT assignments
         access(all) fun selectWinners(
@@ -2603,7 +2673,7 @@ access(all) contract PrizeSavings {
     /// 1. Admin creates pool with createPool()
     /// 2. Users deposit via PoolPositionCollection.deposit()
     /// 3. Yield accrues from connected DeFi source
-    /// 4. processRewards() distributes yield per strategy
+    /// 4. syncWithYieldSource() distributes yield per strategy
     /// 5. Admin calls startDraw() → completeDraw() for lottery
     /// 6. Winners receive auto-compounded prizes
     /// 7. Users withdraw via PoolPositionCollection.withdraw()
@@ -2699,12 +2769,20 @@ access(all) contract PrizeSavings {
         /// Transferred to prize vault at draw time.
         access(all) var pendingLotteryYield: UFix64
         
-        /// Cumulative treasury amount auto-forwarded to recipient.
+        /// Treasury funds still earning in yield source (not yet materialized).
+        /// Transferred to recipient or unclaimed vault at draw time.
+        access(all) var pendingTreasuryYield: UFix64
+        
+        /// Cumulative treasury amount forwarded to recipient.
         access(all) var totalTreasuryForwarded: UFix64
         
-        /// Capability to treasury recipient for auto-forwarding.
-        /// If nil, treasury is not auto-forwarded.
+        /// Capability to treasury recipient for forwarding at draw time.
+        /// If nil, treasury goes to unclaimedTreasuryVault instead.
         access(self) var treasuryRecipientCap: Capability<&{FungibleToken.Receiver}>?
+        
+        /// Holds treasury funds when no recipient is configured.
+        /// Admin can withdraw from this vault at any time.
+        access(self) var unclaimedTreasuryVault: @{FungibleToken.Vault}
         
         // ============================================================
         // NESTED RESOURCES
@@ -2754,8 +2832,12 @@ access(all) contract PrizeSavings {
             self.totalStaked = 0.0
             self.lastDrawTimestamp = 0.0
             self.pendingLotteryYield = 0.0
+            self.pendingTreasuryYield = 0.0
             self.totalTreasuryForwarded = 0.0
             self.treasuryRecipientCap = nil
+            
+            // Create vault for unclaimed treasury (when no recipient configured)
+            self.unclaimedTreasuryVault <- DeFiActionsUtils.getEmptyVault(config.assetType)
             
             // Create nested resources
             self.savingsDistributor <- create SavingsDistributor(vaultType: config.assetType)
@@ -3028,21 +3110,10 @@ access(all) contract PrizeSavings {
                     self.totalStaked = self.totalStaked + actualSavings
                     emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
                     
-                    // Route dust to treasury if recipient configured
+                    // Route dust to pending treasury
                     if dustAmount > 0.0 {
                         emit SavingsRoundingDustToTreasury(poolID: self.poolID, amount: dustAmount)
-                        if let cap = self.treasuryRecipientCap {
-                            if let recipientRef = cap.borrow() {
-                                let dustVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: dustAmount)
-                                if dustVault.balance > 0.0 {
-                                    recipientRef.deposit(from: <- dustVault)
-                                    self.totalTreasuryForwarded = self.totalTreasuryForwarded + dustAmount
-                                    emit TreasuryForwarded(poolID: self.poolID, amount: dustAmount, recipient: cap.address)
-                                } else {
-                                    destroy dustVault
-                                }
-                            }
-                        }
+                        self.pendingTreasuryYield = self.pendingTreasuryYield + dustAmount
                     }
                     
                 default:
@@ -3099,7 +3170,7 @@ access(all) contract PrizeSavings {
             
             // Process pending yield before deposit to ensure fair share price
             if self.getAvailableYieldRewards() > 0.0 {
-                self.processRewards()
+                self.syncWithYieldSource()
             }
             
             let amount = from.balance
@@ -3158,7 +3229,7 @@ access(all) contract PrizeSavings {
             
             // Process pending yield before withdrawal (if in normal mode)
             if self.emergencyState == PoolEmergencyState.Normal && self.getAvailableYieldRewards() > 0.0 {
-                self.processRewards()
+                self.syncWithYieldSource()
             }
             
             // Validate user has sufficient balance
@@ -3247,33 +3318,69 @@ access(all) contract PrizeSavings {
         }
         
         // ============================================================
-        // REWARD PROCESSING
+        // YIELD SOURCE SYNCHRONIZATION
         // ============================================================
         
-        /// Processes available yield and distributes according to strategy.
+        /// Syncs internal accounting with the yield source balance.
         /// 
-        /// FLOW:
-        /// 1. Calculate available yield (yieldBalance - allocatedFunds)
+        /// Compares actual yield source balance to internal allocations and
+        /// adjusts accounting to match reality. Handles both appreciation (excess)
+        /// and depreciation (deficit).
+        /// 
+        /// ALLOCATED FUNDS:
+        /// allocatedFunds = totalStaked + pendingLotteryYield + pendingTreasuryYield
+        /// This must always equal the yield source balance after sync.
+        /// 
+        /// EXCESS (yieldBalance > allocatedFunds):
+        /// 1. Calculate excess amount
         /// 2. Apply distribution strategy (savings/lottery/treasury split)
-        /// 3. Accrue savings yield to share price
-        /// 4. Add lottery yield to pendingLotteryYield (stays in yield source)
-        /// 5. Forward treasury to configured recipient (if any)
+        /// 3. Accrue savings yield to share price (increases totalStaked)
+        /// 4. Add lottery yield to pendingLotteryYield
+        /// 5. Add treasury yield to pendingTreasuryYield
+        /// 
+        /// DEFICIT (yieldBalance < allocatedFunds):
+        /// 1. Calculate deficit amount
+        /// 2. Distribute proportionally across all allocations
+        /// 3. Reduce pendingTreasuryYield first (protocol absorbs loss first)
+        /// 4. Reduce pendingLotteryYield second
+        /// 5. Reduce savings (share price) last - protecting user principal
         /// 
         /// Called automatically during deposits and withdrawals.
         /// Can also be called manually by admin.
-        access(contract) fun processRewards() {
-            // Calculate how much yield is available (above what's allocated)
+        access(contract) fun syncWithYieldSource() {
             let yieldBalance = self.config.yieldConnector.minimumAvailable()
-            let allocatedFunds = self.totalStaked + self.pendingLotteryYield
-            let availableYield: UFix64 = yieldBalance > allocatedFunds ? yieldBalance - allocatedFunds : 0.0
+            let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
             
-            // No yield to process
-            if availableYield == 0.0 {
+            // === EXCESS: Apply gains ===
+            if yieldBalance > allocatedFunds {
+                let excess = yieldBalance - allocatedFunds
+                self.applyExcess(amount: excess)
+                return
+            }
+            
+            // === DEFICIT: Apply shortfall ===
+            if yieldBalance < allocatedFunds {
+                let deficit = allocatedFunds - yieldBalance
+                self.applyDeficit(amount: deficit)
+                return
+            }
+            
+            // === BALANCED: Nothing to do ===
+        }
+        
+        /// Applies excess funds (appreciation) according to the distribution strategy.
+        /// 
+        /// All portions stay in the yield source and are tracked via pending variables.
+        /// Actual transfers happen at draw time (lottery → prize pool, treasury → recipient/vault).
+        /// 
+        /// @param amount - Total excess amount to distribute
+        access(self) fun applyExcess(amount: UFix64) {
+            if amount == 0.0 {
                 return
             }
             
             // Apply distribution strategy
-            let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: availableYield)
+            let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
             
             var savingsDust: UFix64 = 0.0
             
@@ -3300,36 +3407,96 @@ access(all) contract PrizeSavings {
                 )
             }
             
-            // Process treasury portion + savings dust
+            // Process treasury portion + savings dust - stays in yield source until draw
             let totalTreasuryAmount = plan.treasuryAmount + savingsDust
-            
             if totalTreasuryAmount > 0.0 {
-                // Auto-forward to treasury recipient if configured
-                if let cap = self.treasuryRecipientCap {
-                    if let recipientRef = cap.borrow() {
-                        let treasuryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: totalTreasuryAmount)
-                        let actualAmount = treasuryVault.balance
-                        if actualAmount > 0.0 {
-                            recipientRef.deposit(from: <- treasuryVault)
-                            self.totalTreasuryForwarded = self.totalTreasuryForwarded + actualAmount
-                            emit TreasuryForwarded(
-                                poolID: self.poolID,
-                                amount: actualAmount,
-                                recipient: cap.address
-                            )
-                        } else {
-                            destroy treasuryVault
-                        }
-                    }
-                }
-                // If no recipient configured, treasury portion stays in yield source
+                self.pendingTreasuryYield = self.pendingTreasuryYield + totalTreasuryAmount
+                emit TreasuryFunded(
+                    poolID: self.poolID,
+                    amount: totalTreasuryAmount,
+                    source: "yield_pending"
+                )
             }
             
             emit RewardsProcessed(
                 poolID: self.poolID,
-                totalAmount: availableYield,
+                totalAmount: amount,
                 savingsAmount: plan.savingsAmount - savingsDust,
                 lotteryAmount: plan.lotteryAmount
+            )
+        }
+        
+        /// Applies a deficit (depreciation) from the yield source across the pool.
+        /// 
+        /// Deficit is distributed proportionally according to the distribution strategy.
+        /// 
+        /// Example: If strategy is 50% savings, 30% lottery, 20% treasury:
+        /// - Savings absorbs: 50% of deficit
+        /// - Lottery absorbs: 30% of deficit
+        /// - Treasury absorbs: 20% of deficit
+        /// 
+        /// SHORTFALL HANDLING (priority order - protect user principal):
+        /// 1. Treasury absorbs its share first (capped by pendingTreasuryYield)
+        /// 2. Lottery absorbs its share + treasury shortfall (capped by pendingLotteryYield)
+        /// 3. Savings absorbs remainder (share price decrease affects all users)
+        /// 
+        /// @param amount - Total deficit to absorb
+        access(self) fun applyDeficit(amount: UFix64) {
+            if amount == 0.0 {
+                return
+            }
+            
+            // Use distribution strategy to calculate proportions
+            let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
+            
+            // Target losses for each allocation
+            var targetTreasuryLoss = plan.treasuryAmount
+            var targetLotteryLoss = plan.lotteryAmount
+            var targetSavingsLoss = plan.savingsAmount
+            
+            // === STEP 1: Treasury absorbs first (protocol takes loss before users) ===
+            var absorbedByTreasury: UFix64 = 0.0
+            var treasuryShortfall: UFix64 = 0.0
+            
+            if targetTreasuryLoss > 0.0 {
+                if self.pendingTreasuryYield >= targetTreasuryLoss {
+                    absorbedByTreasury = targetTreasuryLoss
+                } else {
+                    absorbedByTreasury = self.pendingTreasuryYield
+                    treasuryShortfall = targetTreasuryLoss - absorbedByTreasury
+                }
+                self.pendingTreasuryYield = self.pendingTreasuryYield - absorbedByTreasury
+            }
+            
+            // === STEP 2: Lottery absorbs its share + treasury shortfall ===
+            var absorbedByLottery: UFix64 = 0.0
+            var lotteryShortfall: UFix64 = 0.0
+            let totalLotteryTarget = targetLotteryLoss + treasuryShortfall
+            
+            if totalLotteryTarget > 0.0 {
+                if self.pendingLotteryYield >= totalLotteryTarget {
+                    absorbedByLottery = totalLotteryTarget
+                } else {
+                    absorbedByLottery = self.pendingLotteryYield
+                    lotteryShortfall = totalLotteryTarget - absorbedByLottery
+                }
+                self.pendingLotteryYield = self.pendingLotteryYield - absorbedByLottery
+            }
+            
+            // === STEP 3: Savings absorbs remainder (share price decrease) ===
+            let totalSavingsLoss = targetSavingsLoss + lotteryShortfall
+            var absorbedBySavings: UFix64 = 0.0
+            
+            if totalSavingsLoss > 0.0 {
+                absorbedBySavings = self.savingsDistributor.decreaseTotalAssets(amount: totalSavingsLoss)
+                self.totalStaked = self.totalStaked - absorbedBySavings
+            }
+            
+            emit DeficitApplied(
+                poolID: self.poolID,
+                totalDeficit: amount,
+                absorbedByLottery: absorbedByLottery,
+                absorbedBySavings: absorbedBySavings
             )
         }
         
@@ -3341,7 +3508,7 @@ access(all) contract PrizeSavings {
         /// 
         /// FLOW:
         /// 1. Validate state (Normal, no active draw, interval elapsed)
-        /// 2. Capture all users' TWAB weights (time-weighted balance-seconds)
+        /// 2. Capture all users' TWAB weights (time-weighted share-seconds)
         /// 3. Add bonus weights (scaled by epoch duration)
         /// 4. Start new epoch (resets TWAB for next draw)
         /// 5. Materialize pending lottery yield from yield source
@@ -3350,10 +3517,10 @@ access(all) contract PrizeSavings {
         /// 
         /// Must call completeDraw() after randomness is available (next block).
         /// 
-        /// FAIRNESS: Uses balance-seconds so:
-        /// - Larger deposits = more lottery weight
+        /// FAIRNESS: Uses share-seconds so:
+        /// - More shares = more lottery weight
         /// - Longer deposits = more lottery weight
-        /// - Yield compounds into balance, increasing future odds
+        /// - Share-based TWAB is stable against price fluctuations
         access(contract) fun startDraw() {
             pre {
                 self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: \(self.emergencyState.rawValue)"
@@ -3371,11 +3538,11 @@ access(all) contract PrizeSavings {
             // Capture all users' final TWAB for this epoch
             let timeWeightedStakes: {UInt64: UFix64} = {}
             for receiverID in self.registeredReceivers.keys {
-                // Get accumulated balance-seconds (captures current value)
-                let twabStake = self.savingsDistributor.updateAndGetTimeWeightedBalance(receiverID: receiverID)
+                // Get accumulated share-seconds (captures current value)
+                let twabStake = self.savingsDistributor.updateAndGetTimeWeightedShares(receiverID: receiverID)
                 
                 // Add bonus weights, scaled by epoch duration for fairness
-                // (bonus per second × epoch duration = total bonus balance-seconds)
+                // (bonus per second × epoch duration = total bonus share-seconds)
                 let bonusWeight = self.getBonusWeight(receiverID: receiverID)
                 let epochDuration = getCurrentBlock().timestamp - self.savingsDistributor.getEpochStartTime()
                 let scaledBonus = bonusWeight * epochDuration
@@ -3400,6 +3567,33 @@ access(all) contract PrizeSavings {
                 let actualWithdrawn = lotteryVault.balance
                 self.lotteryDistributor.fundPrizePool(vault: <- lotteryVault)
                 self.pendingLotteryYield = self.pendingLotteryYield - actualWithdrawn
+            }
+            
+            // Materialize pending treasury funds from yield source
+            if self.pendingTreasuryYield > 0.0 {
+                let treasuryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.pendingTreasuryYield)
+                let actualWithdrawn = treasuryVault.balance
+                self.pendingTreasuryYield = self.pendingTreasuryYield - actualWithdrawn
+                
+                // Forward to recipient if configured, otherwise store in unclaimed vault
+                if let cap = self.treasuryRecipientCap {
+                    if let recipientRef = cap.borrow() {
+                        let forwardedAmount = treasuryVault.balance
+                        recipientRef.deposit(from: <- treasuryVault)
+                        self.totalTreasuryForwarded = self.totalTreasuryForwarded + forwardedAmount
+                        emit TreasuryForwarded(
+                            poolID: self.poolID,
+                            amount: forwardedAmount,
+                            recipient: cap.address
+                        )
+                    } else {
+                        // Recipient capability invalid - store in unclaimed vault
+                        self.unclaimedTreasuryVault.deposit(from: <- treasuryVault)
+                    }
+                } else {
+                    // No recipient configured - store in unclaimed vault for admin withdrawal
+                    self.unclaimedTreasuryVault.deposit(from: <- treasuryVault)
+                }
             }
             
             let prizeAmount = self.lotteryDistributor.getPrizePoolBalance()
@@ -3860,8 +4054,8 @@ access(all) contract PrizeSavings {
             return self.savingsDistributor.getSharePrice()
         }
         
-        access(all) view fun getUserTimeWeightedBalance(receiverID: UInt64): UFix64 {
-            return self.savingsDistributor.getTimeWeightedBalance(receiverID: receiverID)
+        access(all) view fun getUserTimeWeightedShares(receiverID: UInt64): UFix64 {
+            return self.savingsDistributor.getTimeWeightedShares(receiverID: receiverID)
         }
         
         access(all) view fun getCurrentEpochID(): UInt64 {
@@ -3893,8 +4087,8 @@ access(all) contract PrizeSavings {
             return nil
         }
         
-        access(all) view fun getUserProjectedBalanceSeconds(receiverID: UInt64, atTime: UFix64): UFix64 {
-            return self.savingsDistributor.calculateBalanceSecondsAtTime(receiverID: receiverID, targetTime: atTime)
+        access(all) view fun getUserProjectedShareSeconds(receiverID: UInt64, atTime: UFix64): UFix64 {
+            return self.savingsDistributor.calculateShareSecondsAtTime(receiverID: receiverID, targetTime: atTime)
         }
         
         /// Preview how many shares would be minted for a deposit amount (ERC-4626 style)
@@ -3941,8 +4135,8 @@ access(all) contract PrizeSavings {
         access(all) fun getAvailableYieldRewards(): UFix64 {
             let yieldSource = &self.config.yieldConnector as &{DeFiActions.Source}
             let available = yieldSource.minimumAvailable()
-            // Exclude already-allocated funds (same logic as processRewards)
-            let allocatedFunds = self.totalStaked + self.pendingLotteryYield
+            // Exclude already-allocated funds (same logic as syncWithYieldSource)
+            let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
             if available > allocatedFunds {
                 return available - allocatedFunds
             }
@@ -3956,7 +4150,15 @@ access(all) contract PrizeSavings {
         access(all) view fun getPendingLotteryYield(): UFix64 {
             return self.pendingLotteryYield
         }
-        
+
+        access(all) view fun getPendingTreasuryYield(): UFix64 {
+            return self.pendingTreasuryYield
+        }
+
+        access(all) view fun getUnclaimedTreasuryBalance(): UFix64 {
+            return self.unclaimedTreasuryVault.balance
+        }
+
         access(all) view fun getTreasuryRecipient(): Address? {
             return self.treasuryRecipientCap?.address
         }
@@ -3972,32 +4174,42 @@ access(all) contract PrizeSavings {
             return self.totalTreasuryForwarded
         }
         
-        /// Set treasury recipient for auto-forwarding. Only callable by account owner.
+        /// Set treasury recipient for forwarding at draw time.
         access(contract) fun setTreasuryRecipient(cap: Capability<&{FungibleToken.Receiver}>?) {
             self.treasuryRecipientCap = cap
         }
-        
+
+        /// Withdraws funds from the unclaimed treasury vault.
+        /// Called by Admin.withdrawUnclaimedTreasury.
+        /// @param amount - Maximum amount to withdraw
+        /// @return Vault containing withdrawn funds (may be less than requested)
+        access(contract) fun withdrawUnclaimedTreasury(amount: UFix64): @{FungibleToken.Vault} {
+            let available = self.unclaimedTreasuryVault.balance
+            let withdrawAmount = amount > available ? available : amount
+            return <- self.unclaimedTreasuryVault.withdraw(amount: withdrawAmount)
+        }
+
         // ============================================================
         // ENTRY VIEW FUNCTIONS - Human-readable UI helpers
         // ============================================================
         // "Entries" represent the user's lottery weight for the current draw.
         // Formula: entries = projectedTWAB / drawInterval
         // 
-        // This normalizes balance-seconds to human-readable whole numbers:
-        // - $10 deposited at start of 7-day draw → 10 entries
-        // - $10 deposited halfway through → 5 entries (prorated for this draw)
-        // - At next round: same $10 deposit → 10 entries (full period credit)
+        // This normalizes share-seconds to human-readable whole numbers:
+        // - 10 shares at start of 7-day draw → 10 entries
+        // - 10 shares deposited halfway through → 5 entries (prorated for this draw)
+        // - At next round: same 10 shares → 10 entries (full period credit)
         //
         // The TWAB naturally handles:
         // - Multiple deposits at different times (weighted correctly)
         // - Partial withdrawals (reduces entry count)
-        // - Yield compounding (higher balance = more entries over time)
+        // - Share-based TWAB is stable against price fluctuations (yield/loss)
         // ============================================================
         
         /// Internal: Returns the user's current accumulated entries (TWAB / drawInterval).
         /// This represents their lottery weight accumulated so far, NOT their final weight.
         access(self) view fun getCurrentEntries(receiverID: UInt64): UFix64 {
-            let twab = self.savingsDistributor.getTimeWeightedBalance(receiverID: receiverID)
+            let twab = self.savingsDistributor.getTimeWeightedShares(receiverID: receiverID)
             let drawInterval = self.config.drawIntervalSeconds
             if drawInterval == 0.0 {
                 return 0.0
@@ -4006,25 +4218,25 @@ access(all) contract PrizeSavings {
         }
         
         /// Returns the user's entry count for this draw.
-        /// Projects TWAB forward to draw time assuming no balance changes.
-        /// Formula: (currentTWAB + balance × remainingTime) / drawInterval
+        /// Projects TWAB forward to draw time assuming no share changes.
+        /// Formula: (currentTWAB + shares × remainingTime) / drawInterval
         /// 
         /// Examples:
-        /// - $10 deposited at start of draw → 10 entries
-        /// - $10 deposited halfway through draw → 5 entries
-        /// - At next round, same $10 → 10 entries (full credit)
+        /// - 10 shares at start of draw → 10 entries
+        /// - 10 shares deposited halfway through draw → 5 entries
+        /// - At next round, same 10 shares → 10 entries (full credit)
         access(all) view fun getUserEntries(receiverID: UInt64): UFix64 {
             let drawInterval = self.config.drawIntervalSeconds
             if drawInterval == 0.0 {
                 return 0.0
             }
             
-            let currentTwab = self.savingsDistributor.getTimeWeightedBalance(receiverID: receiverID)
-            let currentBalance = self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
+            let currentTwab = self.savingsDistributor.getTimeWeightedShares(receiverID: receiverID)
+            let currentShares = self.savingsDistributor.getUserShares(receiverID: receiverID)
             let remainingTime = self.getTimeUntilNextDraw()
             
-            // Project TWAB forward: current + (balance × remaining time)
-            let projectedTwab = currentTwab + (currentBalance * remainingTime)
+            // Project TWAB forward: current + (shares × remaining time)
+            let projectedTwab = currentTwab + (currentShares * remainingTime)
             return projectedTwab / drawInterval
         }
         
