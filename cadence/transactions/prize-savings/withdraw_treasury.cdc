@@ -13,11 +13,8 @@ transaction(poolID: UInt64, amount: UFix64, purpose: String) {
     
     let adminRef: auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin
     let receiverRef: &{FungibleToken.Receiver}
-    let signerAddress: Address
     
     prepare(signer: auth(Storage, BorrowValue) &Account) {
-        self.signerAddress = signer.address
-        
         // Borrow the Admin resource
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
@@ -34,8 +31,7 @@ transaction(poolID: UInt64, amount: UFix64, purpose: String) {
         let withdrawn <- self.adminRef.withdrawPoolTreasury(
             poolID: poolID,
             amount: amount,
-            purpose: purpose,
-            withdrawnBy: self.signerAddress
+            purpose: purpose
         )
         
         let withdrawnAmount = withdrawn.balance

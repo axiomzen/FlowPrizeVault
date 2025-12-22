@@ -23,12 +23,8 @@ transaction(
     let adminRef: auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin
     let providerCap: Capability<auth(FungibleToken.Withdraw) &FlowToken.Vault>
     let receiverCap: Capability<&FlowToken.Vault>
-    let signerAddress: Address
     
     prepare(signer: auth(Storage, BorrowValue, Capabilities) &Account) {
-        // Store signer address for use in execute block
-        self.signerAddress = signer.address
-        
         // Borrow the Admin resource
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
@@ -77,9 +73,7 @@ transaction(
         // Create the pool
         let poolID = self.adminRef.createPool(
             config: config,
-            emergencyConfig: nil,  // Uses defaults
-            fundingPolicy: nil,    // Uses defaults
-            createdBy: self.signerAddress
+            emergencyConfig: nil  // Uses defaults
         )
         
         log("Created pool with ID: ".concat(poolID.toString()))

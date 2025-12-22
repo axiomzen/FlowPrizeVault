@@ -15,8 +15,7 @@ transaction(poolID: UInt64, newInterval: UFix64) {
         // but we only have CriticalOps
         adminRef.updatePoolDrawInterval(
             poolID: poolID,
-            newInterval: newInterval,
-            updatedBy: signer.address
+            newInterval: newInterval
         )
     }
 }

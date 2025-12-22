@@ -26,9 +26,9 @@ transaction(poolID: UInt64) {
         
         log("Processing ".concat(availableYield.toString()).concat(" in yield rewards"))
         
-        // Note: processRewards is called internally during deposits/withdrawals
+        // Note: syncWithYieldSource is called internally during deposits/withdrawals
         // but this allows explicit triggering for testing or maintenance
-        // The Pool.processRewards() function is contract-internal, so we trigger
+        // The Pool.syncWithYieldSource() function is contract-internal, so we trigger
         // reward processing by making a zero-amount operation or letting the 
         // pool handle it automatically during the next user operation
         

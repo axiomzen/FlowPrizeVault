@@ -57,9 +57,7 @@ transaction {
         
         let poolID = admin.createPool(
             config: config,
-            emergencyConfig: nil,
-            fundingPolicy: nil,
-            createdBy: signer.address
+            emergencyConfig: nil
         )
         
         log("Created pool with ID: ".concat(poolID.toString()).concat(" with 60 second draw interval"))

@@ -1,0 +1,42 @@
+import "PrizeSavings"
+
+/// Get a user's actual withdrawable balance in a pool
+/// This returns the true value of their shares (shares × sharePrice),
+/// which can be less than their deposits if a deficit has occurred.
+///
+/// Parameters:
+/// - userAddress: The user's address
+/// - poolID: The pool ID to check
+///
+/// Returns: Dictionary with:
+///   - "actualBalance": The true withdrawable balance (shares × sharePrice)
+///   - "deposits": The original principal deposited
+///   - "shares": Number of shares held
+///   - "sharePrice": Current share price
+access(all) fun main(userAddress: Address, poolID: UInt64): {String: UFix64} {
+    let account = getAccount(userAddress)
+    
+    let collectionRef = account.capabilities.borrow<&PrizeSavings.PoolPositionCollection>(
+        PrizeSavings.PoolPositionCollectionPublicPath
+    ) ?? panic("No PoolPositionCollection found at address")
+    
+    // Get the pool reference
+    let poolRef = PrizeSavings.borrowPool(poolID: poolID)
+        ?? panic("Pool does not exist")
+    
+    // The collection's UUID is the receiverID
+    let receiverID = collectionRef.uuid
+    
+    // Get actual balance from the pool
+    let actualBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
+    let deposits = poolRef.getReceiverDeposit(receiverID: receiverID)
+    let shares = poolRef.getUserSavingsShares(receiverID: receiverID)
+    let sharePrice = poolRef.getSavingsSharePrice()
+    
+    return {
+        "actualBalance": actualBalance,
+        "deposits": deposits,
+        "shares": shares,
+        "sharePrice": sharePrice
+    }
+}

@@ -20,7 +20,7 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} 
     let drawIntervalSeconds = config.drawIntervalSeconds
     
     // Get TWAB and balance info from savings distributor
-    let userTimeWeightedBalance = poolRef.getUserTimeWeightedBalance(receiverID: receiverID)
+    let userTimeWeightedShares = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
     let userSavingsValue = poolRef.getUserSavingsValue(receiverID: receiverID)
     let userDeposit = poolRef.getReceiverDeposit(receiverID: receiverID)
     
@@ -39,7 +39,7 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} 
     return {
         "receiverID": receiverID,
         "drawIntervalSeconds": drawIntervalSeconds,
-        "userTimeWeightedBalance": userTimeWeightedBalance,
+        "userTimeWeightedShares": userTimeWeightedShares,
         "userSavingsValue": userSavingsValue,
         "userDeposit": userDeposit,
         "epochStartTime": epochStartTime,

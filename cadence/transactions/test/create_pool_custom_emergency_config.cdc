@@ -67,9 +67,7 @@ transaction(
         
         let poolID = admin.createPool(
             config: config,
-            emergencyConfig: emergencyConfig,
-            fundingPolicy: nil,
-            createdBy: signer.address
+            emergencyConfig: emergencyConfig
         )
         
         log("Created pool with ID: ".concat(poolID.toString()).concat(" with custom emergency config"))

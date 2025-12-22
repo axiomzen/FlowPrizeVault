@@ -279,24 +279,30 @@ fun fundLotteryPool(_ poolID: UInt64, amount: UFix64) {
 
 // ============================================================================
 // DRAW OPERATION HELPERS
+// Note: Draw operations are admin-only. The account parameter is kept for
+// backward compatibility but the deployer account is always used as the signer.
 // ============================================================================
 
 access(all)
 fun startDraw(_ account: Test.TestAccount, poolID: UInt64) {
+    // Draws are admin-only, so we always use the deployer account
+    let deployerAccount = getDeployerAccount()
     let startResult = _executeTransaction(
         "../transactions/test/start_draw.cdc",
         [poolID],
-        account
+        deployerAccount
     )
     assertTransactionSucceeded(startResult, context: "Start draw")
 }
 
 access(all)
 fun completeDraw(_ account: Test.TestAccount, poolID: UInt64) {
+    // Draws are admin-only, so we always use the deployer account
+    let deployerAccount = getDeployerAccount()
     let completeResult = _executeTransaction(
         "../transactions/test/complete_draw.cdc",
         [poolID],
-        account
+        deployerAccount
     )
     assertTransactionSucceeded(completeResult, context: "Complete draw")
 }
@@ -310,6 +316,7 @@ fun commitBlocksForRandomness() {
 
 access(all)
 fun executeFullDraw(_ account: Test.TestAccount, poolID: UInt64) {
+    // Draws are admin-only, so we always use the deployer account
     startDraw(account, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(account, poolID: poolID)
@@ -556,35 +563,6 @@ fun getEmergencyConfigDetails(_ poolID: UInt64): {String: AnyStruct} {
     let scriptResult = _executeScript("../scripts/test/get_emergency_config_details.cdc", [poolID])
     Test.expect(scriptResult, Test.beSucceeded())
     return scriptResult.returnValue! as! {String: AnyStruct}
-}
-
-// ============================================================================
-// FUNDING POLICY HELPERS
-// ============================================================================
-
-access(all)
-fun createPoolWithFundingPolicy(
-    maxDirectLottery: UFix64?,
-    maxDirectSavings: UFix64?
-): UInt64 {
-    let deployerAccount = getDeployerAccount()
-    // Convert nil to 0.0 for transaction (0.0 = unlimited)
-    let result = _executeTransaction(
-        "../transactions/test/create_pool_custom_funding_policy.cdc",
-        [maxDirectLottery ?? 0.0, maxDirectSavings ?? 0.0],
-        deployerAccount
-    )
-    assertTransactionSucceeded(result, context: "Create pool with custom funding policy")
-    
-    let poolCount = getPoolCount()
-    return UInt64(poolCount - 1)
-}
-
-access(all)
-fun getFundingStats(_ poolID: UInt64): {String: UFix64} {
-    let scriptResult = _executeScript("../scripts/test/get_funding_stats.cdc", [poolID])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! {String: UFix64}
 }
 
 // ============================================================================
@@ -847,5 +825,75 @@ fun fullAdminDelegateEnableEmergency(_ delegate: Test.TestAccount, poolID: UInt6
         delegate
     )
     return result.error == nil
+}
+
+// ============================================================================
+// YIELD SOURCE SIMULATION HELPERS
+// ============================================================================
+
+// Vault prefix constants for different pool creation methods
+access(all) let VAULT_PREFIX_STANDARD: String = "testYieldVault_"
+access(all) let VAULT_PREFIX_DISTRIBUTION: String = "testYieldVaultDist_"
+
+access(all)
+fun simulateYieldAppreciation(poolIndex: Int, amount: UFix64, vaultPrefix: String) {
+    let deployerAccount = getDeployerAccount()
+    
+    // Ensure deployer has funds
+    fundAccountWithFlow(deployerAccount, amount: amount + 1.0)
+    
+    let result = _executeTransaction(
+        "../transactions/test/add_yield_to_pool_vault.cdc",
+        [poolIndex, amount, vaultPrefix],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Simulate yield appreciation")
+}
+
+access(all)
+fun simulateYieldDepreciation(poolIndex: Int, amount: UFix64, vaultPrefix: String) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/simulate_yield_depreciation.cdc",
+        [poolIndex, amount, vaultPrefix],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Simulate yield depreciation")
+}
+
+access(all)
+fun simulateYieldDepreciationExpectFailure(poolIndex: Int, amount: UFix64, vaultPrefix: String): Bool {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/simulate_yield_depreciation.cdc",
+        [poolIndex, amount, vaultPrefix],
+        deployerAccount
+    )
+    return result.error == nil
+}
+
+access(all)
+fun triggerSyncWithYieldSource(poolID: UInt64) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/process_pool_rewards.cdc",
+        [poolID],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Trigger syncWithYieldSource")
+}
+
+access(all)
+fun getPoolSavingsInfo(_ poolID: UInt64): {String: UFix64} {
+    let scriptResult = _executeScript("../scripts/test/get_pool_savings_info.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: UFix64}
+}
+
+access(all)
+fun getUserActualBalance(_ userAddress: Address, _ poolID: UInt64): {String: UFix64} {
+    let scriptResult = _executeScript("../scripts/test/get_user_actual_balance.cdc", [userAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: UFix64}
 }
 

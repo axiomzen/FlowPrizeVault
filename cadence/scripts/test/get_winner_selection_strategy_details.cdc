@@ -6,7 +6,7 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
         ?? panic("Pool not found")
     
     let config = poolRef.getConfig()
-    let strategyName = config.winnerSelectionStrategy.getStrategyName()
+    let strategyName = config.getWinnerSelectionStrategyName()
     
     return {
         "strategyName": strategyName

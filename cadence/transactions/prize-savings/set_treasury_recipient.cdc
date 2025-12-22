@@ -1,10 +1,10 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 import FungibleToken from "FungibleToken"
 
-/// Set the treasury recipient for automatic forwarding during processRewards.
+/// Set the treasury recipient for automatic forwarding during syncWithYieldSource.
 /// 
 /// Once set, treasury funds are automatically forwarded to the recipient
-/// whenever processRewards() is called (during deposits, withdrawals, etc.)
+/// whenever syncWithYieldSource() is called (during deposits, withdrawals, etc.)
 ///
 /// Parameters:
 /// - poolID: The pool to configure
@@ -14,14 +14,11 @@ import FungibleToken from "FungibleToken"
 /// To disable forwarding, use clear_treasury_recipient.cdc
 transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath) {
     let adminRef: auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin
-    let signerAddress: Address
     
     prepare(signer: auth(Storage) &Account) {
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Admin resource not found. Deploy contract and setup admin first.")
-        
-        self.signerAddress = signer.address
     }
     
     execute {
@@ -32,8 +29,7 @@ transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath)
         
         self.adminRef.setPoolTreasuryRecipient(
             poolID: poolID,
-            recipientCap: receiverCap,
-            updatedBy: self.signerAddress
+            recipientCap: receiverCap
         )
     }
 }

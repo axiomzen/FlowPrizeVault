@@ -19,8 +19,7 @@ transaction(poolID: UInt64, savings: UFix64, lottery: UFix64, treasury: UFix64) 
         
         adminRef.updatePoolDistributionStrategy(
             poolID: poolID,
-            newStrategy: newStrategy,
-            updatedBy: signer.address
+            newStrategy: newStrategy
         )
         
         log("Delegate updated distribution strategy for pool ".concat(poolID.toString()))

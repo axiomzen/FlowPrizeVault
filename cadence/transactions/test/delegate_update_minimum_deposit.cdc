@@ -13,8 +13,7 @@ transaction(poolID: UInt64, newMinimum: UFix64) {
         
         adminRef.updatePoolMinimumDeposit(
             poolID: poolID,
-            newMinimum: newMinimum,
-            updatedBy: signer.address
+            newMinimum: newMinimum
         )
         
         log("Delegate updated minimum deposit for pool ".concat(poolID.toString()))

@@ -15,8 +15,7 @@ transaction(poolID: UInt64, reason: String) {
         // but we only have ConfigOps
         adminRef.enableEmergencyMode(
             poolID: poolID,
-            reason: reason,
-            enabledBy: signer.address
+            reason: reason
         )
     }
 }

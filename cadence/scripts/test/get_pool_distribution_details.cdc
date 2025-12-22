@@ -6,10 +6,9 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
         ?? panic("Pool not found")
     
     let config = poolRef.getConfig()
-    let strategy = config.distributionStrategy
     
     // Calculate a test distribution to extract percentages
-    let testPlan = strategy.calculateDistribution(totalAmount: 1.0)
+    let testPlan = config.calculateDistribution(totalAmount: 1.0)
     
     return {
         "savingsPercent": testPlan.savingsAmount,

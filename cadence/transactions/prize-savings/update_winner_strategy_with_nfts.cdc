@@ -17,8 +17,7 @@ transaction(poolID: UInt64, nftIDs: [UInt64]) {
         // Update the pool's winner selection strategy
         admin.updatePoolWinnerSelectionStrategy(
             poolID: poolID,
-            newStrategy: newStrategy,
-            updatedBy: signer.address
+            newStrategy: newStrategy
         )
         
         log("Updated winner selection strategy with ".concat(nftIDs.length.toString()).concat(" NFT IDs"))

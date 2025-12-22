@@ -6,6 +6,6 @@ access(all) fun main(poolID: UInt64): String {
         ?? panic("Pool not found")
     
     let config = poolRef.getConfig()
-    return config.distributionStrategy.getStrategyName()
+    return config.getDistributionStrategyName()
 }
 

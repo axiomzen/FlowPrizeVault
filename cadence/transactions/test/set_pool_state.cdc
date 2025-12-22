@@ -10,7 +10,7 @@ transaction(poolID: UInt64, stateRaw: UInt8, reason: String) {
         let state = PrizeSavings.PoolEmergencyState(rawValue: stateRaw)
             ?? panic("Invalid state value")
         
-        admin.setPoolState(poolID: poolID, state: state, reason: reason, setBy: signer.address)
+        admin.setPoolState(poolID: poolID, state: state, reason: reason)
         
         log("Pool state set to ".concat(stateRaw.toString()).concat(" for pool ").concat(poolID.toString()))
     }

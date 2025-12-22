@@ -6,8 +6,7 @@ access(all) fun main(poolID: UInt64, totalAmount: UFix64): {String: UFix64} {
         ?? panic("Pool not found")
     
     let config = poolRef.getConfig()
-    let strategy = config.distributionStrategy
-    let plan = strategy.calculateDistribution(totalAmount: totalAmount)
+    let plan = config.calculateDistribution(totalAmount: totalAmount)
     
     return {
         "savingsAmount": plan.savingsAmount,

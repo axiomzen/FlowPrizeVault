@@ -7,7 +7,6 @@ transaction(poolID: UInt64, nftName: String, nftDescription: String) {
     let adminRef: auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin
     let minterRef: &MockNFT.NFTMinter
     let collectionRef: auth(NonFungibleToken.Withdraw) &MockNFT.Collection
-    let signerAddress: Address
     
     prepare(signer: auth(Storage, Capabilities) &Account) {
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin>(
@@ -17,8 +16,6 @@ transaction(poolID: UInt64, nftName: String, nftDescription: String) {
         self.minterRef = signer.storage.borrow<&MockNFT.NFTMinter>(
             from: MockNFT.MinterStoragePath
         ) ?? panic("NFTMinter not found - deploy MockNFT contract first")
-        
-        self.signerAddress = signer.address
         
         if signer.storage.type(at: MockNFT.CollectionStoragePath) == nil {
             let collection <- MockNFT.createEmptyCollection(nftType: Type<@MockNFT.NFT>())
@@ -50,8 +47,7 @@ transaction(poolID: UInt64, nftName: String, nftDescription: String) {
         // Deposit as prize via admin
         self.adminRef.depositNFTPrize(
             poolID: poolID,
-            nft: <- nft,
-            depositedBy: self.signerAddress
+            nft: <- nft
         )
         
         log("NFT Prize deposited with ID: ".concat(nftID.toString()))

@@ -13,8 +13,7 @@ transaction(poolID: UInt64, newInterval: UFix64) {
         
         adminRef.updatePoolDrawInterval(
             poolID: poolID,
-            newInterval: newInterval,
-            updatedBy: signer.address
+            newInterval: newInterval
         )
         
         log("Full admin delegate updated draw interval for pool ".concat(poolID.toString()))
