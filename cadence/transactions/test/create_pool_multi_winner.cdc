@@ -4,11 +4,11 @@ import "FlowToken"
 import "DeFiActions"
 import "MockYieldConnector"
 
-/// Transaction to create a pool with MultiWinnerSplit strategy
-transaction(winnerCount: Int, splits: [UFix64], nftIDs: [UInt64]) {
+/// Transaction to create a pool with PercentageSplit distribution
+transaction(splits: [UFix64], nftIDs: [UInt64]) {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         let currentPoolCount = PrizeSavings.getAllPoolIDs().length
-        let vaultPath = StoragePath(identifier: "testYieldVaultMW_".concat(currentPoolCount.toString()))!
+        let vaultPath = StoragePath(identifier: "testYieldVaultPS_".concat(currentPoolCount.toString()))!
         
         let testVault <- FlowToken.createEmptyVault(vaultType: Type<@FlowToken.Vault>())
         signer.storage.save(<-testVault, to: vaultPath)
@@ -28,19 +28,18 @@ transaction(winnerCount: Int, splits: [UFix64], nftIDs: [UInt64]) {
             treasury: 0.1
         )
         
-        let winnerStrategy = PrizeSavings.MultiWinnerSplit(
-            winnerCount: winnerCount,
+        let prizeDistribution = PrizeSavings.PercentageSplit(
             prizeSplits: splits,
             nftIDs: nftIDs
-        ) as {PrizeSavings.WinnerSelectionStrategy}
+        ) as {PrizeSavings.PrizeDistribution}
         
         let config = PrizeSavings.PoolConfig(
             assetType: Type<@FlowToken.Vault>(),
             yieldConnector: mockConnector,
             minimumDeposit: 1.0,
-            drawIntervalSeconds: 1.0,
+            drawIntervalSeconds: 60.0,
             distributionStrategy: distributionStrategy,
-            winnerSelectionStrategy: winnerStrategy,
+            prizeDistribution: prizeDistribution,
             winnerTrackerCap: nil
         )
         
@@ -53,7 +52,7 @@ transaction(winnerCount: Int, splits: [UFix64], nftIDs: [UInt64]) {
             emergencyConfig: nil
         )
         
-        log("Created pool with ID: ".concat(poolID.toString()).concat(" with MultiWinnerSplit"))
+        log("Created pool with ID: ".concat(poolID.toString()).concat(" with PercentageSplit"))
     }
 }
 

@@ -17,6 +17,10 @@ This document provides an in-depth explanation of the accounting system and ERC4
 - [Examples](#examples)
 - [Edge Cases & Protections](#edge-cases--protections)
   - [ERC4626 Donation Attack Protection](#erc4626-donation-attack-protection)
+- [Round-Based TWAB Tracking](#round-based-twab-tracking)
+  - [Projection-Based TWAB](#projection-based-twab)
+  - [Round Lifecycle](#round-lifecycle)
+  - [Gap Period Handling](#gap-period-handling)
 
 ---
 
@@ -926,6 +930,209 @@ Share calculations may produce small rounding errors. The protocol handles this 
 1. **Accepting small imprecision** — `assertClose()` tests use tolerance
 2. **Always processing yield first** — Prevents compounding rounding errors
 3. **Conservative math** — Round in favor of the protocol when ambiguous
+
+---
+
+## Round-Based TWAB Tracking
+
+Time-Weighted Average Balance (TWAB) determines lottery weight. Users who deposit more, for longer, have higher lottery odds. The system uses a **per-round, projection-based** approach with **batched draw processing**.
+
+### Architecture Overview
+
+```
+                    Pool
+                      │
+          ┌──────────┴──────────┐
+          │                     │
+    SavingsDistributor    activeRound: Round
+    (ERC4626 shares only)       │
+                                ├── roundID
+                                ├── startTime
+                                ├── duration
+                                ├── endTime
+                                ├── userProjectedTWAB: {receiverID: UFix64}
+                                └── batchState: BatchCaptureState?
+                                      │
+                                      ├── receiverSnapshot: [UInt64]
+                                      ├── cursor: Int
+                                      ├── capturedWeights: {UInt64: UFix64}
+                                      ├── totalWeight: UFix64
+                                      └── isComplete: Bool
+```
+
+Key design decisions:
+- **Per-Round Resources**: Each lottery round is a separate `Round` resource
+- **SavingsDistributor Decoupling**: TWAB is separate from ERC4626 share accounting
+- **Projection-Based**: Store projected end-of-round value, not accumulated value
+- **Double-Buffering**: `activeRound` and `pendingDrawRound` allow continuous operation during draws
+- **Batched Processing**: O(n) weight capture split across multiple transactions
+
+### Projection-Based TWAB
+
+Instead of accumulating share-seconds over time, we **project** what the TWAB will be at round end.
+
+**On Deposit at round start:**
+```
+projectedTWAB = shares × roundDuration
+// Example: 100 shares × 1 week = 100 entries at round end
+```
+
+**On Mid-Round Deposit (t = halfway):**
+```
+remainingTime = roundDuration / 2
+projectedTWAB = shares × remainingTime
+// Example: 100 shares × 0.5 week = 50 entries at round end
+```
+
+**On Withdrawal:**
+```
+// Subtract the withdrawn shares' future contribution
+adjustment = -withdrawnShares × remainingTime
+projectedTWAB = currentProjection + adjustment
+```
+
+### Key Formulas
+
+```cadence
+// When shares change at time `t`:
+remainingTime = endTime - t
+shareDelta = newShares - oldShares
+projectedTWAB = currentProjection + (shareDelta × remainingTime)
+
+// For users who haven't interacted (lazy fallback):
+projectedTWAB = currentShares × roundDuration
+```
+
+### Round Lifecycle
+
+1. **Round Creation**: Created with `roundID`, `startTime`, and `duration`
+2. **Active Period**: Deposits/withdrawals adjust projections
+3. **Round End**: `endTime` passed, but round still "active" until `startDraw()`
+4. **Gap Period**: Between round end and `startDraw()` call
+5. **Batch Processing**: TWAB weights captured incrementally via `processDrawBatch()`
+6. **Randomness Committed**: `requestDrawRandomness()` materializes yield and commits
+7. **Destroyed**: After `completeDraw()` distributes prizes
+
+### 4-Phase Draw Process
+
+The draw process is split into 4 phases to avoid O(n) bottlenecks:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    4-PHASE DRAW PROCESS                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Phase 1: startDraw() - INSTANT                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 1. activeRound (ended) → pendingDrawRound               │   │
+│  │ 2. Initialize batch state with receiver snapshot        │   │
+│  │ 3. Create new activeRound starting NOW                  │   │
+│  │ 4. Users immediately unblocked for new round            │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                            ↓                                    │
+│  Phase 2: processDrawBatch(limit) × N                           │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 1. Process `limit` receivers from snapshot              │   │
+│  │ 2. Capture TWAB + bonus weights                         │   │
+│  │ 3. Update cursor and captured weights                   │   │
+│  │ 4. Repeat until cursor reaches end                      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                            ↓                                    │
+│  Phase 3: requestDrawRandomness()                               │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 1. Materialize pending yield from yield source          │   │
+│  │ 2. Create PrizeDrawReceipt with captured weights        │   │
+│  │ 3. Request on-chain randomness                          │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                            ↓                                    │
+│  Phase 4: completeDraw() (after randomness available)           │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 1. Fulfill randomness, select winners                   │   │
+│  │ 2. Auto-compound prizes into winners' deposits          │   │
+│  │ 3. Destroy pendingDrawRound                             │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Gap Period Handling
+
+The "gap period" is the time between when a round's `endTime` passes and when an admin calls `startDraw()`. This is inevitable since `startDraw()` requires manual triggering.
+
+**Problem**: Users who deposit during the gap shouldn't get credit in the ended round (it's closed), but they also shouldn't lose their contribution.
+
+**Solution**: **Lazy Fallback** - Gap interactors are handled automatically via the projection fallback:
+
+```cadence
+// During gap period deposit/withdraw:
+1. Finalize user in ended round with pre-transaction shares
+2. Proceed with deposit/withdraw into their balance
+// (No explicit tracking needed - new round uses lazy fallback)
+
+// In new round, for users who haven't interacted:
+getProjectedTWAB(receiverID, currentShares):
+    if userProjectedTWAB[receiverID] != nil:
+        return userProjectedTWAB[receiverID]  // Explicit value
+    else:
+        return currentShares × duration        // Lazy fallback
+
+// Gap users automatically get full-round projection via fallback
+```
+
+This eliminates the need for explicit gap interactor tracking since:
+- Users who interacted in the ended round get their TWAB finalized
+- Users in the new round get the lazy fallback (`currentShares × duration`)
+- The fallback correctly gives full-round weight to gap depositors
+
+### Batch State Management
+
+The `BatchCaptureState` struct tracks progress across multiple `processDrawBatch()` calls:
+
+```cadence
+struct BatchCaptureState {
+    receiverSnapshot: [UInt64]     // Frozen list of receiver IDs
+    roundDuration: UFix64          // For bonus weight scaling
+    cursor: Int                    // Current processing position
+    capturedWeights: {UInt64: UFix64}  // Accumulated weights
+    totalWeight: UFix64            // Running sum
+    isComplete: Bool               // True when cursor reaches end
+}
+```
+
+Progress can be monitored via `getDrawBatchProgress()`:
+```cadence
+{
+    "cursor": 150,
+    "total": 1000,
+    "remaining": 850,
+    "percentComplete": 15.0,
+    "isComplete": false
+}
+```
+
+### Entry Calculation
+
+**Entries** are human-readable lottery weight:
+
+```cadence
+entries = projectedTWAB / roundDuration
+```
+
+| Scenario | Shares | Deposit Time | Entries |
+|----------|--------|--------------|---------|
+| Full round | 100 | Round start | 100 |
+| Half round | 100 | Halfway | 50 |
+| Full round, withdraw half | 100→50 | Start, withdraw at 50% | 75 |
+
+### Benefits of This Design
+
+1. **Instant Round Transition**: `startDraw()` completes immediately, users unblocked
+2. **Scalable Draw Processing**: Batch capture works for any number of users
+3. **Continuous Operation**: Users can deposit/withdraw during batch processing
+4. **Fair Gap Handling**: Lazy fallback gives full credit to gap depositors
+5. **Predictable Entries**: Users know their entries instantly after deposit
+6. **Clean Separation**: TWAB logic isolated from share accounting
+7. **Observable Progress**: Batch progress available via getters
 
 ---
 

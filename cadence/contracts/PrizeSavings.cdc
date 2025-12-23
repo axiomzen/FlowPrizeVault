@@ -158,10 +158,31 @@ access(all) contract PrizeSavings {
     access(all) event LotteryPrizePoolFunded(poolID: UInt64, amount: UFix64, source: String)
     
     /// Emitted when a new lottery epoch begins (after a draw completes).
-    /// @param poolID - Pool starting new epoch
-    /// @param epochID - New epoch identifier
-    /// @param startTime - Timestamp when epoch started
-    access(all) event NewEpochStarted(poolID: UInt64, epochID: UInt64, startTime: UFix64)
+    /// @param poolID - Pool starting new round
+    /// @param roundID - New round identifier
+    /// @param startTime - Timestamp when round started
+    /// @param duration - Round duration in seconds
+    access(all) event NewRoundStarted(poolID: UInt64, roundID: UInt64, startTime: UFix64, duration: UFix64)
+    
+    /// Emitted when batch draw processing begins.
+    /// @param poolID - ID of the pool
+    /// @param endedRoundID - Round that ended and is being processed
+    /// @param newRoundID - New round that started
+    /// @param totalReceivers - Number of receivers to process in batches
+    access(all) event DrawBatchStarted(poolID: UInt64, endedRoundID: UInt64, newRoundID: UInt64, totalReceivers: Int)
+    
+    /// Emitted when a batch of receivers is processed.
+    /// @param poolID - ID of the pool
+    /// @param processed - Number processed in this batch
+    /// @param remaining - Number still to process
+    access(all) event DrawBatchProcessed(poolID: UInt64, processed: Int, remaining: Int)
+    
+    /// Emitted when batch processing completes and randomness is requested.
+    /// @param poolID - ID of the pool
+    /// @param totalWeight - Total lottery weight captured
+    /// @param prizeAmount - Prize pool amount
+    /// @param commitBlock - Block where randomness was committed
+    access(all) event DrawRandomnessRequested(poolID: UInt64, totalWeight: UFix64, prizeAmount: UFix64, commitBlock: UInt64)
     
     // ============================================================
     // EVENTS - Admin Configuration Changes
@@ -176,10 +197,10 @@ access(all) contract PrizeSavings {
     
     /// Emitted when the winner selection strategy is updated.
     /// @param poolID - ID of the pool being configured
-    /// @param oldStrategy - Name of the previous winner selection strategy
-    /// @param newStrategy - Name of the new winner selection strategy
+    /// @param oldDistribution - Name of the previous prize distribution
+    /// @param newDistribution - Name of the new prize distribution
     /// @param adminUUID - UUID of the Admin resource performing the update (audit trail)
-    access(all) event WinnerSelectionStrategyUpdated(poolID: UInt64, oldStrategy: String, newStrategy: String, adminUUID: UInt64)
+    access(all) event PrizeDistributionUpdated(poolID: UInt64, oldDistribution: String, newDistribution: String, adminUUID: UInt64)
     
     /// Emitted when the winner tracker capability is updated.
     /// @param poolID - ID of the pool being configured
@@ -585,23 +606,23 @@ access(all) contract PrizeSavings {
             )
         }
         
-        /// Updates the winner selection strategy for lottery draws.
+        /// Updates the prize distribution for lottery draws.
         /// @param poolID - ID of the pool to update
-        /// @param newStrategy - The new winner selection strategy (e.g., single winner, multi-winner)
-        access(CriticalOps) fun updatePoolWinnerSelectionStrategy(
+        /// @param newDistribution - The new prize distribution (e.g., single winner, percentage split)
+        access(CriticalOps) fun updatePoolPrizeDistribution(
             poolID: UInt64,
-            newStrategy: {WinnerSelectionStrategy}
+            newDistribution: {PrizeDistribution}
         ) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            let oldStrategyName = poolRef.getWinnerSelectionStrategyName()
-            poolRef.setWinnerSelectionStrategy(strategy: newStrategy)
-            let newStrategyName = newStrategy.getStrategyName()
+            let oldDistributionName = poolRef.getPrizeDistributionName()
+            poolRef.setPrizeDistribution(distribution: newDistribution)
+            let newDistributionName = newDistribution.getDistributionName()
             
-            emit WinnerSelectionStrategyUpdated(
+            emit PrizeDistributionUpdated(
                 poolID: poolID,
-                oldStrategy: oldStrategyName,
-                newStrategy: newStrategyName,
+                oldDistribution: oldDistributionName,
+                newDistribution: newDistributionName,
                 adminUUID: self.uuid
             )
         }
@@ -948,50 +969,51 @@ access(all) contract PrizeSavings {
         // ============================================================
         // BATCH DRAW FUNCTIONS
         // ============================================================
-        // For future scalability when user count grows large.
-        // Breaks startDraw() into multiple transactions to avoid gas limits.
-        // Flow: startDrawSnapshot() → captureStakesBatch() (repeat) → finalizeDrawStart()
+        // BATCHED DRAW OPERATIONS
+        // ============================================================
+        // Breaks draw into multiple transactions to avoid gas limits for large pools.
+        // Flow: startPoolDraw() → processPoolDrawBatch() (repeat) → requestPoolDrawRandomness() → completePoolDraw()
 
-        /// Step 1 of batch draw: Lock the pool and take time snapshot.
-        /// Prevents deposits/withdrawals during batch processing.
-        /// NOT YET IMPLEMENTED - panics if called.
-        /// @param poolID - ID of the pool to start batch draw for
-        access(CriticalOps) fun startPoolDrawSnapshot(poolID: UInt64) {
-            let poolRef = PrizeSavings.getPoolInternal(poolID)
-            poolRef.startDrawSnapshot()
-        }
-        
-        /// Step 2 of batch draw: Calculate stakes for a batch of users.
-        /// Call repeatedly until all users are processed.
-        /// NOT YET IMPLEMENTED - panics if called.
-        /// @param poolID - ID of the pool
-        /// @param limit - Maximum number of users to process in this batch
-        access(CriticalOps) fun processPoolDrawBatch(poolID: UInt64, limit: Int) {
-            let poolRef = PrizeSavings.getPoolInternal(poolID)
-            poolRef.captureStakesBatch(limit: limit)
-        }
-        
-        /// Step 3 of batch draw: Request randomness after all batches processed.
-        /// Finalizes the draw start and commits to on-chain randomness.
-        /// NOT YET IMPLEMENTED - panics if called.
-        /// @param poolID - ID of the pool
-        access(CriticalOps) fun finalizePoolDraw(poolID: UInt64) {
-            let poolRef = PrizeSavings.getPoolInternal(poolID)
-            poolRef.finalizeDrawStart()
-        }
-
-        /// Starts a lottery draw for a pool.
-        /// Captures all user TWAB stakes, requests on-chain randomness, and
-        /// advances to a new epoch. Must wait for randomness before completeDraw().
+        /// Starts a lottery draw for a pool (Phase 1 of 4).
+        /// 
+        /// This instantly transitions rounds and initializes batch processing.
+        /// Users can continue depositing/withdrawing immediately.
+        /// 
         /// @param poolID - ID of the pool to start draw for
         access(CriticalOps) fun startPoolDraw(poolID: UInt64) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             poolRef.startDraw()
         }
+        
+        /// Processes a batch of receivers for weight capture (Phase 2 of 4).
+        /// 
+        /// Call repeatedly until return value is 0 (or isDrawBatchComplete()).
+        /// Each call processes up to `limit` receivers.
+        /// 
+        /// @param poolID - ID of the pool
+        /// @param limit - Maximum receivers to process this batch
+        /// @return Number of receivers remaining to process
+        access(CriticalOps) fun processPoolDrawBatch(poolID: UInt64, limit: Int): Int {
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            return poolRef.processDrawBatch(limit: limit)
+        }
+        
+        /// Requests randomness after batch processing complete (Phase 3 of 4).
+        /// 
+        /// Materializes pending yield, captures final weights, and commits to randomness.
+        /// Must wait until next block before completeDraw().
+        /// 
+        /// @param poolID - ID of the pool
+        access(CriticalOps) fun requestPoolDrawRandomness(poolID: UInt64) {
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            poolRef.requestDrawRandomness()
+        }
 
-        /// Completes a lottery draw for a pool.
+        /// Completes a lottery draw for a pool (Phase 4 of 4).
+        /// 
         /// Fulfills randomness request, selects winners, and distributes prizes.
         /// Prizes are auto-compounded into winners' deposits.
+        /// 
         /// @param poolID - ID of the pool to complete draw for
         access(CriticalOps) fun completePoolDraw(poolID: UInt64) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
@@ -1138,6 +1160,177 @@ access(all) contract PrizeSavings {
     }
     
     // ============================================================
+    // ROUND RESOURCE - Per-Round TWAB Tracking
+    // ============================================================
+    
+    /// Represents a single lottery round with projection-based TWAB tracking.
+    /// 
+    /// Each round is a separate resource that tracks:
+    /// - Round timing (ID, start time, duration, end time)
+    /// - User projected TWAB at round end
+    /// 
+    /// KEY CONCEPTS:
+    /// 
+    /// Projection-Based TWAB:
+    /// - On deposit: immediately project shares × remaining time
+    /// - On withdraw: subtract withdrawn shares × remaining time
+    /// - The stored projection IS the final TWAB at round end
+    /// 
+    /// Round Lifecycle:
+    /// 1. Round created with startTime and duration
+    /// 2. Active: deposits/withdrawals adjust projections
+    /// 3. Gap period: round ended but startDraw() not called yet
+    /// 4. Frozen: moved to pendingDrawRound for lottery processing
+    /// 5. Destroyed: after completeDraw() distributes prizes
+    /// 
+    /// Gap Period Handling:
+    /// - Deposits after round ends but before startDraw() are tracked
+    /// - Users are initialized in ended round with current shares
+    /// - Next round uses lazy fallback for full-round projection
+    
+    access(all) resource Round {
+        /// Unique identifier for this round (increments each draw).
+        access(all) let roundID: UInt64
+        
+        /// Timestamp when this round started.
+        access(all) let startTime: UFix64
+        
+        /// Duration of this round in seconds.
+        access(all) let duration: UFix64
+        
+        /// Timestamp when this round ends (startTime + duration).
+        access(all) let endTime: UFix64
+        
+        /// Projected TWAB at round end for each user.
+        /// Key: receiverID, Value: projected share-seconds at round end.
+        /// nil means user hasn't interacted this round (lazy initialization).
+        access(self) var userProjectedTWAB: {UInt64: UFix64}
+        
+        /// Creates a new Round.
+        /// @param roundID - Unique round identifier
+        /// @param startTime - When the round starts
+        /// @param duration - Round duration in seconds
+        init(roundID: UInt64, startTime: UFix64, duration: UFix64) {
+            self.roundID = roundID
+            self.startTime = startTime
+            self.duration = duration
+            self.endTime = startTime + duration
+            self.userProjectedTWAB = {}
+        }
+        
+        /// Adjusts a user's projected TWAB when their shares change.
+        /// 
+        /// On first interaction: initializes with oldShares × duration (full round)
+        /// Then adjusts: adds (shareDelta × remainingTime)
+        /// 
+        /// This should only be called for active rounds (not ended).
+        /// 
+        /// @param receiverID - User's receiver ID
+        /// @param oldShares - Shares BEFORE the operation
+        /// @param newShares - Shares AFTER the operation
+        /// @param atTime - Current timestamp
+        access(contract) fun adjustProjection(
+            receiverID: UInt64,
+            oldShares: UFix64,
+            newShares: UFix64,
+            atTime: UFix64
+        ) {
+            // Past round end? No adjustment needed
+            if atTime >= self.endTime {
+                return
+            }
+            
+            let remainingTime = self.endTime - atTime
+            
+            // First interaction: initialize with full-round projection for existing shares
+            if self.userProjectedTWAB[receiverID] == nil {
+                self.userProjectedTWAB[receiverID] = oldShares * self.duration
+            }
+            
+            let current = self.userProjectedTWAB[receiverID]!
+            
+            // Handle increase vs decrease separately (UFix64 cannot be negative)
+            if newShares >= oldShares {
+                // Deposit: add the increase in projected TWAB
+                let shareDelta = newShares - oldShares
+                self.userProjectedTWAB[receiverID] = current + (shareDelta * remainingTime)
+            } else {
+                // Withdrawal: subtract the decrease in projected TWAB
+                let shareDelta = oldShares - newShares
+                let reduction = shareDelta * remainingTime
+                // Prevent underflow on the projection itself
+                if current >= reduction {
+                    self.userProjectedTWAB[receiverID] = current - reduction
+                } else {
+                    self.userProjectedTWAB[receiverID] = 0.0
+                }
+            }
+        }
+        
+        /// Initializes a user's projection if not already set.
+        /// Used for:
+        /// - Finalizing users in an ended round (with their shares at that moment)
+        /// - Initializing gap interactors in a new round
+        /// 
+        /// @param receiverID - User's receiver ID
+        /// @param shares - User's current share balance
+        access(contract) fun initializeIfNeeded(receiverID: UInt64, shares: UFix64) {
+            if self.userProjectedTWAB[receiverID] == nil {
+                self.userProjectedTWAB[receiverID] = shares * self.duration
+            }
+        }
+        
+        /// Returns the projected TWAB for a user.
+        /// If user hasn't interacted, returns fallback based on current shares.
+        /// 
+        /// @param receiverID - User's receiver ID
+        /// @param currentShares - User's current share balance (for fallback)
+        /// @return Projected share-seconds at round end
+        access(all) view fun getProjectedTWAB(receiverID: UInt64, currentShares: UFix64): UFix64 {
+            if let projection = self.userProjectedTWAB[receiverID] {
+                return projection
+            }
+            // User never interacted: they had same shares for full round
+            return currentShares * self.duration
+        }
+        
+        /// Returns whether this round has ended.
+        access(all) view fun hasEnded(): Bool {
+            return getCurrentBlock().timestamp >= self.endTime
+        }
+        
+        /// Returns the round ID.
+        access(all) view fun getRoundID(): UInt64 {
+            return self.roundID
+        }
+        
+        /// Returns the round start time.
+        access(all) view fun getStartTime(): UFix64 {
+            return self.startTime
+        }
+        
+        /// Returns the round duration.
+        access(all) view fun getDuration(): UFix64 {
+            return self.duration
+        }
+        
+        /// Returns the round end time.
+        access(all) view fun getEndTime(): UFix64 {
+            return self.endTime
+        }
+        
+        /// Returns whether a user has been initialized in this round.
+        access(all) view fun isUserInitialized(receiverID: UInt64): Bool {
+            return self.userProjectedTWAB[receiverID] != nil
+        }
+        
+        /// Returns the number of users with initialized projections.
+        access(all) view fun getInitializedUserCount(): Int {
+            return self.userProjectedTWAB.keys.length
+        }
+    }
+    
+    // ============================================================
     // SAVINGS DISTRIBUTOR RESOURCE
     // ============================================================
     
@@ -1146,7 +1339,6 @@ access(all) contract PrizeSavings {
     /// This resource manages the savings component of the prize pool:
     /// - Tracks user shares and converts between shares <-> assets
     /// - Accrues yield by increasing share price (not individual balances)
-    /// - Maintains TWAB (time-weighted average shares) for fair lottery weighting
     /// 
     /// KEY CONCEPTS:
     /// 
@@ -1156,16 +1348,6 @@ access(all) contract PrizeSavings {
     /// - All depositors benefit proportionally without individual updates
     /// - Virtual offsets prevent first-depositor inflation attacks
     /// 
-    /// TWAB (Time-Weighted Average Shares):
-    /// - Lottery weight = sum of (shares × time) over the epoch
-    /// - Ensures fair lottery odds based on share ownership AND duration
-    /// - Users who deposit earlier get more "share-seconds"
-    /// - Uses shares for stability against price fluctuations
-    /// 
-    /// Epoch System:
-    /// - Each lottery draw starts a new epoch
-    /// - TWAB resets at epoch boundary
-    /// - Users from previous epochs get fresh starts
     /// 
     /// INVARIANTS:
     /// - totalAssets should approximately equal Pool.totalStaked
@@ -1188,29 +1370,6 @@ access(all) contract PrizeSavings {
         /// Type of fungible token vault this distributor handles.
         access(self) let vaultType: Type
         
-        // ============================================================
-        // TWAB TRACKING FIELDS
-        // ============================================================
-        
-        /// Cumulative share-seconds for each user within current epoch.
-        /// Uses shares directly (not asset value) for stability against price fluctuations.
-        /// This means yield/loss changes don't affect accumulated lottery weight.
-        access(self) let userCumulativeShareSeconds: {UInt64: UFix64}
-        
-        /// Timestamp of last TWAB update for each user.
-        access(self) let userLastUpdateTime: {UInt64: UFix64}
-        
-        /// Tracks the last epoch each user participated in (receiverID -> epochID).
-        /// When a user's epoch is less than currentEpochID, their cumulative share-seconds
-        /// are reset on their next interaction, ensuring each lottery period starts fresh.
-        access(self) let userEpochID: {UInt64: UInt64}
-        
-        /// Current epoch number (increments each lottery draw).
-        access(self) var currentEpochID: UInt64
-        
-        /// Timestamp when current epoch started.
-        access(self) var epochStartTime: UFix64
-        
         /// Initializes a new SavingsDistributor.
         /// @param vaultType - Type of fungible token to track
         init(vaultType: Type) {
@@ -1219,12 +1378,6 @@ access(all) contract PrizeSavings {
             self.userShares = {}
             self.totalDistributed = 0.0
             self.vaultType = vaultType
-            
-            self.userCumulativeShareSeconds = {}
-            self.userLastUpdateTime = {}
-            self.userEpochID = {}
-            self.currentEpochID = 1
-            self.epochStartTime = getCurrentBlock().timestamp
         }
         
         /// Accrues yield to the savings pool by increasing totalAssets.
@@ -1280,125 +1433,14 @@ access(all) contract PrizeSavings {
             return actualDecrease
         }
         
-        /// Calculates elapsed share-seconds since the user's last update.
-        /// Uses shares directly (not asset value) for stability against price fluctuations.
-        /// This means yield accrual and loss socialization don't affect lottery weight.
-        /// 
-        /// If user is from a previous epoch, calculates from epoch start instead.
-        /// 
-        /// @param receiverID - User's receiver ID
-        /// @return Share-seconds elapsed since last update
-        access(all) view fun getElapsedShareSeconds(receiverID: UInt64): UFix64 {
-            let now = getCurrentBlock().timestamp
-            let userEpoch = self.getUserEpochID(receiverID: receiverID)
-            let currentShares = self.userShares[receiverID] ?? 0.0
-            
-            // If user is from previous epoch, their TWAB resets from epoch start
-            let effectiveLastUpdate = userEpoch < self.currentEpochID 
-                ? self.epochStartTime 
-                : (self.userLastUpdateTime[receiverID] ?? self.epochStartTime)
-            
-            let elapsed = now - effectiveLastUpdate
-            if elapsed <= 0.0 {
-                return 0.0
-            }
-            
-            // share-seconds = shares × time
-            return currentShares * elapsed
-        }
-        
-        /// Returns the user's accumulated share-seconds for current epoch.
-        /// Returns 0 if user is from a previous epoch (would be reset on next interaction).
-        /// @param receiverID - User's receiver ID
-        /// @return Accumulated share-seconds (0 if epoch mismatch)
-        access(all) view fun getEffectiveAccumulated(receiverID: UInt64): UFix64 {
-            let userEpoch = self.getUserEpochID(receiverID: receiverID)
-            if userEpoch < self.currentEpochID {
-                return 0.0  // Would be reset on next accumulation
-            }
-            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
-        }
-        
-        /// Updates a user's TWAB by adding elapsed share-seconds to their cumulative total.
-        /// Handles epoch transitions by resetting TWAB for users from previous epochs.
-        /// 
-        /// This should be called before any share-changing operation (deposit/withdraw).
-        /// 
-        /// @param receiverID - User's receiver ID
-        access(contract) fun accumulateTime(receiverID: UInt64) {
-            let userEpoch = self.getUserEpochID(receiverID: receiverID)
-            
-            // Handle epoch transition - reset TWAB for users from previous epochs
-            if userEpoch < self.currentEpochID {
-                self.userCumulativeShareSeconds[receiverID] = 0.0
-                self.userEpochID[receiverID] = self.currentEpochID
-                
-                // If user has shares, they've been earning TWAB since epoch start
-                let currentShares = self.userShares[receiverID] ?? 0.0
-                if currentShares > 0.0 {
-                    self.userLastUpdateTime[receiverID] = self.epochStartTime
-                } else {
-                    // No shares means no TWAB to accumulate
-                    self.userLastUpdateTime[receiverID] = getCurrentBlock().timestamp
-                    return
-                }
-            }
-            
-            // Add elapsed share-seconds to cumulative total
-            let elapsed = self.getElapsedShareSeconds(receiverID: receiverID)
-            if elapsed > 0.0 {
-                let currentAccum = self.userCumulativeShareSeconds[receiverID] ?? 0.0
-                self.userCumulativeShareSeconds[receiverID] = currentAccum + elapsed
-            }
-            self.userLastUpdateTime[receiverID] = getCurrentBlock().timestamp
-        }
-        
-        /// Returns total time-weighted shares (share-seconds) for lottery weight calculation.
-        /// Includes both accumulated share-seconds AND current elapsed (real-time view).
-        /// @param receiverID - User's receiver ID
-        /// @return Total TWAB for lottery weighting
-        access(all) view fun getTimeWeightedShares(receiverID: UInt64): UFix64 {
-            return self.getEffectiveAccumulated(receiverID: receiverID) 
-                + self.getElapsedShareSeconds(receiverID: receiverID)
-        }
-        
-        /// Accumulates time and returns the final time-weighted shares.
-        /// Used by lottery draw to capture the final lottery weight.
-        /// @param receiverID - User's receiver ID
-        /// @return Final accumulated share-seconds
-        access(contract) fun updateAndGetTimeWeightedShares(receiverID: UInt64): UFix64 {
-            self.accumulateTime(receiverID: receiverID)
-            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
-        }
-        
-        /// Starts a new epoch (called when lottery draw begins).
-        /// All users' TWAB will reset on their next interaction.
-        access(contract) fun startNewPeriod() {
-            self.currentEpochID = self.currentEpochID + 1
-            self.epochStartTime = getCurrentBlock().timestamp
-        }
-        
-        /// Returns the current epoch ID.
-        access(all) view fun getCurrentEpochID(): UInt64 {
-            return self.currentEpochID
-        }
-        
-        /// Returns the timestamp when current epoch started.
-        access(all) view fun getEpochStartTime(): UFix64 {
-            return self.epochStartTime
-        }
-        
         /// Records a deposit by minting shares proportional to the deposit amount.
-        /// Updates TWAB before changing balance to ensure accurate time-weighting.
         /// @param receiverID - User's receiver ID
         /// @param amount - Amount being deposited
-        access(contract) fun deposit(receiverID: UInt64, amount: UFix64) {
+        /// @return The number of shares minted
+        access(contract) fun deposit(receiverID: UInt64, amount: UFix64): UFix64 {
             if amount == 0.0 {
-                return
+                return 0.0
             }
-            
-            // Capture current TWAB before balance changes
-            self.accumulateTime(receiverID: receiverID)
             
             // Mint shares proportional to deposit at current share price
             let sharesToMint = self.convertToShares(amount)
@@ -1406,10 +1448,11 @@ access(all) contract PrizeSavings {
             self.userShares[receiverID] = currentShares + sharesToMint
             self.totalShares = self.totalShares + sharesToMint
             self.totalAssets = self.totalAssets + amount
+            
+            return sharesToMint
         }
         
         /// Records a withdrawal by burning shares proportional to the withdrawal amount.
-        /// Updates TWAB before changing balance to ensure accurate time-weighting.
         /// @param receiverID - User's receiver ID
         /// @param amount - Amount to withdraw
         /// @return The actual amount withdrawn
@@ -1417,9 +1460,6 @@ access(all) contract PrizeSavings {
             if amount == 0.0 {
                 return 0.0
             }
-            
-            // Capture current TWAB before balance changes
-            self.accumulateTime(receiverID: receiverID)
             
             // Validate user has sufficient shares
             let userShareBalance = self.userShares[receiverID] ?? 0.0
@@ -1510,57 +1550,6 @@ access(all) contract PrizeSavings {
         /// @param receiverID - User's receiver ID
         access(all) view fun getUserShares(receiverID: UInt64): UFix64 {
             return self.userShares[receiverID] ?? 0.0
-        }
-        
-        /// Returns raw accumulated share-seconds (without considering epoch).
-        /// Use getEffectiveAccumulated() for epoch-aware value.
-        /// @param receiverID - User's receiver ID
-        access(all) view fun getUserAccumulatedRaw(receiverID: UInt64): UFix64 {
-            return self.userCumulativeShareSeconds[receiverID] ?? 0.0
-        }
-        
-        /// Returns the user's last TWAB update timestamp.
-        /// @param receiverID - User's receiver ID
-        access(all) view fun getUserLastUpdateTime(receiverID: UInt64): UFix64 {
-            return self.userLastUpdateTime[receiverID] ?? self.epochStartTime
-        }
-        
-        /// Returns the user's epoch ID, or 0 if uninitialized.
-        /// 0 is a sentinel: since currentEpochID >= 1, uninitialized users trigger the
-        /// reset branch (0 < currentEpochID), ensuring proper state initialization.
-        /// @param receiverID - User's receiver ID
-        access(all) view fun getUserEpochID(receiverID: UInt64): UInt64 {
-            return self.userEpochID[receiverID] ?? 0
-        }
-        
-        /// Calculates projected share-seconds at a specific future time.
-        /// Useful for previewing lottery weight at draw time.
-        /// Does not modify state - pure calculation.
-        /// @param receiverID - User's receiver ID
-        /// @param targetTime - Target timestamp to project to
-        /// @return Projected share-seconds at target time
-        access(all) view fun calculateShareSecondsAtTime(receiverID: UInt64, targetTime: UFix64): UFix64 {
-            let userEpoch = self.getUserEpochID(receiverID: receiverID)
-            let shares = self.userShares[receiverID] ?? 0.0
-            
-            // User from previous epoch - calculate from epoch start
-            if userEpoch < self.currentEpochID {
-                if targetTime <= self.epochStartTime { return 0.0 }
-                return shares * (targetTime - self.epochStartTime)
-            }
-            
-            let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.epochStartTime
-            let accumulated = self.userCumulativeShareSeconds[receiverID] ?? 0.0
-            
-            // If target time is before last update, we need to "rewind"
-            if targetTime <= lastUpdate {
-                let overdraft = lastUpdate - targetTime
-                let overdraftAmount = shares * overdraft
-                return accumulated >= overdraftAmount ? accumulated - overdraftAmount : 0.0
-            }
-            
-            // Normal case: project forward from last update
-            return accumulated + (shares * (targetTime - lastUpdate))
         }
     }
     
@@ -1775,10 +1764,12 @@ access(all) contract PrizeSavings {
     /// It holds:
     /// - The prize amount committed for this draw
     /// - The randomness request (to be fulfilled by Flow's RandomConsumer)
-    /// - Snapshot of all user weights at draw start
     /// 
-    /// SECURITY: The time-weighted stakes are captured at draw start, so late
-    /// deposits/withdrawals cannot affect lottery odds for this draw.
+    /// NOTE: User weights are stored in BatchSelectionData resource
+    /// to enable zero-copy reference passing.
+    /// 
+    /// SECURITY: The selection data is built during batch processing phase,
+    /// so late deposits/withdrawals cannot affect lottery odds for this draw.
     access(all) resource PrizeDrawReceipt {
         /// Total prize amount committed for this draw.
         access(all) let prizeAmount: UFix64
@@ -1787,19 +1778,12 @@ access(all) contract PrizeSavings {
         /// Set to nil after fulfillment in completeDraw().
         access(self) var request: @RandomConsumer.Request?
         
-        /// Snapshot of user lottery weights at draw start.
-        /// Keys are receiverIDs, values are total weight (TWAB + bonuses).
-        /// Captured at startDraw() time to prevent manipulation.
-        access(all) let timeWeightedStakes: {UInt64: UFix64}
-        
         /// Creates a new PrizeDrawReceipt.
         /// @param prizeAmount - Prize pool for this draw
         /// @param request - RandomConsumer request resource
-        /// @param timeWeightedStakes - Snapshot of user weights
-        init(prizeAmount: UFix64, request: @RandomConsumer.Request, timeWeightedStakes: {UInt64: UFix64}) {
+        init(prizeAmount: UFix64, request: @RandomConsumer.Request) {
             self.prizeAmount = prizeAmount
             self.request <- request
-            self.timeWeightedStakes = timeWeightedStakes
         }
         
         /// Returns the block height where randomness was requested.
@@ -1818,11 +1802,6 @@ access(all) contract PrizeSavings {
                 return <- r
             }
             panic("No request to pop")
-        }
-        
-        /// Returns the captured weight snapshot.
-        access(all) view fun getTimeWeightedStakes(): {UInt64: UFix64} {
-            return self.timeWeightedStakes
         }
     }
     
@@ -1859,179 +1838,95 @@ access(all) contract PrizeSavings {
         }
     }
     
-    /// Strategy Pattern interface for winner selection algorithms.
+    /// Configures how prizes are distributed among winners.
     /// 
-    /// Implementations determine how winners are selected from weighted participants.
-    /// Different strategies enable:
-    /// - Single winner (all-or-nothing)
-    /// - Multiple winners with percentage splits
-    /// - Fixed prize tiers with multiple winners per tier
+    /// Implementations define:
+    /// - How many winners to select
+    /// - Prize amounts or percentages per winner position
+    /// - NFT assignments per winner position
     /// 
-    /// IMPORTANT: receiverWeights are NOT raw deposit balances - they represent
-    /// lottery ticket weights (TWAB share-seconds + bonus weights). Higher weight
-    /// = higher probability of selection.
-    access(all) struct interface WinnerSelectionStrategy {
-        /// Selects winners based on weighted random selection.
-        /// @param randomNumber - Source of randomness from Flow's RandomConsumer
-        /// @param receiverWeights - Map of receiverID to their selection weight
-        ///   (share-seconds + bonuses). NOT raw deposit balances!
-        /// @param totalPrizeAmount - Total prize pool to distribute
-        /// @return WinnerSelectionResult with winners, amounts, and NFT assignments
-        access(all) fun selectWinners(
-            randomNumber: UInt64,
-            receiverWeights: {UInt64: UFix64},
+    /// The actual winner SELECTION is handled by BatchSelectionData.
+    /// This separation keeps distribution logic clean and testable.
+    access(all) struct interface PrizeDistribution {
+        
+        /// Returns the number of winners this distribution needs.
+        access(all) view fun getWinnerCount(): Int
+        
+        /// Distributes prizes among the selected winners.
+        /// 
+        /// @param winners - Array of winner receiverIDs (from BatchSelectionData.selectWinners)
+        /// @param totalPrizeAmount - Total prize pool available
+        /// @return WinnerSelectionResult with amounts and NFTs assigned to each winner
+        access(all) fun distributePrizes(
+            winners: [UInt64],
             totalPrizeAmount: UFix64
         ): WinnerSelectionResult
         
-        /// Returns a human-readable description of this strategy.
-        access(all) view fun getStrategyName(): String
+        /// Returns a human-readable description of this distribution.
+        access(all) view fun getDistributionName(): String
     }
     
-    /// Single winner selection strategy with weighted random selection.
+    /// Single winner prize distribution.
     /// 
-    /// The simplest strategy: one winner takes the entire prize pool.
-    /// Winner probability is proportional to their weight in receiverWeights.
-    /// 
-    /// Algorithm:
-    /// 1. Build cumulative sum of all weights
-    /// 2. Generate random value in range [0, totalWeight)
-    /// 3. Find first participant where cumulative sum > random value
-    /// 
-    /// Example with weights {A: 100, B: 50, C: 50}:
-    /// - Total weight = 200
-    /// - Cumulative sums = [100, 150, 200]
-    /// - Random 75 → A wins (75 < 100)
-    /// - Random 125 → B wins (100 ≤ 125 < 150)
-    /// - Random 175 → C wins (150 ≤ 175 < 200)
-    access(all) struct WeightedSingleWinner: WinnerSelectionStrategy {
-        /// Scaling factor for converting random UInt64 to UFix64.
-        /// Uses 1 billion for 9 decimal places of precision.
-        access(all) let RANDOM_SCALING_FACTOR: UInt64
-        access(all) let RANDOM_SCALING_DIVISOR: UFix64
-        
+    /// The simplest distribution: one winner takes the entire prize pool.
+    /// Winner selection is handled by BatchSelectionData.
+    access(all) struct SingleWinnerPrize: PrizeDistribution {
         /// NFT IDs to award to the winner (all go to single winner).
         access(all) let nftIDs: [UInt64]
         
-        /// Creates a WeightedSingleWinner strategy.
+        /// Creates a SingleWinnerPrize distribution.
         /// @param nftIDs - Array of NFT UUIDs to award to winner
         init(nftIDs: [UInt64]) {
-            self.RANDOM_SCALING_FACTOR = 1_000_000_000
-            self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
             self.nftIDs = nftIDs
         }
         
-        /// Selects a single winner with probability proportional to weight.
-        /// @param randomNumber - Source of randomness
-        /// @param receiverWeights - Map of receiverID to weight
-        /// @param totalPrizeAmount - Total prize (all goes to winner)
-        /// @return WinnerSelectionResult with single winner
-        access(all) fun selectWinners(
-            randomNumber: UInt64,
-            receiverWeights: {UInt64: UFix64},
+        access(all) view fun getWinnerCount(): Int {
+            return 1
+        }
+        
+        /// Distributes the entire prize to the single winner.
+        access(all) fun distributePrizes(
+            winners: [UInt64],
             totalPrizeAmount: UFix64
         ): WinnerSelectionResult {
-            let receiverIDs = receiverWeights.keys
-            
-            // No participants - return empty result
-            if receiverIDs.length == 0 {
+            if winners.length == 0 {
                 return WinnerSelectionResult(winners: [], amounts: [], nftIDs: [])
             }
-            
-            // Single participant - they win automatically
-            if receiverIDs.length == 1 {
-                return WinnerSelectionResult(
-                    winners: [receiverIDs[0]],
-                    amounts: [totalPrizeAmount],
-                    nftIDs: [self.nftIDs]
-                )
-            }
-            
-            // Build cumulative weight sums for binary search
-            var cumulativeSum: [UFix64] = []
-            var runningTotal: UFix64 = 0.0
-            
-            for receiverID in receiverIDs {
-                let weight = receiverWeights[receiverID] ?? 0.0
-                runningTotal = runningTotal + weight
-                cumulativeSum.append(runningTotal)
-            }
-            
-            // All weights zero - default to first participant
-            if runningTotal == 0.0 {
-                return WinnerSelectionResult(
-                    winners: [receiverIDs[0]],
-                    amounts: [totalPrizeAmount],
-                    nftIDs: [self.nftIDs]
-                )
-            }
-            
-            // Scale random number to [0.0, 1.0) then to [0.0, runningTotal)
-            let scaledRandom = UFix64(randomNumber % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
-            let randomValue = scaledRandom * runningTotal
-            
-            // Find winner using cumulative sums
-            var winnerIndex = 0
-            for i, cumSum in cumulativeSum {
-                if randomValue < cumSum {
-                    winnerIndex = i
-                    break
-                }
-            }
-            
             return WinnerSelectionResult(
-                winners: [receiverIDs[winnerIndex]],
+                winners: [winners[0]],
                 amounts: [totalPrizeAmount],
                 nftIDs: [self.nftIDs]
             )
         }
         
-        access(all) view fun getStrategyName(): String {
-            return "Weighted Single Winner"
+        access(all) view fun getDistributionName(): String {
+            return "Single Winner (100%)"
         }
     }
     
-    /// Multiple winner selection with configurable prize splits.
+    /// Percentage-based prize distribution across multiple winners.
     /// 
-    /// Selects N winners with each receiving a percentage of the prize pool.
-    /// Winners are selected sequentially without replacement (same user can't win twice).
+    /// Distributes prizes by percentage splits. Winner selection is handled by BatchSelectionData.
     /// 
     /// Example: 3 winners with splits [0.5, 0.3, 0.2]
     /// - 1st place: 50% of prize pool
     /// - 2nd place: 30% of prize pool
     /// - 3rd place: 20% of prize pool
-    /// 
-    /// Algorithm:
-    /// 1. Uses Xorshift128+ PRNG seeded from initial randomNumber
-    /// 2. For each winner position:
-    ///    a. Select winner weighted by remaining participants
-    ///    b. Remove winner from pool (no double wins)
-    ///    c. Recalculate cumulative weights
-    /// 
-    /// If fewer participants than winners, all participants win proportionally.
-    access(all) struct MultiWinnerSplit: WinnerSelectionStrategy {
-        /// Scaling factor for UFix64 conversion (9 decimal places).
-        access(all) let RANDOM_SCALING_FACTOR: UInt64
-        access(all) let RANDOM_SCALING_DIVISOR: UFix64
-        
-        /// Number of winners to select.
-        access(all) let winnerCount: Int
-        
+    access(all) struct PercentageSplit: PrizeDistribution {
         /// Prize split percentages for each winner position.
-        /// Must sum to 1.0 and have length == winnerCount.
+        /// Must sum to 1.0.
         access(all) let prizeSplits: [UFix64]
         
         /// NFT IDs assigned to each winner position.
         /// nftIDsPerWinner[i] = array of NFTs for winner at position i.
         access(all) let nftIDsPerWinner: [[UInt64]]
         
-        /// Creates a MultiWinnerSplit strategy.
-        /// @param winnerCount - Number of winners to select (must be > 0)
-        /// @param prizeSplits - Array of percentages summing to 1.0 (length must match winnerCount)
-        /// @param nftIDs - Array of NFT UUIDs to distribute (one per winner, round-robin)
-        init(winnerCount: Int, prizeSplits: [UFix64], nftIDs: [UInt64]) {
+        /// Creates a PercentageSplit distribution.
+        /// @param prizeSplits - Array of percentages summing to 1.0
+        /// @param nftIDs - Array of NFT UUIDs to distribute (one per winner)
+        init(prizeSplits: [UFix64], nftIDs: [UInt64]) {
             pre {
-                winnerCount > 0: "Must have at least one winner. winnerCount: ".concat(winnerCount.toString())
-                prizeSplits.length == winnerCount: "Prize splits must match winner count. prizeSplits.length: ".concat(prizeSplits.length.toString()).concat(", winnerCount: ").concat(winnerCount.toString())
+                prizeSplits.length > 0: "Must have at least one split"
             }
             
             // Validate prize splits sum to 1.0 and each is in [0, 1]
@@ -2045,15 +1940,12 @@ access(all) contract PrizeSavings {
             
             assert(total == 1.0, message: "Prize splits must sum to 1.0. actual total: ".concat(total.toString()))
             
-            self.RANDOM_SCALING_FACTOR = 1_000_000_000
-            self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
-            self.winnerCount = winnerCount
             self.prizeSplits = prizeSplits
             
             // Distribute NFTs: one per winner, in order
             var nftArray: [[UInt64]] = []
             var nftIndex = 0
-            for winnerIdx in InclusiveRange(0, winnerCount - 1) {
+            for winnerIdx in InclusiveRange(0, prizeSplits.length - 1) {
                 if nftIndex < nftIDs.length {
                     nftArray.append([nftIDs[nftIndex]])
                     nftIndex = nftIndex + 1
@@ -2064,197 +1956,65 @@ access(all) contract PrizeSavings {
             self.nftIDsPerWinner = nftArray
         }
         
-        /// Selects multiple winners with prize splits.
-        /// @param randomNumber - Seed for PRNG
-        /// @param receiverWeights - Map of receiverID to weight
-        /// @param totalPrizeAmount - Total prize to split among winners
-        /// @return WinnerSelectionResult with multiple winners
-        access(all) fun selectWinners(
-            randomNumber: UInt64,
-            receiverWeights: {UInt64: UFix64},
+        access(all) view fun getWinnerCount(): Int {
+            return self.prizeSplits.length
+        }
+        
+        /// Distributes prizes by percentage to the winners.
+        access(all) fun distributePrizes(
+            winners: [UInt64],
             totalPrizeAmount: UFix64
         ): WinnerSelectionResult {
-            let receiverIDs = receiverWeights.keys
-            let receiverCount = receiverIDs.length
-            
-            // No participants - empty result
-            if receiverCount == 0 {
+            if winners.length == 0 {
                 return WinnerSelectionResult(winners: [], amounts: [], nftIDs: [])
-            }
-            
-            // Cap winners at available participants
-            let actualWinnerCount = self.winnerCount < receiverCount ? self.winnerCount : receiverCount
-            
-            // Single participant - they get everything
-            if receiverCount == 1 {
-                let nftIDsForFirst: [UInt64] = self.nftIDsPerWinner.length > 0 ? self.nftIDsPerWinner[0] : []
-                return WinnerSelectionResult(
-                    winners: [receiverIDs[0]],
-                    amounts: [totalPrizeAmount],
-                    nftIDs: [nftIDsForFirst]
-                )
-            }
-            
-            // Build initial weight structures
-            var cumulativeSum: [UFix64] = []
-            var runningTotal: UFix64 = 0.0
-            var weightsList: [UFix64] = []
-            
-            for receiverID in receiverIDs {
-                let weight = receiverWeights[receiverID] ?? 0.0
-                weightsList.append(weight)
-                runningTotal = runningTotal + weight
-                cumulativeSum.append(runningTotal)
-            }
-            
-            // All weights zero - distribute uniformly to first N participants
-            if runningTotal == 0.0 {
-                var uniformWinners: [UInt64] = []
-                var uniformAmounts: [UFix64] = []
-                var uniformNFTs: [[UInt64]] = []
-                var calculatedSum: UFix64 = 0.0
-                
-                for idx in InclusiveRange(0, actualWinnerCount - 1) {
-                    uniformWinners.append(receiverIDs[idx])
-                    // Last winner gets remainder to avoid rounding errors
-                    if idx < actualWinnerCount - 1 {
-                        let amount = totalPrizeAmount * self.prizeSplits[idx]
-                        uniformAmounts.append(amount)
-                        calculatedSum = calculatedSum + amount
-                    }
-                    if idx < self.nftIDsPerWinner.length {
-                        uniformNFTs.append(self.nftIDsPerWinner[idx])
-                    } else {
-                        uniformNFTs.append([])
-                    }
-                }
-                uniformAmounts.append(totalPrizeAmount - calculatedSum)
-                
-                return WinnerSelectionResult(
-                    winners: uniformWinners,
-                    amounts: uniformAmounts,
-                    nftIDs: uniformNFTs
-                )
-            }
-            
-            // Initialize PRNG with seed from initial random number
-            var selectedWinners: [UInt64] = []
-            var remainingWeights = weightsList
-            var remainingIDs = receiverIDs
-            var remainingCumSum = cumulativeSum
-            var remainingTotal = runningTotal
-            
-            // Pad random bytes to 16 for Xorshift128+ (requires 128 bits)
-            var randomBytes = randomNumber.toBigEndianBytes()
-            while randomBytes.length < 16 {
-                randomBytes.appendAll(randomNumber.toBigEndianBytes())
-            }
-            var paddedBytes: [UInt8] = []
-            for padIdx in InclusiveRange(0, 15) {
-                paddedBytes.append(randomBytes[padIdx % randomBytes.length])
-            }
-            
-            let prg = Xorshift128plus.PRG(
-                sourceOfRandomness: paddedBytes,
-                salt: []
-            )
-            
-            // Select winners one at a time, removing each from the pool
-            var winnerIndex = 0
-            while winnerIndex < actualWinnerCount && remainingIDs.length > 0 && remainingTotal > 0.0 {
-                // Generate new random for each selection
-                let rng = prg.nextUInt64()
-                let scaledRandom = UFix64(rng % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
-                let randomValue = scaledRandom * remainingTotal
-                
-                // Find winner using cumulative sums
-                var selectedIdx = 0
-                for i, cumSum in remainingCumSum {
-                    if randomValue < cumSum {
-                        selectedIdx = i
-                        break
-                    }
-                }
-                
-                // Add to winners and remove from remaining pool
-                selectedWinners.append(remainingIDs[selectedIdx])
-                var newRemainingIDs: [UInt64] = []
-                var newRemainingWeights: [UFix64] = []
-                var newCumSum: [UFix64] = []
-                var newRunningTotal: UFix64 = 0.0
-                
-                for idx in InclusiveRange(0, remainingIDs.length - 1) {
-                    if idx != selectedIdx {
-                        newRemainingIDs.append(remainingIDs[idx])
-                        newRemainingWeights.append(remainingWeights[idx])
-                        newRunningTotal = newRunningTotal + remainingWeights[idx]
-                        newCumSum.append(newRunningTotal)
-                    }
-                }
-                
-                remainingIDs = newRemainingIDs
-                remainingWeights = newRemainingWeights
-                remainingCumSum = newCumSum
-                remainingTotal = newRunningTotal
-                winnerIndex = winnerIndex + 1
             }
             
             // Calculate prize amounts with last winner getting remainder
             var prizeAmounts: [UFix64] = []
+            var nftIDsArray: [[UInt64]] = []
             var calculatedSum: UFix64 = 0.0
             
-            if selectedWinners.length > 1 {
-                for idx in InclusiveRange(0, selectedWinners.length - 2) {
-                    let split = self.prizeSplits[idx]
+            for idx in InclusiveRange(0, winners.length - 1) {
+                // Last winner gets remainder to avoid rounding errors
+                if idx < winners.length - 1 {
+                    let split = idx < self.prizeSplits.length ? self.prizeSplits[idx] : 0.0
                     let amount = totalPrizeAmount * split
                     prizeAmounts.append(amount)
                     calculatedSum = calculatedSum + amount
                 }
-            }
-            
-            // Last winner gets remainder to avoid rounding errors
-            let lastPrize = totalPrizeAmount - calculatedSum
-            prizeAmounts.append(lastPrize)
-            
-            // Sanity check: last prize shouldn't deviate too much from expected
-            if selectedWinners.length == self.winnerCount {
-                let expectedLast = totalPrizeAmount * self.prizeSplits[selectedWinners.length - 1]
-                let deviation = lastPrize > expectedLast ? lastPrize - expectedLast : expectedLast - lastPrize
-                let maxDeviation = totalPrizeAmount * 0.01  // 1% tolerance
-                assert(deviation <= maxDeviation, message: "Last prize deviation too large. deviation: ".concat(deviation.toString()).concat(", maxDeviation: ").concat(maxDeviation.toString()).concat(", lastPrize: ").concat(lastPrize.toString()).concat(", expectedLast: ").concat(expectedLast.toString()))
-            }
-            
-            // Assign NFTs to winners by position
-            var nftIDsArray: [[UInt64]] = []
-            for idx2 in InclusiveRange(0, selectedWinners.length - 1) {
-                if idx2 < self.nftIDsPerWinner.length {
-                    nftIDsArray.append(self.nftIDsPerWinner[idx2])
+                
+                // Assign NFTs
+                if idx < self.nftIDsPerWinner.length {
+                    nftIDsArray.append(self.nftIDsPerWinner[idx])
                 } else {
                     nftIDsArray.append([])
                 }
             }
             
+            // Last winner gets remainder
+            prizeAmounts.append(totalPrizeAmount - calculatedSum)
+            
             return WinnerSelectionResult(
-                winners: selectedWinners,
+                winners: winners,
                 amounts: prizeAmounts,
                 nftIDs: nftIDsArray
             )
         }
         
-        access(all) view fun getStrategyName(): String {
-            var name = "Multi-Winner (\(self.winnerCount) winners): "
+        access(all) view fun getDistributionName(): String {
+            var name = "Split ("
             for idx in InclusiveRange(0, self.prizeSplits.length - 1) {
                 if idx > 0 {
-                    name = name.concat(", ")
+                    name = name.concat("/")
                 }
                 name = name.concat("\(self.prizeSplits[idx] * 100.0)%")
             }
-            return name
+            return name.concat(")")
         }
     }
     
     /// Defines a prize tier with fixed amount and winner count.
-    /// Used by FixedPrizeTiers strategy for structured prize distribution.
+    /// Used by FixedAmountTiers for structured prize distribution.
     /// 
     /// Example tiers:
     /// - Grand Prize: 1 winner, 100 tokens, NFT included
@@ -2291,10 +2051,10 @@ access(all) contract PrizeSavings {
         }
     }
     
-    /// Fixed prize tier selection strategy.
+    /// Fixed amount tier-based prize distribution.
     /// 
     /// Distributes prizes according to pre-defined tiers, each with a fixed
-    /// prize amount and winner count. Unlike MultiWinnerSplit which uses
+    /// prize amount and winner count. Unlike PercentageSplit which uses
     /// percentages, this uses absolute amounts.
     /// 
     /// Example configuration:
@@ -2302,124 +2062,60 @@ access(all) contract PrizeSavings {
     /// - Tier 2: 3 winners get 50 tokens each
     /// - Tier 3: 10 winners get 10 tokens each
     /// 
-    /// REQUIREMENTS:
-    /// - Prize pool must be >= sum of (tier.amount × tier.winnerCount)
-    /// - Participant count must be >= sum of tier.winnerCount
-    /// - If requirements not met, returns empty result (no draw)
-    /// 
-    /// Winners are selected without replacement across tiers (no double wins).
-    access(all) struct FixedPrizeTiers: WinnerSelectionStrategy {
-        /// Scaling factor for UFix64 conversion.
-        access(all) let RANDOM_SCALING_FACTOR: UInt64
-        access(all) let RANDOM_SCALING_DIVISOR: UFix64
-        
+    /// Winner selection is handled by BatchSelectionData.
+    access(all) struct FixedAmountTiers: PrizeDistribution {
         /// Ordered array of prize tiers (processed in order).
         access(all) let tiers: [PrizeTier]
         
-        /// Creates a FixedPrizeTiers strategy.
+        /// Creates a FixedAmountTiers distribution.
         /// @param tiers - Array of prize tiers (must have at least one)
         init(tiers: [PrizeTier]) {
             pre {
                 tiers.length > 0: "Must have at least one prize tier"
             }
-            self.RANDOM_SCALING_FACTOR = 1_000_000_000
-            self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
             self.tiers = tiers
         }
         
-        /// Selects winners for each tier.
-        /// Returns empty result if insufficient prizes or participants.
-        /// @param randomNumber - Seed for PRNG
-        /// @param receiverWeights - Map of receiverID to weight
-        /// @param totalPrizeAmount - Available prize pool
-        /// @return WinnerSelectionResult with tier winners
-        access(all) fun selectWinners(
-            randomNumber: UInt64,
-            receiverWeights: {UInt64: UFix64},
+        access(all) view fun getWinnerCount(): Int {
+            var total = 0
+            for tier in self.tiers {
+                total = total + tier.winnerCount
+            }
+            return total
+        }
+        
+        /// Distributes fixed amounts to winners according to tiers.
+        /// Winners are assigned to tiers in order.
+        access(all) fun distributePrizes(
+            winners: [UInt64],
             totalPrizeAmount: UFix64
         ): WinnerSelectionResult {
-            let receiverIDs = receiverWeights.keys
-            let receiverCount = receiverIDs.length
-            
-            // No participants - empty result
-            if receiverCount == 0 {
+            if winners.length == 0 {
                 return WinnerSelectionResult(winners: [], amounts: [], nftIDs: [])
             }
             
-            // Calculate total prize amount and winners needed
+            // Calculate total prize amount needed
             var totalNeeded: UFix64 = 0.0
-            var totalWinnersNeeded = 0
             for tier in self.tiers {
                 totalNeeded = totalNeeded + (tier.prizeAmount * UFix64(tier.winnerCount))
-                totalWinnersNeeded = totalWinnersNeeded + tier.winnerCount
             }
             
-            // Insufficient prize pool - cannot proceed
+            // Insufficient prize pool - return empty
             if totalPrizeAmount < totalNeeded {
                 return WinnerSelectionResult(winners: [], amounts: [], nftIDs: [])
             }
             
-            // Insufficient participants - cannot fill all tiers
-            if totalWinnersNeeded > receiverCount {
-                return WinnerSelectionResult(winners: [], amounts: [], nftIDs: [])
-            }
-            
-            // Build initial cumulative weight structure
-            var cumulativeSum: [UFix64] = []
-            var runningTotal: UFix64 = 0.0
-            
-            for receiverID in receiverIDs {
-                let weight = receiverWeights[receiverID] ?? 0.0
-                runningTotal = runningTotal + weight
-                cumulativeSum.append(runningTotal)
-            }
-            
-            // Initialize PRNG
-            var randomBytes = randomNumber.toBigEndianBytes()
-            while randomBytes.length < 16 {
-                randomBytes.appendAll(randomNumber.toBigEndianBytes())
-            }
-            var paddedBytes: [UInt8] = []
-            for padIdx in InclusiveRange(0, 15) {
-                paddedBytes.append(randomBytes[padIdx % randomBytes.length])
-            }
-            
-            let prg = Xorshift128plus.PRG(
-                sourceOfRandomness: paddedBytes,
-                salt: []
-            )
-            
-            // Track results across all tiers
             var allWinners: [UInt64] = []
             var allPrizes: [UFix64] = []
             var allNFTIDs: [[UInt64]] = []
-            var remainingIDs = receiverIDs
-            var remainingCumSum = cumulativeSum
-            var remainingTotal = runningTotal
+            var winnerIdx = 0
             
             // Process each tier in order
             for tier in self.tiers {
                 var tierWinnerCount = 0
                 
-                // Select winners for this tier
-                while tierWinnerCount < tier.winnerCount && remainingIDs.length > 0 && remainingTotal > 0.0 {
-                    // Generate random and scale to weight range
-                    let rng = prg.nextUInt64()
-                    let scaledRandom = UFix64(rng % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
-                    let randomValue = scaledRandom * remainingTotal
-                    
-                    // Find winner using cumulative sums
-                    var selectedIdx = 0
-                    for i, cumSum in remainingCumSum {
-                        if randomValue < cumSum {
-                            selectedIdx = i
-                            break
-                        }
-                    }
-                    
-                    // Record winner with fixed tier prize
-                    let winnerID = remainingIDs[selectedIdx]
-                    allWinners.append(winnerID)
+                while tierWinnerCount < tier.winnerCount && winnerIdx < winners.length {
+                    allWinners.append(winners[winnerIdx])
                     allPrizes.append(tier.prizeAmount)
                     
                     // Assign NFT if available for this position
@@ -2429,24 +2125,8 @@ access(all) contract PrizeSavings {
                         allNFTIDs.append([])
                     }
                     
-                    // Remove winner from remaining pool
-                    var newRemainingIDs: [UInt64] = []
-                    var newRemainingCumSum: [UFix64] = []
-                    var newRunningTotal: UFix64 = 0.0
-                    
-                    for oldIdx in InclusiveRange(0, remainingIDs.length - 1) {
-                        if oldIdx != selectedIdx {
-                            newRemainingIDs.append(remainingIDs[oldIdx])
-                            let weight = receiverWeights[remainingIDs[oldIdx]] ?? 0.0
-                            newRunningTotal = newRunningTotal + weight
-                            newRemainingCumSum.append(newRunningTotal)
-                        }
-                    }
-                    
-                    remainingIDs = newRemainingIDs
-                    remainingCumSum = newRemainingCumSum
-                    remainingTotal = newRunningTotal
                     tierWinnerCount = tierWinnerCount + 1
+                    winnerIdx = winnerIdx + 1
                 }
             }
             
@@ -2457,8 +2137,8 @@ access(all) contract PrizeSavings {
             )
         }
         
-        access(all) view fun getStrategyName(): String {
-            var name = "Fixed Prizes ("
+        access(all) view fun getDistributionName(): String {
+            var name = "Fixed Tiers ("
             for idx in InclusiveRange(0, self.tiers.length - 1) {
                 if idx > 0 {
                     name = name.concat(", ")
@@ -2505,9 +2185,9 @@ access(all) contract PrizeSavings {
         /// Can be updated by admin with CriticalOps entitlement.
         access(contract) var distributionStrategy: {DistributionStrategy}
         
-        /// Strategy for selecting lottery winners and distributing prizes.
+        /// Configuration for how prizes are distributed among winners.
         /// Can be updated by admin with CriticalOps entitlement.
-        access(contract) var winnerSelectionStrategy: {WinnerSelectionStrategy}
+        access(contract) var prizeDistribution: {PrizeDistribution}
         
         /// Optional capability to winner tracker for leaderboard integration.
         /// If set, winners are recorded in the tracker after each draw.
@@ -2519,7 +2199,7 @@ access(all) contract PrizeSavings {
         /// @param minimumDeposit - Minimum deposit amount (>= 0)
         /// @param drawIntervalSeconds - Seconds between draws (>= 1)
         /// @param distributionStrategy - Yield distribution strategy
-        /// @param winnerSelectionStrategy - Winner selection strategy
+        /// @param prizeDistribution - Prize distribution configuration
         /// @param winnerTrackerCap - Optional winner tracker capability
         init(
             assetType: Type,
@@ -2527,7 +2207,7 @@ access(all) contract PrizeSavings {
             minimumDeposit: UFix64,
             drawIntervalSeconds: UFix64,
             distributionStrategy: {DistributionStrategy},
-            winnerSelectionStrategy: {WinnerSelectionStrategy},
+            prizeDistribution: {PrizeDistribution},
             winnerTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?
         ) {
             self.assetType = assetType
@@ -2535,7 +2215,7 @@ access(all) contract PrizeSavings {
             self.minimumDeposit = minimumDeposit
             self.drawIntervalSeconds = drawIntervalSeconds
             self.distributionStrategy = distributionStrategy
-            self.winnerSelectionStrategy = winnerSelectionStrategy
+            self.prizeDistribution = prizeDistribution
             self.winnerTrackerCap = winnerTrackerCap
         }
         
@@ -2545,10 +2225,10 @@ access(all) contract PrizeSavings {
             self.distributionStrategy = strategy
         }
         
-        /// Updates the winner selection strategy.
-        /// @param strategy - New winner selection strategy
-        access(contract) fun setWinnerSelectionStrategy(strategy: {WinnerSelectionStrategy}) {
-            self.winnerSelectionStrategy = strategy
+        /// Updates the prize distribution configuration.
+        /// @param distribution - New prize distribution
+        access(contract) fun setPrizeDistribution(distribution: {PrizeDistribution}) {
+            self.prizeDistribution = distribution
         }
         
         /// Updates or removes the winner tracker capability.
@@ -2580,9 +2260,9 @@ access(all) contract PrizeSavings {
             return self.distributionStrategy.getStrategyName()
         }
         
-        /// Returns the winner selection strategy name for display.
-        access(all) view fun getWinnerSelectionStrategyName(): String {
-            return self.winnerSelectionStrategy.getStrategyName()
+        /// Returns the prize distribution name for display.
+        access(all) view fun getPrizeDistributionName(): String {
+            return self.prizeDistribution.getDistributionName()
         }
         
         /// Returns whether a winner tracker is configured.
@@ -2609,45 +2289,209 @@ access(all) contract PrizeSavings {
     /// transaction may exceed gas limits. This struct enables breaking the draw
     /// into multiple transactions:
     /// 
-    /// 1. startDrawSnapshot() - Lock pool, capture cutoff time
-    /// 2. captureStakesBatch() - Process N users per transaction (repeat)
-    /// 3. finalizeDrawStart() - Request randomness after all users processed
+    /// Resource holding lottery selection data - implemented as a resource to enable zero-copy reference passing.
     /// 
-    /// During batch processing, deposits and withdrawals are locked to prevent
-    /// manipulation between batches.
+    /// Lifecycle:
+    /// 1. Created at startDraw() with empty arrays
+    /// 2. Built incrementally by processDrawBatch()
+    /// 3. Reference passed to selectWinners() in completeDraw()
+    /// 4. Destroyed after completeDraw()
     /// 
-    /// NOTE: This feature is not yet implemented - placeholder for future scaling.
-    access(all) struct BatchDrawState {
-        /// Timestamp when the draw was initiated (used for TWAB calculation).
-        access(all) let drawCutoffTime: UFix64
+    access(all) resource BatchSelectionData {
+        /// Receivers with weight > 0, in processing order
+        access(contract) var receiverIDs: [UInt64]
         
-        /// Epoch start time before startNewPeriod() was called.
-        /// Needed to calculate TWAB for users in the previous epoch.
-        access(all) let previousEpochStartTime: UFix64
+        /// Parallel array: cumulative weight sums for binary search
+        /// cumulativeWeights[i] = sum of weights for receivers 0..i
+        access(contract) var cumulativeWeights: [UFix64]
         
-        /// Accumulated weights from processed users (receiverID -> weight).
-        access(all) var capturedWeights: {UInt64: UFix64}
+        /// Total weight (cached, equals last element of cumulativeWeights)
+        access(contract) var totalWeight: UFix64
         
-        /// Running total of all captured weights.
-        access(all) var totalWeight: UFix64
+        /// Current cursor position in registeredReceiverList
+        access(contract) var cursor: Int
         
-        /// Number of users processed so far.
-        access(all) var processedCount: Int
+        /// Snapshot of receiver count at startDraw time.
+        /// Used to determine batch completion - only process users who existed at draw start.
+        /// New deposits during batch processing don't extend the batch.
+        access(contract) let snapshotReceiverCount: Int
         
-        /// Epoch ID at time of snapshot (for validation).
-        access(all) let snapshotEpochID: UInt64
-        
-        /// Creates a new BatchDrawState.
-        /// @param cutoffTime - Draw timestamp for TWAB calculation
-        /// @param epochStartTime - Start time of the epoch being drawn
-        /// @param epochID - Current epoch ID
-        init(cutoffTime: UFix64, epochStartTime: UFix64, epochID: UInt64) {
-            self.drawCutoffTime = cutoffTime
-            self.previousEpochStartTime = epochStartTime
-            self.capturedWeights = {}
+        init(snapshotCount: Int) {
+            self.receiverIDs = []
+            self.cumulativeWeights = []
             self.totalWeight = 0.0
-            self.processedCount = 0
-            self.snapshotEpochID = epochID
+            self.cursor = 0
+            self.snapshotReceiverCount = snapshotCount
+            self.RANDOM_SCALING_FACTOR = 1_000_000_000
+            self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
+        }
+        
+        // ============================================================
+        // BATCH BUILDING METHODS (called by processDrawBatch)
+        // ============================================================
+        
+        /// Adds a receiver with their weight. Builds cumulative sum on the fly.
+        /// Only adds if weight > 0.
+        access(contract) fun addEntry(receiverID: UInt64, weight: UFix64) {
+            if weight > 0.0 {
+                self.receiverIDs.append(receiverID)
+                self.totalWeight = self.totalWeight + weight
+                self.cumulativeWeights.append(self.totalWeight)
+            }
+        }
+        
+        /// Sets cursor to specific position.
+        access(contract) fun setCursor(_ position: Int) {
+            self.cursor = position
+        }
+        
+        // ============================================================
+        // READ METHODS (for strategies via reference)
+        // ============================================================
+        
+        access(all) view fun getCursor(): Int {
+            return self.cursor
+        }
+        
+        access(all) view fun getSnapshotReceiverCount(): Int {
+            return self.snapshotReceiverCount
+        }
+        
+        access(all) view fun getReceiverCount(): Int {
+            return self.receiverIDs.length
+        }
+        
+        access(all) view fun getTotalWeight(): UFix64 {
+            return self.totalWeight
+        }
+        
+        access(all) view fun getReceiverID(at index: Int): UInt64 {
+            return self.receiverIDs[index]
+        }
+        
+        access(all) view fun getCumulativeWeight(at index: Int): UFix64 {
+            return self.cumulativeWeights[index]
+        }
+        
+        /// Binary search: finds first index where cumulativeWeights[i] > target.
+        /// Used for weighted random selection. O(log n) complexity.
+        access(all) view fun findWinnerIndex(randomValue: UFix64): Int {
+            if self.receiverIDs.length == 0 {
+                return 0
+            }
+            
+            var low = 0
+            var high = self.receiverIDs.length - 1
+            
+            while low < high {
+                let mid = (low + high) / 2
+                if self.cumulativeWeights[mid] <= randomValue {
+                    low = mid + 1
+                } else {
+                    high = mid
+                }
+            }
+            return low
+        }
+        
+        /// Gets the individual weight for a receiver at a given index.
+        /// (Not cumulative - the actual weight for that receiver)
+        access(all) view fun getWeight(at index: Int): UFix64 {
+            if index == 0 {
+                return self.cumulativeWeights[0]
+            }
+            return self.cumulativeWeights[index] - self.cumulativeWeights[index - 1]
+        }
+        
+        // ============================================================
+        // WINNER SELECTION METHODS
+        // ============================================================
+        
+        /// Scaling constants for random number conversion.
+        /// Uses 1 billion for 9 decimal places of precision.
+        access(self) let RANDOM_SCALING_FACTOR: UInt64
+        access(self) let RANDOM_SCALING_DIVISOR: UFix64
+        
+        /// Selects winners using weighted random selection without replacement.
+        /// Uses PRNG for deterministic sequence from initial seed.
+        /// For single winner, pass count=1.
+        /// 
+        /// @param count - Number of winners to select
+        /// @param randomNumber - Initial seed for PRNG
+        /// @return Array of winner receiverIDs (may be shorter than count if insufficient participants)
+        access(all) fun selectWinners(count: Int, randomNumber: UInt64): [UInt64] {
+            let receiverCount = self.receiverIDs.length
+            if receiverCount == 0 || count == 0 {
+                return []
+            }
+            
+            let actualCount = count < receiverCount ? count : receiverCount
+            
+            // Single participant case
+            if receiverCount == 1 {
+                return [self.receiverIDs[0]]
+            }
+            
+            // Zero weight fallback: return first N participants
+            if self.totalWeight == 0.0 {
+                var winners: [UInt64] = []
+                for idx in InclusiveRange(0, actualCount - 1) {
+                    winners.append(self.receiverIDs[idx])
+                }
+                return winners
+            }
+            
+            // Initialize PRNG
+            let prg = self.createPRNG(seed: randomNumber)
+            
+            // Select winners without replacement
+            var winners: [UInt64] = []
+            var selectedIndices: {Int: Bool} = {}
+            var remainingWeight = self.totalWeight
+            
+            var selected = 0
+            while selected < actualCount && remainingWeight > 0.0 {
+                let rng = prg.nextUInt64()
+                let scaledRandom = UFix64(rng % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
+                let randomValue = scaledRandom * remainingWeight
+                
+                // Find winner skipping already-selected
+                var runningSum: UFix64 = 0.0
+                var selectedIdx = 0
+                
+                for i in InclusiveRange(0, receiverCount - 1) {
+                    if selectedIndices[i] != nil {
+                        continue
+                    }
+                    let weight = self.getWeight(at: i)
+                    runningSum = runningSum + weight
+                    if randomValue < runningSum {
+                        selectedIdx = i
+                        break
+                    }
+                }
+                
+                winners.append(self.receiverIDs[selectedIdx])
+                let selectedWeight = self.getWeight(at: selectedIdx)
+                selectedIndices[selectedIdx] = true
+                remainingWeight = remainingWeight - selectedWeight
+                selected = selected + 1
+            }
+            
+            return winners
+        }
+        
+        /// Creates a PRNG from a seed for deterministic multi-winner selection.
+        access(self) fun createPRNG(seed: UInt64): Xorshift128plus.PRG {
+            var randomBytes = seed.toBigEndianBytes()
+            while randomBytes.length < 16 {
+                randomBytes.appendAll(seed.toBigEndianBytes())
+            }
+            var paddedBytes: [UInt8] = []
+            for idx in InclusiveRange(0, 15) {
+                paddedBytes.append(randomBytes[idx % randomBytes.length])
+            }
+            return Xorshift128plus.PRG(sourceOfRandomness: paddedBytes, salt: [])
         }
     }
     
@@ -2729,8 +2573,13 @@ access(all) contract PrizeSavings {
         /// Mapping of receiverID to their lifetime lottery winnings (cumulative).
         access(self) let receiverTotalEarnedPrizes: {UInt64: UFix64}
         
-        /// Set of registered receiver IDs (for iteration during draws).
-        access(self) let registeredReceivers: {UInt64: Bool}
+        /// Maps receiverID to their index in registeredReceiverList.
+        /// Used for O(1) lookup and O(1) unregistration via swap-and-pop.
+        access(self) var registeredReceivers: {UInt64: Int}
+        
+        /// Sequential list of registered receiver IDs.
+        /// Used for O(n) iteration during batch processing without array allocation.
+        access(self) var registeredReceiverList: [UInt64]
         
         /// Mapping of receiverID to bonus lottery weight records.
         access(self) let receiverBonusWeights: {UInt64: BonusWeightRecord}
@@ -2788,7 +2637,7 @@ access(all) contract PrizeSavings {
         // NESTED RESOURCES
         // ============================================================
         
-        /// Manages savings: share accounting and TWAB tracking.
+        /// Manages savings: ERC4626-style share accounting.
         access(self) let savingsDistributor: @SavingsDistributor
         
         /// Manages lottery: prize pool, NFTs, pending claims.
@@ -2801,8 +2650,27 @@ access(all) contract PrizeSavings {
         /// On-chain randomness consumer for fair lottery selection.
         access(self) let randomConsumer: @RandomConsumer.Consumer
         
-        /// Batch draw state for multi-transaction draws (not yet implemented).
-        access(self) var batchDrawState: BatchDrawState?
+        // ============================================================
+        // ROUND-BASED TWAB TRACKING
+        // ============================================================
+        
+        /// Current active round for TWAB accumulation.
+        /// Deposits and withdrawals adjust projections in this round.
+        access(self) var activeRound: @Round
+        
+        /// Round that has ended and is being processed for the lottery draw.
+        /// Created during startDraw(), destroyed during completeDraw().
+        access(self) var pendingDrawRound: @Round?
+        
+        // ============================================================
+        // BATCH PROCESSING STATE (for lottery weight capture)
+        // ============================================================
+        
+        /// Selection data being built during batch processing.
+        /// Created at startDraw(), built by processDrawBatch(),
+        /// reference passed to selectWinners() in completeDraw(), then destroyed.
+        /// Using a resource enables zero-copy reference passing for large datasets.
+        access(self) var pendingSelectionData: @BatchSelectionData?
         
         /// Creates a new Pool.
         /// @param config - Pool configuration
@@ -2825,6 +2693,7 @@ access(all) contract PrizeSavings {
             self.receiverDeposits = {}
             self.receiverTotalEarnedPrizes = {}
             self.registeredReceivers = {}
+            self.registeredReceiverList = []
             self.receiverBonusWeights = {}
             
             // Initialize accounting
@@ -2846,23 +2715,65 @@ access(all) contract PrizeSavings {
             // Initialize draw state
             self.pendingDrawReceipt <- nil
             self.randomConsumer <- RandomConsumer.createConsumer()
-            self.batchDrawState = nil
+            
+            // Initialize round-based TWAB tracking
+            // Create initial round starting now with configured draw interval as duration
+            self.activeRound <- create Round(
+                roundID: 1,
+                startTime: getCurrentBlock().timestamp,
+                duration: config.drawIntervalSeconds
+            )
+            self.pendingDrawRound <- nil
+            
+            // Initialize selection data (nil = no batch in progress)
+            self.pendingSelectionData <- nil
         }
         
         // ============================================================
         // RECEIVER REGISTRATION
         // ============================================================
-        
+
         /// Registers a receiver ID with this pool.
         /// Called automatically when a user first deposits.
+        /// Adds to both the index dictionary and the sequential list.
         /// @param receiverID - UUID of the PoolPositionCollection
         access(contract) fun registerReceiver(receiverID: UInt64) {
             pre {
                 self.registeredReceivers[receiverID] == nil: "Receiver already registered"
             }
-            self.registeredReceivers[receiverID] = true
+            // Store index pointing to the end of the list
+            let index = self.registeredReceiverList.length
+            self.registeredReceivers[receiverID] = index
+            self.registeredReceiverList.append(receiverID)
         }
         
+        /// Unregisters a receiver ID from this pool.
+        /// Called when a user withdraws to 0 shares.
+        /// Uses swap-and-pop for O(1) removal from the list.
+        /// @param receiverID - UUID of the PoolPositionCollection
+        access(contract) fun unregisterReceiver(receiverID: UInt64) {
+            pre {
+                self.registeredReceivers[receiverID] != nil: "Receiver not registered"
+            }
+            
+            let index = self.registeredReceivers[receiverID]!
+            let lastIndex = self.registeredReceiverList.length - 1
+            
+            // If not the last element, swap with last
+            if index != lastIndex {
+                let lastReceiverID = self.registeredReceiverList[lastIndex]
+                // Move last element to the removed position
+                self.registeredReceiverList[index] = lastReceiverID
+                // Update the moved element's index in the dictionary
+                self.registeredReceivers[lastReceiverID] = index
+            }
+            
+            // Remove last element (O(1))
+            self.registeredReceiverList.removeLast()
+            // Remove from dictionary
+            self.registeredReceivers.remove(key: receiverID)
+        }
+
         // ============================================================
         // EMERGENCY STATE MANAGEMENT
         // ============================================================
@@ -3133,10 +3044,15 @@ access(all) contract PrizeSavings {
         /// 1. Validate state (not paused/emergency) and amount (>= minimum)
         /// 2. Process any pending yield rewards
         /// 3. Mint shares proportional to deposit
-        /// 4. Update accounting (receiverDeposits, totalDeposited, totalStaked)
-        /// 5. Deposit to yield source
+        /// 4. Update TWAB in active round (or mark as gap interactor if round ended)
+        /// 5. Update accounting (receiverDeposits, totalDeposited, totalStaked)
+        /// 6. Deposit to yield source
         /// 
-        /// TWAB is automatically updated in SavingsDistributor.deposit().
+        /// TWAB HANDLING:
+        /// - If in active round: adjustProjection() increases projected TWAB
+        /// - If in gap period (round ended, startDraw not called): finalize in ended round,
+        ///   mark user for full-round initialization in next round
+        /// - If pending draw exists: initialize user in that round with current shares
         /// 
         /// @param from - Vault containing funds to deposit (consumed)
         /// @param receiverID - UUID of the depositor's PoolPositionCollection
@@ -3144,12 +3060,13 @@ access(all) contract PrizeSavings {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive. Amount: ".concat(from.balance.toString())
                 from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
-                self.registeredReceivers[receiverID] != nil: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
             }
             
-            // TODO: Future batch draw support - add check here:
-            // assert(self.batchDrawState == nil, message: "Deposits locked during batch draw processing")
-            
+            // Auto-register if not registered (handles re-deposits after full withdrawal)
+            if self.registeredReceivers[receiverID] == nil {
+                self.registerReceiver(receiverID: receiverID)
+            }
+
             // Enforce state-specific deposit rules
             switch self.emergencyState {
                 case PoolEmergencyState.Normal:
@@ -3174,9 +3091,37 @@ access(all) contract PrizeSavings {
             }
             
             let amount = from.balance
+            let now = getCurrentBlock().timestamp
             
-            // Record deposit in savings distributor (mints shares, updates TWAB)
-            self.savingsDistributor.deposit(receiverID: receiverID, amount: amount)
+            // Get current shares BEFORE the deposit for TWAB calculation
+            let oldShares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            
+            // Record deposit in savings distributor (mints shares)
+            let newSharesMinted = self.savingsDistributor.deposit(receiverID: receiverID, amount: amount)
+            let newShares = oldShares + newSharesMinted
+            
+            // Update TWAB in the appropriate round(s)
+            // Check if we're in the gap period (active round has ended but startDraw not called)
+            let inGapPeriod = self.activeRound.hasEnded()
+            
+            if inGapPeriod {
+                // Gap period: finalize user's TWAB in ended round with pre-transaction shares
+                // New round will use lazy fallback (currentShares * duration) automatically
+                self.activeRound.initializeIfNeeded(receiverID: receiverID, shares: oldShares)
+            } else {
+                // Normal: adjust active round projection
+                self.activeRound.adjustProjection(
+                    receiverID: receiverID,
+                    oldShares: oldShares,
+                    newShares: newShares,
+                    atTime: now
+                )
+            }
+            
+            // Also initialize in pending draw round if one exists (user interacting after startDraw)
+            if let pendingRound = &self.pendingDrawRound as &Round? {
+                pendingRound.initializeIfNeeded(receiverID: receiverID, shares: oldShares)
+            }
             
             // Update receiver's principal (deposits + prizes)
             let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
@@ -3203,7 +3148,13 @@ access(all) contract PrizeSavings {
         /// 3. Process pending yield (if in normal mode)
         /// 4. Withdraw from yield source
         /// 5. Burn shares proportional to withdrawal
-        /// 6. Update accounting (receiverDeposits, totalDeposited, totalStaked)
+        /// 6. Update TWAB in active round (or mark as gap interactor if round ended)
+        /// 7. Update accounting (receiverDeposits, totalDeposited, totalStaked)
+        /// 
+        /// TWAB HANDLING:
+        /// - If in active round: adjustProjection() decreases projected TWAB
+        /// - If in gap period: finalize in ended round, mark user for next round
+        /// - If pending draw exists: initialize user in that round with pre-withdraw shares
         /// 
         /// If yield source has insufficient liquidity, returns empty vault
         /// and may trigger emergency mode.
@@ -3215,9 +3166,6 @@ access(all) contract PrizeSavings {
             pre {
                 self.registeredReceivers[receiverID] != nil: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
             }
-            
-            // TODO: Future batch draw support - add check here:
-            // assert(self.batchDrawState == nil, message: "Withdrawals locked during batch draw processing")
             
             // Paused pool: nothing allowed
             assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(amount.toString()))
@@ -3295,8 +3243,39 @@ access(all) contract PrizeSavings {
                 self.consecutiveWithdrawFailures = 0
             }
             
+            let now = getCurrentBlock().timestamp
+            
+            // Get current shares BEFORE the withdrawal for TWAB calculation
+            let oldShares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            
             // Burn shares proportional to withdrawal
             let _ = self.savingsDistributor.withdraw(receiverID: receiverID, amount: actualWithdrawn)
+            
+            // Get new shares AFTER the withdrawal
+            let newShares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            
+            // Update TWAB in the appropriate round(s)
+            // Check if we're in the gap period (active round has ended but startDraw not called)
+            let inGapPeriod = self.activeRound.hasEnded()
+            
+            if inGapPeriod {
+                // Gap period: finalize user's TWAB in ended round with pre-transaction shares
+                // New round will use lazy fallback (currentShares * duration) automatically
+                self.activeRound.initializeIfNeeded(receiverID: receiverID, shares: oldShares)
+            } else {
+                // Normal: adjust active round projection
+                self.activeRound.adjustProjection(
+                    receiverID: receiverID,
+                    oldShares: oldShares,
+                    newShares: newShares,
+                    atTime: now
+                )
+            }
+            
+            // Also initialize in pending draw round if one exists
+            if let pendingRound = &self.pendingDrawRound as &Round? {
+                pendingRound.initializeIfNeeded(receiverID: receiverID, shares: oldShares)
+            }
             
             // Calculate how much of withdrawal is principal vs interest
             // Interest is withdrawn first (reduces less from receiverDeposits)
@@ -3312,6 +3291,14 @@ access(all) contract PrizeSavings {
             
             // Update pool total (includes both principal and interest)
             self.totalStaked = self.totalStaked - actualWithdrawn
+            
+            // If user has withdrawn to 0 shares, unregister them
+            // BUT NOT if a draw is in progress - unregistering during batch processing
+            // would corrupt indices (swap-and-pop). Ghost users with 0 shares get 0 weight.
+            // They'll be cleaned up after the draw completes.
+            if newShares == 0.0 && self.pendingSelectionData == nil {
+                self.unregisterReceiver(receiverID: receiverID)
+            }
             
             emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: actualWithdrawn)
             return <- withdrawn
@@ -3504,20 +3491,26 @@ access(all) contract PrizeSavings {
         // LOTTERY DRAW OPERATIONS
         // ============================================================
         
-        /// Starts a lottery draw (Phase 1 of 2).
+        /// Starts a lottery draw (Phase 1 of 4 - Batched Draw Process).
         /// 
         /// FLOW:
-        /// 1. Validate state (Normal, no active draw, interval elapsed)
-        /// 2. Capture all users' TWAB weights (time-weighted share-seconds)
-        /// 3. Add bonus weights (scaled by epoch duration)
-        /// 4. Start new epoch (resets TWAB for next draw)
-        /// 5. Materialize pending lottery yield from yield source
-        /// 6. Request randomness from Flow's RandomConsumer
-        /// 7. Store PrizeDrawReceipt with weights and request
+        /// 1. Validate state (Normal, no active draw, round has ended)
+        /// 2. Move ended round to pendingDrawRound
+        /// 3. Initialize batch capture state with receiver snapshot
+        /// 4. Create new active round starting now
+        /// 5. Emit NewRoundStarted event
         /// 
-        /// Must call completeDraw() after randomness is available (next block).
+        /// NEXT STEPS:
+        /// - Call processDrawBatch() repeatedly to capture TWAB weights
+        /// - When batch complete, call requestDrawRandomness()
+        /// - When randomness available, call completeDraw()
         /// 
-        /// FAIRNESS: Uses share-seconds so:
+        /// ROUND TRANSITION:
+        /// - Active round (ended) → pendingDrawRound (for lottery processing)
+        /// - New round created → becomes activeRound
+        /// - Gap interactors handled by lazy fallback in new round
+        /// 
+        /// FAIRNESS: Uses projection-based share-seconds so:
         /// - More shares = more lottery weight
         /// - Longer deposits = more lottery weight
         /// - Share-based TWAB is stable against price fluctuations
@@ -3525,41 +3518,159 @@ access(all) contract PrizeSavings {
             pre {
                 self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: \(self.emergencyState.rawValue)"
                 self.pendingDrawReceipt == nil: "Draw already in progress"
+                self.pendingDrawRound == nil: "Previous draw not completed"
             }
             
-            // Validate draw interval has elapsed
-            assert(self.canDrawNow(), message: "Not enough blocks since last draw")
+            // Validate round has ended (this replaces the old draw interval check)
+            assert(self.canDrawNow(), message: "Round has not ended yet")
             
             // Final health check before draw
             if self.checkAndAutoTriggerEmergency() {
                 panic("Emergency mode auto-triggered - cannot start draw")
             }
             
-            // Capture all users' final TWAB for this epoch
-            let timeWeightedStakes: {UInt64: UFix64} = {}
-            for receiverID in self.registeredReceivers.keys {
-                // Get accumulated share-seconds (captures current value)
-                let twabStake = self.savingsDistributor.updateAndGetTimeWeightedShares(receiverID: receiverID)
-                
-                // Add bonus weights, scaled by epoch duration for fairness
-                // (bonus per second × epoch duration = total bonus share-seconds)
-                let bonusWeight = self.getBonusWeight(receiverID: receiverID)
-                let epochDuration = getCurrentBlock().timestamp - self.savingsDistributor.getEpochStartTime()
-                let scaledBonus = bonusWeight * epochDuration
-                
-                let totalStake = twabStake + scaledBonus
-                if totalStake > 0.0 {
-                    timeWeightedStakes[receiverID] = totalStake
-                }
+            let now = getCurrentBlock().timestamp
+            
+            // Get the current round's info before transitioning
+            let endedRoundID = self.activeRound.getRoundID()
+            let roundDuration = self.activeRound.getDuration()
+            
+            // Create new round starting now (before the swap)
+            // Gap interactors are handled by lazy fallback - no explicit initialization needed
+            let newRoundID = endedRoundID + 1
+            let newRound <- create Round(
+                roundID: newRoundID,
+                startTime: now,
+                duration: roundDuration
+            )
+            
+            // Atomic swap: new round goes in, ended round comes out
+            let endedRound <- self.activeRound <- newRound
+            self.pendingDrawRound <-! endedRound
+            
+            // Create selection data resource for batch processing
+            // Snapshot the current receiver count - only these users will be processed
+            // New deposits during batch processing won't extend the batch (prevents DoS)
+            self.pendingSelectionData <-! create BatchSelectionData(
+                snapshotCount: self.registeredReceiverList.length
+            )
+            
+            // Emit new round started event
+            emit NewRoundStarted(
+                poolID: self.poolID,
+                roundID: newRoundID,
+                startTime: now,
+                duration: roundDuration
+            )
+            
+            // Update last draw timestamp (draw initiated, even though batch processing pending)
+            self.lastDrawTimestamp = now
+            
+            // Emit draw started event (weights will be captured via batch processing)
+            emit DrawBatchStarted(
+                poolID: self.poolID,
+                endedRoundID: endedRoundID,
+                newRoundID: newRoundID,
+                totalReceivers: self.registeredReceiverList.length
+            )
+        }
+        
+        /// Processes a batch of receivers for weight capture (Phase 2 of 4).
+        /// 
+        /// Call this repeatedly until isDrawBatchComplete() returns true.
+        /// Iterates directly over registeredReceiverList using selection data cursor.
+        /// 
+        /// FLOW:
+        /// 1. Get current shares for each receiver in batch
+        /// 2. Calculate TWAB from pendingDrawRound
+        /// 3. Add bonus weights (scaled by round duration)
+        /// 4. Build cumulative weight sums in pendingSelectionData (for binary search)
+        /// 
+        /// @param limit - Maximum receivers to process this batch
+        /// @return Number of receivers remaining to process
+        access(contract) fun processDrawBatch(limit: Int): Int {
+            pre {
+                self.pendingDrawRound != nil: "No draw in progress"
+                self.pendingDrawReceipt == nil: "Randomness already requested"
+                self.pendingSelectionData != nil: "No selection data"
+                !self.isBatchComplete(): "Batch processing already complete"
             }
             
-            // Start new epoch - all TWAB counters reset
-            self.savingsDistributor.startNewPeriod()
-            emit NewEpochStarted(
+            // Get reference to selection data
+            let selectionDataRef = (&self.pendingSelectionData as &BatchSelectionData?)!
+            let selectionData = selectionDataRef
+            
+            let startCursor = selectionData.getCursor()
+            let roundDuration = self.pendingDrawRound?.getDuration() ?? self.config.drawIntervalSeconds
+            // Use snapshot count - only process users who existed at startDraw time
+            let snapshotCount = selectionData.getSnapshotReceiverCount()
+            let endIndex = startCursor + limit > snapshotCount 
+                ? snapshotCount 
+                : startCursor + limit
+            
+            // Process batch directly from registeredReceiverList
+            var i = startCursor
+            while i < endIndex {
+                let receiverID = self.registeredReceiverList[i]
+                
+                // Get current shares
+                let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+                
+                // Get TWAB from pending draw round
+                let twabStake = self.pendingDrawRound?.getProjectedTWAB(
+                    receiverID: receiverID, 
+                    currentShares: shares
+                ) ?? 0.0
+                
+                // Add bonus weight (scaled by round duration)
+                let bonusWeight = self.getBonusWeight(receiverID: receiverID)
+                let scaledBonus = bonusWeight * roundDuration
+                
+                let totalWeight = twabStake + scaledBonus
+                
+                // Add entry directly to resource - builds cumulative sum on the fly
+                // Only adds if weight > 0
+                selectionData.addEntry(receiverID: receiverID, weight: totalWeight)
+                
+                i = i + 1
+            }
+            
+            // Update cursor directly in resource
+            let processed = endIndex - startCursor
+            selectionData.setCursor(endIndex)
+            
+            // Calculate remaining based on snapshot count (not current list length)
+            let remaining = snapshotCount - endIndex
+            
+            emit DrawBatchProcessed(
                 poolID: self.poolID,
-                epochID: self.savingsDistributor.getCurrentEpochID(),
-                startTime: self.savingsDistributor.getEpochStartTime()
+                processed: processed,
+                remaining: remaining
             )
+            
+            return remaining
+        }
+        
+        /// Requests randomness after batch processing is complete (Phase 3 of 4).
+        /// 
+        /// FLOW:
+        /// 1. Validate batch processing is complete
+        /// 2. Materialize pending yield from yield source
+        /// 3. Request randomness from Flow's RandomConsumer
+        /// 4. Create PrizeDrawReceipt with request
+        /// 
+        /// NOTE: Selection data (user weights) stays in pendingSelectionData resource
+        /// until completeDraw(), where it's accessed via reference for zero-copy
+        /// winner selection.
+        /// 
+        /// Must call completeDraw() after randomness is available (next block).
+        access(contract) fun requestDrawRandomness() {
+            pre {
+                self.pendingDrawRound != nil: "No draw in progress"
+                self.pendingSelectionData != nil: "No selection data"
+                self.isBatchComplete(): "Batch processing not complete"
+                self.pendingDrawReceipt == nil: "Randomness already requested"
+            }
             
             // Materialize pending lottery funds from yield source
             if self.pendingLotteryYield > 0.0 {
@@ -3596,74 +3707,62 @@ access(all) contract PrizeSavings {
                 }
             }
             
+            // Get total weight for event (read via reference, no copy)
+            let selectionDataRef = &self.pendingSelectionData as &BatchSelectionData?
+            let totalWeight = selectionDataRef?.getTotalWeight() ?? 0.0
+            
             let prizeAmount = self.lotteryDistributor.getPrizePoolBalance()
             assert(prizeAmount > 0.0, message: "No prize pool funds")
             
+            // Request randomness (selection data stays in resource until completeDraw)
             let randomRequest <- self.randomConsumer.requestRandomness()
             let receipt <- create PrizeDrawReceipt(
                 prizeAmount: prizeAmount,
-                request: <- randomRequest,
-                timeWeightedStakes: timeWeightedStakes
+                request: <- randomRequest
             )
+            
+            let commitBlock = receipt.getRequestBlock() ?? 0
+            emit DrawRandomnessRequested(
+                poolID: self.poolID,
+                totalWeight: totalWeight,
+                prizeAmount: prizeAmount,
+                commitBlock: commitBlock
+            )
+            
+            // Also emit the legacy event for backwards compatibility
             emit PrizeDrawCommitted(
                 poolID: self.poolID,
                 prizeAmount: prizeAmount,
-                commitBlock: receipt.getRequestBlock() ?? 0
+                commitBlock: commitBlock
             )
             
             self.pendingDrawReceipt <-! receipt
-            self.lastDrawTimestamp = getCurrentBlock().timestamp
         }
         
-        // Batch draw: breaks startDraw() into multiple transactions for scalability
-        // Flow: startDrawSnapshot() → captureStakesBatch() (repeat) → finalizeDrawStart()
-        
-        /// Step 1: Lock the pool and take time snapshot (not yet implemented)
-        access(CriticalOps) fun startDrawSnapshot() {
-            pre {
-                self.emergencyState == PoolEmergencyState.Normal: "Draws disabled"
-                self.batchDrawState == nil: "Draw already in progress"
-                self.pendingDrawReceipt == nil: "Receipt exists"
-            }
-            panic("Batch draw not yet implemented")
-        }
-        
-        /// Step 2: Calculate stakes for a batch of users (not yet implemented)
-        access(CriticalOps) fun captureStakesBatch(limit: Int) {
-            pre {
-                self.batchDrawState != nil: "No batch draw active"
-            }
-            panic("Batch draw not yet implemented")
-        }
-        
-        /// Step 3: Request randomness after all batches processed (not yet implemented)
-        access(CriticalOps) fun finalizeDrawStart() {
-            pre {
-                self.batchDrawState != nil: "No batch draw active"
-                (self.batchDrawState?.processedCount ?? 0) >= self.registeredReceivers.keys.length: "Batch processing not complete"
-            }
-            panic("Batch draw not yet implemented")
-        }
-        
-        /// Completes a lottery draw (Phase 2 of 2).
+        /// Completes a lottery draw (Phase 4 of 4).
         /// 
         /// FLOW:
-        /// 1. Consume PrizeDrawReceipt (must have been created by startDraw)
+        /// 1. Consume PrizeDrawReceipt (must have been created by requestDrawRandomness)
         /// 2. Fulfill randomness request (secure on-chain random from previous block)
         /// 3. Apply winner selection strategy with captured weights
         /// 4. For each winner:
         ///    a. Withdraw prize from lottery pool
-        ///    b. Auto-compound prize into winner's deposit (mints shares)
+        ///    b. Auto-compound prize into winner's deposit (mints shares + updates TWAB)
         ///    c. Re-deposit prize to yield source (continues earning)
         ///    d. Award any NFT prizes (stored for claiming)
         /// 5. Record winners in tracker (if configured)
         /// 6. Emit PrizesAwarded event
+        /// 7. Destroy pendingDrawRound (cleanup)
+        /// 
+        /// TWAB: Prize deposits update the active round's TWAB projections,
+        /// giving winners credit for their new shares going forward.
         /// 
         /// IMPORTANT: Prizes are AUTO-COMPOUNDED into deposits, not transferred.
         /// Winners can withdraw their increased balance at any time.
         access(contract) fun completeDraw() {
             pre {
                 self.pendingDrawReceipt != nil: "No draw in progress"
+                self.pendingSelectionData != nil: "No selection data"
             }
             
             // Extract and consume the pending receipt
@@ -3671,39 +3770,53 @@ access(all) contract PrizeSavings {
             let unwrappedReceipt <- receipt!
             let totalPrizeAmount = unwrappedReceipt.prizeAmount
             
-            // Get the weight snapshot captured at startDraw()
-            let timeWeightedStakes = unwrappedReceipt.getTimeWeightedStakes()
-            
             // Fulfill randomness request (must be different block from request)
             let request <- unwrappedReceipt.popRequest()
             let randomNumber = self.randomConsumer.fulfillRandomRequest(<- request)
             destroy unwrappedReceipt
             
-            // Apply winner selection strategy
-            let selectionResult = self.config.winnerSelectionStrategy.selectWinners(
-                randomNumber: randomNumber,
-                receiverWeights: timeWeightedStakes,
+            // Get reference to selection data for zero-copy winner selection
+            let selectionDataRef = (&self.pendingSelectionData as &BatchSelectionData?)!
+            
+            // Step 1: Select winners using BatchSelectionData (handles weighted random)
+            let winnerCount = self.config.prizeDistribution.getWinnerCount()
+            let winners = selectionDataRef.selectWinners(
+                count: winnerCount,
+                randomNumber: randomNumber
+            )
+            
+            // Step 2: Distribute prizes using PrizeDistribution (handles amounts/NFTs)
+            let selectionResult = self.config.prizeDistribution.distributePrizes(
+                winners: winners,
                 totalPrizeAmount: totalPrizeAmount
             )
             
-            let winners = selectionResult.winners
+            // Consume and destroy selection data (done with it)
+            let usedSelectionData <- self.pendingSelectionData <- nil
+            destroy usedSelectionData
+            
+            // Extract distribution results (winners are already selected above)
+            let distributedWinners = selectionResult.winners
             let prizeAmounts = selectionResult.amounts
             let nftIDsPerWinner = selectionResult.nftIDs
             
             // Handle case of no winners (e.g., no eligible participants)
-            if winners.length == 0 {
+            if distributedWinners.length == 0 {
                 emit PrizesAwarded(
                     poolID: self.poolID,
                     winners: [],
                     amounts: [],
                     round: self.lotteryDistributor.getPrizeRound()
                 )
+                // Still need to clean up the pending draw round
+                let usedRound <- self.pendingDrawRound <- nil
+                destroy usedRound
                 return
             }
             
             // Validate parallel arrays are consistent
-            assert(winners.length == prizeAmounts.length, message: "Winners and prize amounts must match")
-            assert(winners.length == nftIDsPerWinner.length, message: "Winners and NFT IDs must match")
+            assert(distributedWinners.length == prizeAmounts.length, message: "Winners and prize amounts must match")
+            assert(distributedWinners.length == nftIDsPerWinner.length, message: "Winners and NFT IDs must match")
             
             // Increment draw round
             let currentRound = self.lotteryDistributor.getPrizeRound() + 1
@@ -3711,8 +3824,8 @@ access(all) contract PrizeSavings {
             var totalAwarded: UFix64 = 0.0
             
             // Process each winner
-            for i in InclusiveRange(0, winners.length - 1) {
-                let winnerID = winners[i]
+            for i in InclusiveRange(0, distributedWinners.length - 1) {
+                let winnerID = distributedWinners[i]
                 let prizeAmount = prizeAmounts[i]
                 let nftIDsForWinner = nftIDsPerWinner[i]
                 
@@ -3722,8 +3835,22 @@ access(all) contract PrizeSavings {
                     yieldSource: nil
                 )
                 
+                // Get current shares BEFORE the prize deposit for TWAB calculation
+                let oldShares = self.savingsDistributor.getUserShares(receiverID: winnerID)
+                
                 // AUTO-COMPOUND: Add prize to winner's deposit (mints shares)
-                self.savingsDistributor.deposit(receiverID: winnerID, amount: prizeAmount)
+                let newSharesMinted = self.savingsDistributor.deposit(receiverID: winnerID, amount: prizeAmount)
+                let newShares = oldShares + newSharesMinted
+                
+                // Update TWAB in active round (prize deposits adjust projection like regular deposits)
+                // Note: We're in the new round now (startDraw already transitioned)
+                let now = getCurrentBlock().timestamp
+                self.activeRound.adjustProjection(
+                    receiverID: winnerID,
+                    oldShares: oldShares,
+                    newShares: newShares,
+                    atTime: now
+                )
                 
                 // Update winner's principal (prizes count as deposits for no-loss guarantee)
                 let currentPrincipal = self.receiverDeposits[winnerID] ?? 0.0
@@ -3786,11 +3913,11 @@ access(all) contract PrizeSavings {
             // Record winners in external tracker (for leaderboards, analytics)
             if let trackerCap = self.config.winnerTrackerCap {
                 if let trackerRef = trackerCap.borrow() {
-                    for idx in InclusiveRange(0, winners.length - 1) {
+                    for idx in InclusiveRange(0, distributedWinners.length - 1) {
                         trackerRef.recordWinner(
                             poolID: self.poolID,
                             round: currentRound,
-                            winnerReceiverID: winners[idx],
+                            winnerReceiverID: distributedWinners[idx],
                             amount: prizeAmounts[idx],
                             nftIDs: nftIDsPerWinner[idx]
                         )
@@ -3800,10 +3927,14 @@ access(all) contract PrizeSavings {
             
             emit PrizesAwarded(
                 poolID: self.poolID,
-                winners: winners,
+                winners: distributedWinners,
                 amounts: prizeAmounts,
                 round: currentRound
             )
+            
+            // Destroy the pending draw round - its TWAB data has been used
+            let usedRound <- self.pendingDrawRound <- nil
+            destroy usedRound
         }
         
         // ============================================================
@@ -3821,15 +3952,15 @@ access(all) contract PrizeSavings {
             self.config.setDistributionStrategy(strategy: strategy)
         }
         
-        /// Returns the name of the current winner selection strategy.
-        access(all) view fun getWinnerSelectionStrategyName(): String {
-            return self.config.winnerSelectionStrategy.getStrategyName()
+        /// Returns the name of the current prize distribution.
+        access(all) view fun getPrizeDistributionName(): String {
+            return self.config.prizeDistribution.getDistributionName()
         }
         
-        /// Updates the winner selection strategy. Called by Admin.
-        /// @param strategy - New winner selection strategy
-        access(contract) fun setWinnerSelectionStrategy(strategy: {WinnerSelectionStrategy}) {
-            self.config.setWinnerSelectionStrategy(strategy: strategy)
+        /// Updates the prize distribution. Called by Admin.
+        /// @param distribution - New prize distribution
+        access(contract) fun setPrizeDistribution(distribution: {PrizeDistribution}) {
+            self.config.setPrizeDistribution(distribution: distribution)
         }
         
         /// Returns whether a winner tracker is configured.
@@ -4004,10 +4135,11 @@ access(all) contract PrizeSavings {
         // ============================================================
         // DRAW TIMING
         // ============================================================
-        
-        /// Returns whether the draw interval has elapsed and a draw can start.
+
+        /// Returns whether the current round has ended and a draw can start.
+        /// This checks if the activeRound's end time has passed.
         access(all) view fun canDrawNow(): Bool {
-            return (getCurrentBlock().timestamp - self.lastDrawTimestamp) >= self.config.drawIntervalSeconds
+            return self.activeRound.hasEnded()
         }
         
         /// Returns the "no-loss guarantee" amount: user deposits + auto-compounded lottery prizes
@@ -4054,41 +4186,105 @@ access(all) contract PrizeSavings {
             return self.savingsDistributor.getSharePrice()
         }
         
+        /// Returns the user's projected TWAB for the current active round.
+        /// @param receiverID - User's receiver ID
+        /// @return Projected share-seconds at round end
         access(all) view fun getUserTimeWeightedShares(receiverID: UInt64): UFix64 {
-            return self.savingsDistributor.getTimeWeightedShares(receiverID: receiverID)
+            let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            return self.activeRound.getProjectedTWAB(receiverID: receiverID, currentShares: shares)
         }
         
-        access(all) view fun getCurrentEpochID(): UInt64 {
-            return self.savingsDistributor.getCurrentEpochID()
+        /// Returns the current round ID.
+        access(all) view fun getCurrentRoundID(): UInt64 {
+            return self.activeRound.getRoundID()
         }
         
-        access(all) view fun getEpochStartTime(): UFix64 {
-            return self.savingsDistributor.getEpochStartTime()
+        /// Returns the current round start time.
+        access(all) view fun getRoundStartTime(): UFix64 {
+            return self.activeRound.getStartTime()
         }
         
-        access(all) view fun getEpochElapsedTime(): UFix64 {
-            return getCurrentBlock().timestamp - self.savingsDistributor.getEpochStartTime()
+        /// Returns the current round end time.
+        access(all) view fun getRoundEndTime(): UFix64 {
+            return self.activeRound.getEndTime()
         }
         
-        /// Batch draw support
-        access(all) view fun isBatchDrawInProgress(): Bool {
-            return self.batchDrawState != nil
+        /// Returns the current round duration.
+        access(all) view fun getRoundDuration(): UFix64 {
+            return self.activeRound.getDuration()
         }
         
-        access(all) view fun getBatchDrawProgress(): {String: AnyStruct}? {
-            if let state = self.batchDrawState {
+        /// Returns elapsed time since round started.
+        access(all) view fun getRoundElapsedTime(): UFix64 {
+            let startTime = self.activeRound.getStartTime()
+            let now = getCurrentBlock().timestamp
+            if now > startTime {
+                return now - startTime
+            }
+            return 0.0
+        }
+        
+        /// Returns whether the active round has ended (gap period).
+        access(all) view fun isRoundEnded(): Bool {
+            return self.activeRound.hasEnded()
+        }
+        
+        /// Returns whether there's a pending draw round being processed.
+        access(all) view fun isPendingDrawInProgress(): Bool {
+            return self.pendingDrawRound != nil
+        }
+        
+        /// Returns the pending draw round ID if one exists.
+        access(all) view fun getPendingDrawRoundID(): UInt64? {
+            return self.pendingDrawRound?.getRoundID()
+        }
+        
+        /// Returns whether batch processing is complete (cursor has reached snapshot count).
+        /// Uses snapshotReceiverCount from startDraw() - only processes users who existed then.        /// New deposits during batch processing don't extend the batch (prevents DoS).
+        /// Returns true if no batch in progress (nil state = complete/not started).
+        access(all) view fun isBatchComplete(): Bool {
+            if let selectionDataRef = &self.pendingSelectionData as &BatchSelectionData? {
+                return selectionDataRef.getCursor() >= selectionDataRef.getSnapshotReceiverCount()
+            }
+            return true  // No batch in progress = considered complete
+        }
+        
+        /// Returns whether batch processing is in progress (after startDraw, before requestDrawRandomness).
+        access(all) view fun isDrawBatchInProgress(): Bool {
+            return self.pendingDrawRound != nil && self.pendingDrawReceipt == nil && self.pendingSelectionData != nil && !self.isBatchComplete()
+        }
+        
+        /// Returns whether batch processing is complete and ready for randomness request.
+        access(all) view fun isDrawBatchComplete(): Bool {
+            return self.pendingSelectionData != nil && self.isBatchComplete() && self.pendingDrawRound != nil
+        }
+        
+        /// Returns whether the draw is ready to complete (randomness has been requested).
+        access(all) view fun isReadyForDrawCompletion(): Bool {
+            return self.pendingDrawReceipt != nil
+        }
+        
+        /// Returns batch processing progress information.
+        /// Returns nil if no batch processing is in progress.
+        access(all) view fun getDrawBatchProgress(): {String: AnyStruct}? {
+            if let selectionDataRef = &self.pendingSelectionData as &BatchSelectionData? {
+                let total = self.registeredReceiverList.length
+                let processed = selectionDataRef.getCursor()
+                let percentComplete: UFix64 = total > 0 
+                    ? UFix64(processed) / UFix64(total) * 100.0 
+                    : 100.0
+                
                 return {
-                    "cutoffTime": state.drawCutoffTime,
-                    "totalWeight": state.totalWeight,
-                    "processedCount": state.processedCount,
-                    "snapshotEpochID": state.snapshotEpochID
+                    "cursor": processed,
+                    "total": total,
+                    "remaining": total - processed,
+                    "percentComplete": percentComplete,
+                    "isComplete": self.isBatchComplete(),
+                    "eligibleCount": selectionDataRef.getReceiverCount(),
+                    "totalWeight": selectionDataRef.getTotalWeight()
                 }
             }
             return nil
-        }
-        
-        access(all) view fun getUserProjectedShareSeconds(receiverID: UInt64, atTime: UFix64): UFix64 {
-            return self.savingsDistributor.calculateShareSecondsAtTime(receiverID: receiverID, targetTime: atTime)
         }
         
         /// Preview how many shares would be minted for a deposit amount (ERC-4626 style)
@@ -4110,7 +4306,11 @@ access(all) contract PrizeSavings {
         }
         
         access(all) view fun getRegisteredReceiverIDs(): [UInt64] {
-            return self.registeredReceivers.keys
+            return self.registeredReceiverList
+        }
+        
+        access(all) view fun getRegisteredReceiverCount(): Int {
+            return self.registeredReceiverList.length
         }
         
         access(all) view fun isDrawInProgress(): Bool {
@@ -4206,64 +4406,49 @@ access(all) contract PrizeSavings {
         // - Share-based TWAB is stable against price fluctuations (yield/loss)
         // ============================================================
         
-        /// Internal: Returns the user's current accumulated entries (TWAB / drawInterval).
-        /// This represents their lottery weight accumulated so far, NOT their final weight.
-        access(self) view fun getCurrentEntries(receiverID: UInt64): UFix64 {
-            let twab = self.savingsDistributor.getTimeWeightedShares(receiverID: receiverID)
-            let drawInterval = self.config.drawIntervalSeconds
-            if drawInterval == 0.0 {
-                return 0.0
-            }
-            return twab / drawInterval
-        }
-        
-        /// Returns the user's entry count for this draw.
-        /// Projects TWAB forward to draw time assuming no share changes.
-        /// Formula: (currentTWAB + shares × remainingTime) / drawInterval
+        /// Returns the user's projected entries for this round.
+        /// Uses projection-based TWAB from the active round.
+        /// Formula: projectedTWAB / roundDuration
         /// 
         /// Examples:
-        /// - 10 shares at start of draw → 10 entries
-        /// - 10 shares deposited halfway through draw → 5 entries
+        /// - 10 shares at start of round → 10 entries (full round projection)
+        /// - 10 shares deposited halfway through round → ~5 entries (prorated)
         /// - At next round, same 10 shares → 10 entries (full credit)
         access(all) view fun getUserEntries(receiverID: UInt64): UFix64 {
-            let drawInterval = self.config.drawIntervalSeconds
-            if drawInterval == 0.0 {
+            let roundDuration = self.activeRound.getDuration()
+            if roundDuration == 0.0 {
                 return 0.0
             }
             
-            let currentTwab = self.savingsDistributor.getTimeWeightedShares(receiverID: receiverID)
-            let currentShares = self.savingsDistributor.getUserShares(receiverID: receiverID)
-            let remainingTime = self.getTimeUntilNextDraw()
+            let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            let projectedTwab = self.activeRound.getProjectedTWAB(receiverID: receiverID, currentShares: shares)
             
-            // Project TWAB forward: current + (shares × remaining time)
-            let projectedTwab = currentTwab + (currentShares * remainingTime)
-            return projectedTwab / drawInterval
+            return projectedTwab / roundDuration
         }
         
-        /// Returns how far through the current draw period we are (0.0 to 1.0+).
-        /// - 0.0 = draw just started
-        /// - 0.5 = halfway through draw period
-        /// - 1.0 = draw period complete, ready for next draw
+        /// Returns how far through the current round we are (0.0 to 1.0+).
+        /// - 0.0 = round just started
+        /// - 0.5 = halfway through round
+        /// - 1.0 = round complete, ready for next draw
         access(all) view fun getDrawProgressPercent(): UFix64 {
-            let epochStart = self.savingsDistributor.getEpochStartTime()
-            let elapsed = getCurrentBlock().timestamp - epochStart
-            let drawInterval = self.config.drawIntervalSeconds
-            if drawInterval == 0.0 {
+            let roundDuration = self.activeRound.getDuration()
+            if roundDuration == 0.0 {
                 return 0.0
             }
-            return elapsed / drawInterval
+            
+            let elapsed = self.getRoundElapsedTime()
+            return elapsed / roundDuration
         }
         
-        /// Returns time remaining until next draw is available (in seconds).
-        /// Returns 0.0 if draw can happen now.
+        /// Returns time remaining until round ends (in seconds).
+        /// Returns 0.0 if round has ended (draw can happen now).
         access(all) view fun getTimeUntilNextDraw(): UFix64 {
-            let epochStart = self.savingsDistributor.getEpochStartTime()
-            let elapsed = getCurrentBlock().timestamp - epochStart
-            let drawInterval = self.config.drawIntervalSeconds
-            if elapsed >= drawInterval {
+            let endTime = self.activeRound.getEndTime()
+            let now = getCurrentBlock().timestamp
+            if now >= endTime {
                 return 0.0
             }
-            return drawInterval - elapsed
+            return endTime - now
         }
         
     }

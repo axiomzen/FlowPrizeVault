@@ -17,17 +17,19 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} 
     
     // Get pool config for draw interval
     let config = poolRef.getConfig()
-    let drawIntervalSeconds = config.drawIntervalSeconds
+    let roundDuration = poolRef.getRoundDuration()
     
-    // Get TWAB and balance info from savings distributor
+    // Get TWAB and balance info
     let userTimeWeightedShares = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
     let userSavingsValue = poolRef.getUserSavingsValue(receiverID: receiverID)
     let userDeposit = poolRef.getReceiverDeposit(receiverID: receiverID)
     
-    // Get epoch info
-    let epochStartTime = poolRef.getEpochStartTime()
-    let epochElapsedTime = poolRef.getEpochElapsedTime()
-    let currentEpochID = poolRef.getCurrentEpochID()
+    // Get round info
+    let roundStartTime = poolRef.getRoundStartTime()
+    let roundElapsedTime = poolRef.getRoundElapsedTime()
+    let currentRoundID = poolRef.getCurrentRoundID()
+    let roundEndTime = poolRef.getRoundEndTime()
+    let isRoundEnded = poolRef.isRoundEnded()
     
     // Get entries (projected)
     let entries = poolRef.getUserEntries(receiverID: receiverID)
@@ -38,13 +40,15 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} 
     
     return {
         "receiverID": receiverID,
-        "drawIntervalSeconds": drawIntervalSeconds,
+        "roundDuration": roundDuration,
         "userTimeWeightedShares": userTimeWeightedShares,
         "userSavingsValue": userSavingsValue,
         "userDeposit": userDeposit,
-        "epochStartTime": epochStartTime,
-        "epochElapsedTime": epochElapsedTime,
-        "currentEpochID": currentEpochID,
+        "roundStartTime": roundStartTime,
+        "roundElapsedTime": roundElapsedTime,
+        "currentRoundID": currentRoundID,
+        "roundEndTime": roundEndTime,
+        "isRoundEnded": isRoundEnded,
         "entries": entries,
         "drawProgress": drawProgress,
         "timeUntilDraw": timeUntilDraw

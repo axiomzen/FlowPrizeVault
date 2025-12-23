@@ -16,7 +16,11 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
         "lotteryPoolBalance": poolRef.getLotteryPoolBalance(),
         "totalTreasuryForwarded": poolRef.getTotalTreasuryForwarded(),
         "sharePriceIsOne": poolRef.getSavingsSharePrice() == 1.0,
-        "currentEpochID": poolRef.getCurrentEpochID(),
+        "currentRoundID": poolRef.getCurrentRoundID(),
+        "roundStartTime": poolRef.getRoundStartTime(),
+        "roundEndTime": poolRef.getRoundEndTime(),
+        "roundDuration": poolRef.getRoundDuration(),
+        "isRoundEnded": poolRef.isRoundEnded(),
         "totalSavingsShares": poolRef.getTotalSavingsShares(),
         "totalSavingsAssets": poolRef.getTotalSavingsAssets(),
         "totalSavingsDistributed": poolRef.getTotalSavingsDistributed(),
@@ -24,4 +28,3 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
         "registeredReceiverCount": poolRef.getRegisteredReceiverIDs().length
     }
 }
-
