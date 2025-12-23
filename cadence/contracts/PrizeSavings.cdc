@@ -2656,7 +2656,7 @@ access(all) contract PrizeSavings {
         
         /// Current active round for TWAB accumulation.
         /// Deposits and withdrawals adjust projections in this round.
-        access(self) var activeRound: @Round?
+        access(self) var activeRound: @Round
         
         /// Round that has ended and is being processed for the lottery draw.
         /// Created during startDraw(), destroyed during completeDraw().
@@ -3102,24 +3102,20 @@ access(all) contract PrizeSavings {
             
             // Update TWAB in the appropriate round(s)
             // Check if we're in the gap period (active round has ended but startDraw not called)
-            let inGapPeriod = self.activeRound != nil && (self.activeRound?.hasEnded() ?? false)
+            let inGapPeriod = self.activeRound.hasEnded()
             
             if inGapPeriod {
                 // Gap period: finalize user's TWAB in ended round with pre-transaction shares
                 // New round will use lazy fallback (currentShares * duration) automatically
-                if let round = &self.activeRound as &Round? {
-                    round.initializeIfNeeded(receiverID: receiverID, shares: oldShares)
-                }
+                self.activeRound.initializeIfNeeded(receiverID: receiverID, shares: oldShares)
             } else {
                 // Normal: adjust active round projection
-                if let round = &self.activeRound as &Round? {
-                    round.adjustProjection(
-                        receiverID: receiverID,
-                        oldShares: oldShares,
-                        newShares: newShares,
-                        atTime: now
-                    )
-                }
+                self.activeRound.adjustProjection(
+                    receiverID: receiverID,
+                    oldShares: oldShares,
+                    newShares: newShares,
+                    atTime: now
+                )
             }
             
             // Also initialize in pending draw round if one exists (user interacting after startDraw)
@@ -3260,24 +3256,20 @@ access(all) contract PrizeSavings {
             
             // Update TWAB in the appropriate round(s)
             // Check if we're in the gap period (active round has ended but startDraw not called)
-            let inGapPeriod = self.activeRound != nil && (self.activeRound?.hasEnded() ?? false)
+            let inGapPeriod = self.activeRound.hasEnded()
             
             if inGapPeriod {
                 // Gap period: finalize user's TWAB in ended round with pre-transaction shares
                 // New round will use lazy fallback (currentShares * duration) automatically
-                if let round = &self.activeRound as &Round? {
-                    round.initializeIfNeeded(receiverID: receiverID, shares: oldShares)
-                }
+                self.activeRound.initializeIfNeeded(receiverID: receiverID, shares: oldShares)
             } else {
                 // Normal: adjust active round projection
-                if let round = &self.activeRound as &Round? {
-                    round.adjustProjection(
-                        receiverID: receiverID,
-                        oldShares: oldShares,
-                        newShares: newShares,
-                        atTime: now
-                    )
-                }
+                self.activeRound.adjustProjection(
+                    receiverID: receiverID,
+                    oldShares: oldShares,
+                    newShares: newShares,
+                    atTime: now
+                )
             }
             
             // Also initialize in pending draw round if one exists
@@ -3540,11 +3532,20 @@ access(all) contract PrizeSavings {
             let now = getCurrentBlock().timestamp
             
             // Get the current round's info before transitioning
-            let endedRoundID = self.activeRound?.getRoundID() ?? 0
-            let roundDuration = self.activeRound?.getDuration() ?? self.config.drawIntervalSeconds
+            let endedRoundID = self.activeRound.getRoundID()
+            let roundDuration = self.activeRound.getDuration()
             
-            // Move ended round to pending draw round
-            let endedRound <- self.activeRound <- nil
+            // Create new round starting now (before the swap)
+            // Gap interactors are handled by lazy fallback - no explicit initialization needed
+            let newRoundID = endedRoundID + 1
+            let newRound <- create Round(
+                roundID: newRoundID,
+                startTime: now,
+                duration: roundDuration
+            )
+            
+            // Atomic swap: new round goes in, ended round comes out
+            let endedRound <- self.activeRound <- newRound
             self.pendingDrawRound <-! endedRound
             
             // Create selection data resource for batch processing
@@ -3553,17 +3554,6 @@ access(all) contract PrizeSavings {
             self.pendingSelectionData <-! create BatchSelectionData(
                 snapshotCount: self.registeredReceiverList.length
             )
-            
-            // Create new round starting now
-            // Gap interactors are handled by lazy fallback - no explicit initialization needed
-            let newRoundID = (self.pendingDrawRound?.getRoundID() ?? 0) + 1
-            let newRound <- create Round(
-                roundID: newRoundID,
-                startTime: now,
-                duration: roundDuration
-            )
-            
-            self.activeRound <-! newRound
             
             // Emit new round started event
             emit NewRoundStarted(
@@ -3855,14 +3845,12 @@ access(all) contract PrizeSavings {
                 // Update TWAB in active round (prize deposits adjust projection like regular deposits)
                 // Note: We're in the new round now (startDraw already transitioned)
                 let now = getCurrentBlock().timestamp
-                if let round = &self.activeRound as &Round? {
-                    round.adjustProjection(
-                        receiverID: winnerID,
-                        oldShares: oldShares,
-                        newShares: newShares,
-                        atTime: now
-                    )
-                }
+                self.activeRound.adjustProjection(
+                    receiverID: winnerID,
+                    oldShares: oldShares,
+                    newShares: newShares,
+                    atTime: now
+                )
                 
                 // Update winner's principal (prizes count as deposits for no-loss guarantee)
                 let currentPrincipal = self.receiverDeposits[winnerID] ?? 0.0
@@ -4151,7 +4139,7 @@ access(all) contract PrizeSavings {
         /// Returns whether the current round has ended and a draw can start.
         /// This checks if the activeRound's end time has passed.
         access(all) view fun canDrawNow(): Bool {
-            return self.activeRound?.hasEnded() ?? false
+            return self.activeRound.hasEnded()
         }
         
         /// Returns the "no-loss guarantee" amount: user deposits + auto-compounded lottery prizes
@@ -4203,46 +4191,42 @@ access(all) contract PrizeSavings {
         /// @return Projected share-seconds at round end
         access(all) view fun getUserTimeWeightedShares(receiverID: UInt64): UFix64 {
             let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
-            if let round = &self.activeRound as &Round? {
-                return round.getProjectedTWAB(receiverID: receiverID, currentShares: shares)
-            }
-            return 0.0
+            return self.activeRound.getProjectedTWAB(receiverID: receiverID, currentShares: shares)
         }
         
         /// Returns the current round ID.
         access(all) view fun getCurrentRoundID(): UInt64 {
-            return self.activeRound?.getRoundID() ?? 0
+            return self.activeRound.getRoundID()
         }
         
         /// Returns the current round start time.
         access(all) view fun getRoundStartTime(): UFix64 {
-            return self.activeRound?.getStartTime() ?? 0.0
+            return self.activeRound.getStartTime()
         }
         
         /// Returns the current round end time.
         access(all) view fun getRoundEndTime(): UFix64 {
-            return self.activeRound?.getEndTime() ?? 0.0
+            return self.activeRound.getEndTime()
         }
         
         /// Returns the current round duration.
         access(all) view fun getRoundDuration(): UFix64 {
-            return self.activeRound?.getDuration() ?? 0.0
+            return self.activeRound.getDuration()
         }
         
         /// Returns elapsed time since round started.
         access(all) view fun getRoundElapsedTime(): UFix64 {
-            if let startTime = self.activeRound?.getStartTime() {
-                let now = getCurrentBlock().timestamp
-                if now > startTime {
-                    return now - startTime
-                }
+            let startTime = self.activeRound.getStartTime()
+            let now = getCurrentBlock().timestamp
+            if now > startTime {
+                return now - startTime
             }
             return 0.0
         }
         
         /// Returns whether the active round has ended (gap period).
         access(all) view fun isRoundEnded(): Bool {
-            return self.activeRound?.hasEnded() ?? false
+            return self.activeRound.hasEnded()
         }
         
         /// Returns whether there's a pending draw round being processed.
@@ -4431,13 +4415,13 @@ access(all) contract PrizeSavings {
         /// - 10 shares deposited halfway through round → ~5 entries (prorated)
         /// - At next round, same 10 shares → 10 entries (full credit)
         access(all) view fun getUserEntries(receiverID: UInt64): UFix64 {
-            let roundDuration = self.activeRound?.getDuration() ?? self.config.drawIntervalSeconds
+            let roundDuration = self.activeRound.getDuration()
             if roundDuration == 0.0 {
                 return 0.0
             }
             
             let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
-            let projectedTwab = self.activeRound?.getProjectedTWAB(receiverID: receiverID, currentShares: shares) ?? 0.0
+            let projectedTwab = self.activeRound.getProjectedTWAB(receiverID: receiverID, currentShares: shares)
             
             return projectedTwab / roundDuration
         }
@@ -4447,7 +4431,7 @@ access(all) contract PrizeSavings {
         /// - 0.5 = halfway through round
         /// - 1.0 = round complete, ready for next draw
         access(all) view fun getDrawProgressPercent(): UFix64 {
-            let roundDuration = self.activeRound?.getDuration() ?? self.config.drawIntervalSeconds
+            let roundDuration = self.activeRound.getDuration()
             if roundDuration == 0.0 {
                 return 0.0
             }
@@ -4459,14 +4443,12 @@ access(all) contract PrizeSavings {
         /// Returns time remaining until round ends (in seconds).
         /// Returns 0.0 if round has ended (draw can happen now).
         access(all) view fun getTimeUntilNextDraw(): UFix64 {
-            if let endTime = self.activeRound?.getEndTime() {
-                let now = getCurrentBlock().timestamp
-                if now >= endTime {
-                    return 0.0
-                }
-                return endTime - now
+            let endTime = self.activeRound.getEndTime()
+            let now = getCurrentBlock().timestamp
+            if now >= endTime {
+                return 0.0
             }
-            return 0.0
+            return endTime - now
         }
         
     }
