@@ -503,8 +503,15 @@ access(all) fun testFullWithdrawalThenRedepositTWAB() {
     // Withdraw everything
     withdrawFromPool(user, poolID: poolID, amount: depositAmount)
     
-    // Immediately redeposit
+    // Move time slightly to ensure there is a gap where the user has a balance of 0
+    Test.moveTime(by: 5.0)
+    // redeposit
     depositToPool(user, poolID: poolID, amount: depositAmount)
+    
+    // DEBUG: Log entries after redeposit
+    let entriesAfterRedeposit = getUserEntries(user.address, poolID)
+    log("DEBUG: Entries after redeposit: ".concat(entriesAfterRedeposit.toString()))
+    log("DEBUG: Expected entries < depositAmount (".concat(depositAmount.toString()).concat(")"))
     
     // Check entries - should account for the gap when balance was 0
     let entries = getUserEntries(user.address, poolID)

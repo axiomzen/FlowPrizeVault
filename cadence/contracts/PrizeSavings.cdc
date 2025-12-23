@@ -2311,11 +2311,17 @@ access(all) contract PrizeSavings {
         /// Current cursor position in registeredReceiverList
         access(contract) var cursor: Int
         
-        init() {
+        /// Snapshot of receiver count at startDraw time.
+        /// Used to determine batch completion - only process users who existed at draw start.
+        /// New deposits during batch processing don't extend the batch.
+        access(contract) let snapshotReceiverCount: Int
+        
+        init(snapshotCount: Int) {
             self.receiverIDs = []
             self.cumulativeWeights = []
             self.totalWeight = 0.0
             self.cursor = 0
+            self.snapshotReceiverCount = snapshotCount
             self.RANDOM_SCALING_FACTOR = 1_000_000_000
             self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
         }
@@ -2345,6 +2351,10 @@ access(all) contract PrizeSavings {
         
         access(all) view fun getCursor(): Int {
             return self.cursor
+        }
+        
+        access(all) view fun getSnapshotReceiverCount(): Int {
+            return self.snapshotReceiverCount
         }
         
         access(all) view fun getReceiverCount(): Int {
@@ -3291,8 +3301,10 @@ access(all) contract PrizeSavings {
             self.totalStaked = self.totalStaked - actualWithdrawn
             
             // If user has withdrawn to 0 shares, unregister them
-            // This forfeits lottery eligibility for the current round but keeps the system lean
-            if newShares == 0.0 {
+            // BUT NOT if a draw is in progress - unregistering during batch processing
+            // would corrupt indices (swap-and-pop). Ghost users with 0 shares get 0 weight.
+            // They'll be cleaned up after the draw completes.
+            if newShares == 0.0 && self.pendingSelectionData == nil {
                 self.unregisterReceiver(receiverID: receiverID)
             }
             
@@ -3536,8 +3548,11 @@ access(all) contract PrizeSavings {
             self.pendingDrawRound <-! endedRound
             
             // Create selection data resource for batch processing
-            // Uses registeredReceiverList directly - builds selection data incrementally
-            self.pendingSelectionData <-! create BatchSelectionData()
+            // Snapshot the current receiver count - only these users will be processed
+            // New deposits during batch processing won't extend the batch (prevents DoS)
+            self.pendingSelectionData <-! create BatchSelectionData(
+                snapshotCount: self.registeredReceiverList.length
+            )
             
             // Create new round starting now
             // Gap interactors are handled by lazy fallback - no explicit initialization needed
@@ -3597,9 +3612,10 @@ access(all) contract PrizeSavings {
             
             let startCursor = selectionData.getCursor()
             let roundDuration = self.pendingDrawRound?.getDuration() ?? self.config.drawIntervalSeconds
-            let totalReceivers = self.registeredReceiverList.length
-            let endIndex = startCursor + limit > totalReceivers 
-                ? totalReceivers 
+            // Use snapshot count - only process users who existed at startDraw time
+            let snapshotCount = selectionData.getSnapshotReceiverCount()
+            let endIndex = startCursor + limit > snapshotCount 
+                ? snapshotCount 
                 : startCursor + limit
             
             // Process batch directly from registeredReceiverList
@@ -3633,7 +3649,8 @@ access(all) contract PrizeSavings {
             let processed = endIndex - startCursor
             selectionData.setCursor(endIndex)
             
-            let remaining = totalReceivers - endIndex
+            // Calculate remaining based on snapshot count (not current list length)
+            let remaining = snapshotCount - endIndex
             
             emit DrawBatchProcessed(
                 poolID: self.poolID,
@@ -4238,11 +4255,12 @@ access(all) contract PrizeSavings {
             return self.pendingDrawRound?.getRoundID()
         }
         
-        /// Returns whether batch processing is complete (cursor has reached end of receiver list).
+        /// Returns whether batch processing is complete (cursor has reached snapshot count).
+        /// Uses snapshotReceiverCount from startDraw() - only processes users who existed then.        /// New deposits during batch processing don't extend the batch (prevents DoS).
         /// Returns true if no batch in progress (nil state = complete/not started).
         access(all) view fun isBatchComplete(): Bool {
             if let selectionDataRef = &self.pendingSelectionData as &BatchSelectionData? {
-                return selectionDataRef.getCursor() >= self.registeredReceiverList.length
+                return selectionDataRef.getCursor() >= selectionDataRef.getSnapshotReceiverCount()
             }
             return true  // No batch in progress = considered complete
         }

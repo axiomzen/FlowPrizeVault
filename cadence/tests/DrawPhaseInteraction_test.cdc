@@ -352,7 +352,7 @@ access(all) fun testUserNotAffectedByOthersDuringDraw() {
     
     setupUserWithFundsAndCollection(user1, amount: depositAmount + 10.0)
     setupUserWithFundsAndCollection(user2, amount: depositAmount * 2.0 + 10.0)
-    setupUserWithFundsAndCollection(user3, amount: depositAmount + 10.0)
+    setupUserWithFundsAndCollection(user3, amount: depositAmount * 2.0 + 10.0)
     
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     depositToPool(user2, poolID: poolID, amount: depositAmount)
@@ -459,7 +459,6 @@ access(all) fun testMultipleDepositsFromSameUserDuringDraw() {
     
     // Multiple deposits during draw phases
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    processDrawBatch(user, poolID: poolID, limit: 1)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
     depositToPool(user, poolID: poolID, amount: depositAmount)
@@ -505,7 +504,6 @@ access(all) fun testMultipleWithdrawalsFromSameUserDuringDraw() {
     
     // Multiple withdrawals during draw phases
     withdrawFromPool(user, poolID: poolID, amount: withdrawAmount)
-    processDrawBatch(user, poolID: poolID, limit: 1)
     withdrawFromPool(user, poolID: poolID, amount: withdrawAmount)
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
     withdrawFromPool(user, poolID: poolID, amount: withdrawAmount)

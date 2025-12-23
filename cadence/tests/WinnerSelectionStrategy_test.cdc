@@ -129,7 +129,7 @@ access(all) fun testPercentageSplitFewerDepositorsThanWinners() {
     
     // Fund lottery
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
-    Test.moveTime(by: 2.0)
+    Test.moveTime(by: 61.0) // Wait for 60s round to end
     
     // Draw should handle gracefully with fewer depositors than expected winners
     let deployerAccount = getDeployerAccount()
