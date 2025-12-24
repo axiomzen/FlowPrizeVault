@@ -97,13 +97,13 @@ access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
     let roundEndTime = poolRef.getRoundEndTime()
     let secondsUntilDraw = poolRef.getTimeUntilNextDraw()
     
-    // Current lottery entries (projected share-seconds)
+    // Current lottery entries (share-seconds)
     let currentBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
     
-    // Projected entries at draw time (normalized by round duration)
+    // Current entries (normalized by elapsed time)
     let projectedEntries = poolRef.getUserEntries(receiverID: receiverID)
     
-    // Get raw TWAB for bonus calculation
+    // Get raw TWAB for bonus calculation (current accumulated + pending)
     let projectedTwab = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
     
     // Bonus weight info

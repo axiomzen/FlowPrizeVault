@@ -134,134 +134,174 @@ P(win) = userTimeWeightedStake / Σ(allUsersTimeWeightedStakes)
 
 ## Implementation Details
 
+### Architecture: Round-Based TWAB
+
+TWAB tracking is managed per-round via the `Round` resource, which is created fresh for each lottery period. This design:
+- Isolates each draw period's TWAB data
+- Automatically resets when a new round starts
+- Is immune to duration changes (TWAB is calculated at finalization, not projected)
+
 ### State Variables
 
 ```cadence
-resource SavingsDistributor {
-    // Per-user TWAB tracking
-    access(self) let userCumulativeShareSeconds: {UInt64: UFix64}
-    access(self) let userLastUpdateTime: {UInt64: UFix64}
-    access(self) let userEpochID: {UInt64: UInt64}
+resource Round {
+    // Round timing
+    access(all) let roundID: UInt64
+    access(all) let startTime: UFix64
+    access(all) let configuredDuration: UFix64
+    access(self) var actualEndTime: UFix64?
     
-    // Global epoch tracking
-    access(self) var currentEpochID: UInt64
-    access(self) var epochStartTime: UFix64
+    // Per-user cumulative TWAB tracking
+    access(self) var userAccumulatedTWAB: {UInt64: UFix64}
+    access(self) var userLastUpdateTime: {UInt64: UFix64}
+    access(self) var userSharesAtLastUpdate: {UInt64: UFix64}
 }
 ```
 
 ### Key Functions
 
-#### `getElapsedShareSeconds(receiverID)` — View Function
+#### `recordShareChange(receiverID, oldShares, newShares, atTime)` — Mutating Function
 
-Calculates share-seconds elapsed since last update, handling epoch staleness:
+Called on deposit/withdraw to accumulate TWAB up to current time:
 
 ```cadence
-access(all) view fun getElapsedShareSeconds(receiverID: UInt64): UFix64 {
-    let now = getCurrentBlock().timestamp
-    let userEpoch = self.userEpochID[receiverID] ?? 0
-    let currentShares = self.userShares[receiverID] ?? 0.0
+access(contract) fun recordShareChange(
+    receiverID: UInt64,
+    oldShares: UFix64,
+    newShares: UFix64,
+    atTime: UFix64
+) {
+    // First, accumulate any pending share-seconds for old balance
+    self.accumulatePendingTWAB(receiverID: receiverID, upToTime: atTime, withShares: oldShares)
     
-    // If epoch is stale, calculate from epoch start (as if reset happened)
-    let effectiveLastUpdate = userEpoch < self.currentEpochID 
-        ? self.epochStartTime 
-        : (self.userLastUpdateTime[receiverID] ?? self.epochStartTime)
+    // Update shares snapshot for future accumulation
+    self.userSharesAtLastUpdate[receiverID] = newShares
+    self.userLastUpdateTime[receiverID] = atTime
+}
+```
+
+#### `getCurrentTWAB(receiverID, currentShares, atTime)` — View Function
+
+Returns current TWAB for a user (accumulated + pending):
+
+```cadence
+access(all) view fun getCurrentTWAB(
+    receiverID: UInt64,
+    currentShares: UFix64,
+    atTime: UFix64
+): UFix64 {
+    let accumulated = self.userAccumulatedTWAB[receiverID] ?? 0.0
+    let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
+    let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
     
-    let elapsed = now - effectiveLastUpdate
-    if elapsed <= 0.0 {
-        return 0.0
+    // Calculate pending from last update to now
+    var pending: UFix64 = 0.0
+    if atTime > lastUpdate {
+        pending = shares * (atTime - lastUpdate)
     }
-    return currentShares * elapsed
+    
+    return accumulated + pending
 }
 ```
 
-#### `accumulateTime(receiverID)` — Mutating Function
+#### `finalizeTWAB(receiverID, currentShares, roundEndTime)` — View Function
 
-Updates the cumulative tracking state:
+Calculates final TWAB at round end (used during draw processing):
 
 ```cadence
-access(contract) fun accumulateTime(receiverID: UInt64) {
-    let userEpoch = self.userEpochID[receiverID] ?? 0
+access(all) view fun finalizeTWAB(
+    receiverID: UInt64,
+    currentShares: UFix64,
+    roundEndTime: UFix64
+): UFix64 {
+    let accumulated = self.userAccumulatedTWAB[receiverID] ?? 0.0
+    let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
+    let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
     
-    // Lazy reset for stale epoch
-    if userEpoch < self.currentEpochID {
-        self.userCumulativeShareSeconds[receiverID] = 0.0
-        self.userLastUpdateTime[receiverID] = self.epochStartTime
-        self.userEpochID[receiverID] = self.currentEpochID
+    // Calculate remaining from last update to round end
+    var pending: UFix64 = 0.0
+    if roundEndTime > lastUpdate {
+        pending = shares * (roundEndTime - lastUpdate)
     }
     
-    // Get elapsed share-seconds and add to accumulated
-    let elapsed = self.getElapsedShareSeconds(receiverID: receiverID)
-    if elapsed > 0.0 {
-        let currentAccum = self.userCumulativeShareSeconds[receiverID] ?? 0.0
-        self.userCumulativeShareSeconds[receiverID] = currentAccum + elapsed
-        self.userLastUpdateTime[receiverID] = getCurrentBlock().timestamp
-    }
+    return accumulated + pending
 }
 ```
 
-#### `getTimeWeightedStake(receiverID)` — View Function
+### Why Cumulative (Not Projection-Based)?
 
-Returns total TWAB without mutating state:
+The previous implementation used **projections**: on each deposit/withdraw, we calculated
+what the user's TWAB *would be* at the round's planned end time.
 
-```cadence
-access(all) view fun getTimeWeightedStake(receiverID: UInt64): UFix64 {
-    return self.getEffectiveAccumulated(receiverID: receiverID) 
-        + self.getElapsedShareSeconds(receiverID: receiverID)
-}
-```
+**Problem**: If an admin changed the round duration mid-round, all stored projections 
+became invalid because they were calculated using the old duration.
 
-#### `updateAndGetTimeWeightedStake(receiverID)` — Mutating Function
-
-Used during draws to finalize and snapshot TWAB:
-
-```cadence
-access(contract) fun updateAndGetTimeWeightedStake(receiverID: UInt64): UFix64 {
-    self.accumulateTime(receiverID: receiverID)
-    return self.userCumulativeShareSeconds[receiverID] ?? 0.0
-}
-```
+**Solution**: Store **cumulative** TWAB (actual share-seconds from round start to last update),
+then calculate the final value at draw time using the actual round end timestamp. This is:
+- **Duration-independent**: No stored values reference the duration
+- **Accurate**: Final TWAB uses actual end time, not projected
+- **Flexible**: Admins can adjust duration without corrupting TWAB data
 
 ---
 
-## Epoch System
+## Round System
 
 ### Purpose
 
-Epochs bound the TWAB accumulation to discrete lottery periods:
+Rounds bound the TWAB accumulation to discrete lottery periods:
 
-- **Epoch N**: Accumulate TWAB from draw N-1 to draw N
-- **Draw N**: Snapshot all TWAB values, select winner
-- **Epoch N+1**: Reset all TWAB, start fresh accumulation
+- **Round N**: Accumulate TWAB from draw N-1 to draw N
+- **Draw N**: Finalize all TWAB values using actual end time, select winner
+- **Round N+1**: Fresh Round resource created, TWAB starts at zero
 
-### Epoch Transitions
+### Round Transitions
 
 When `startDraw()` is called:
 
-1. All user TWABs are finalized via `updateAndGetTimeWeightedStake()`
-2. Values are snapshotted into the `PrizeDrawReceipt`
-3. `startNewPeriod()` increments `currentEpochID` and resets `epochStartTime`
-4. Users' TWAB effectively resets (via lazy evaluation on next interaction)
+1. The actual end time is set on the active round: `activeRound.setActualEndTime(now)`
+2. A new Round resource is created for the next period
+3. The ended round is moved to `pendingDrawRound` for processing
+4. During `processDrawBatch()`, each user's TWAB is finalized with `finalizeTWAB()`
 
 ```cadence
-access(contract) fun startNewPeriod() {
-    self.currentEpochID = self.currentEpochID + 1
-    self.epochStartTime = getCurrentBlock().timestamp
-}
+// In startDraw():
+self.activeRound.setActualEndTime(now)
+
+let newRound <- create Round(
+    roundID: endedRoundID + 1,
+    startTime: now,
+    configuredDuration: roundDuration
+)
+
+let endedRound <- self.activeRound <- newRound
+self.pendingDrawRound <-! endedRound
 ```
 
-### Lazy Reset
+### Automatic Reset
 
-Users don't need to explicitly reset—when they interact after an epoch change:
+Unlike epoch-based systems that require lazy resets, the Round-based approach uses 
+resource lifecycle for automatic cleanup:
+
+- Each Round is a separate resource with its own TWAB dictionaries
+- When a new Round is created, it starts with empty TWAB tracking
+- The old Round is destroyed after `completeDraw()` finishes
+- No lazy reset logic needed—users start fresh in each Round
+
+### Lazy Initialization for Non-Interactors
+
+Users who never deposit/withdraw during a round still get fair TWAB:
 
 ```cadence
-if userEpoch < self.currentEpochID {
-    self.userCumulativeShareSeconds[receiverID] = 0.0
-    self.userLastUpdateTime[receiverID] = self.epochStartTime
-    self.userEpochID[receiverID] = self.currentEpochID
-}
+// In getCurrentTWAB and finalizeTWAB:
+let accumulated = self.userAccumulatedTWAB[receiverID] ?? 0.0
+let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
+let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
+
+// If user never interacted, lastUpdate = startTime, shares = currentShares
+// So TWAB = currentShares × (endTime - startTime) = full round credit
 ```
 
-This lazy approach is gas-efficient: we only update users who actually participate.
+This gives non-interacting users full credit for their shares over the entire round.
 
 ---
 
@@ -401,78 +441,108 @@ The whale has 100x the balance but only 37.3% odds!
 
 ## Edge Cases
 
-### User Deposits After Epoch Start, Never Interacts Again
+### User Deposits After Round Start, Never Interacts Again
 
-The `getElapsedShareSeconds()` view function correctly calculates TWAB at draw time without requiring the user to call any function.
+The `finalizeTWAB()` view function correctly calculates TWAB at draw time:
 
-### User from Previous Epoch Doesn't Interact
+```cadence
+// User has no explicit TWAB data, so defaults are used:
+let accumulated = 0.0  // nil → 0.0
+let lastUpdate = self.startTime  // nil → round start
+let shares = currentShares  // nil → current balance
 
-Lazy reset handles this—their `userEpochID` is stale, so TWAB calculation uses epoch start time and returns 0 for accumulated.
+// Result: currentShares × (roundEndTime - startTime) = full round credit
+```
+
+### User from Previous Round Doesn't Interact
+
+Each Round is a fresh resource with empty dictionaries. Users from previous rounds 
+automatically get full credit in the new round via lazy initialization:
+- Their `userAccumulatedTWAB` is nil → starts at 0
+- Their `userLastUpdateTime` is nil → defaults to round start
+- Their `userSharesAtLastUpdate` is nil → uses current shares
 
 ### Zero Share Balance
 
 If a user has no shares:
 ```cadence
-let currentShares = self.userShares[receiverID] ?? 0.0
-// ...
-return currentShares * elapsed  // = 0.0 × elapsed = 0.0
+let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
+// If currentShares = 0, then TWAB = 0 × elapsed = 0.0
 ```
 
-### Overflow Protection
+### Admin Changes Duration Mid-Round
 
-For extremely large pools or long epochs:
+This is the key edge case that drove the cumulative design:
+- Old projection-based: Stored values become invalid
+- New cumulative-based: No impact, final TWAB calculated at draw time
+
 ```cadence
-// In convertToShares/convertToAssets
-if assets > 0.0 && self.totalShares > 0.0 {
-    let maxSafeAssets = UFix64.max / self.totalShares
-    assert(assets <= maxSafeAssets, message: "Would cause overflow")
-}
+// Example: Round starts with 7-day duration, admin changes to 5 days
+// User deposited 100 shares at start
+
+// OLD (broken): userProjectedTWAB = 100 × 604800 (7 days in seconds)
+// But round ends at 5 days, so projection is wrong!
+
+// NEW (correct): userAccumulatedTWAB = 0, lastUpdate = startTime
+// At draw: finalizeTWAB calculates 100 × actualDuration (5 days)
 ```
 
 ---
 
 ## Integration with Lottery
 
-### Draw Flow
+### Draw Flow (Batched)
 
 1. **`startDraw()` called:**
    ```cadence
-   let timeWeightedStakes: {UInt64: UFix64} = {}
-   for receiverID in self.registeredReceivers.keys {
-       let twabStake = self.savingsDistributor.updateAndGetTimeWeightedStake(receiverID: receiverID)
-       let bonusWeight = self.getBonusWeight(receiverID: receiverID)
-       let epochDuration = getCurrentBlock().timestamp - self.savingsDistributor.getEpochStartTime()
-       let scaledBonus = bonusWeight * epochDuration
+   // Set actual end time on the round being finalized
+   self.activeRound.setActualEndTime(now)
+   
+   // Create new round, swap with active
+   let newRound <- create Round(roundID: newRoundID, startTime: now, configuredDuration: duration)
+   let endedRound <- self.activeRound <- newRound
+   self.pendingDrawRound <-! endedRound
+   
+   // Create batch processing state
+   self.pendingSelectionData <-! create BatchSelectionData(snapshotCount: receiverCount)
+   ```
+
+2. **`processDrawBatch(limit)` called repeatedly:**
+   ```cadence
+   let roundEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
+   let roundStartTime = pendingRound.getStartTime()
+   let actualDuration = roundEndTime - roundStartTime
+   
+   for receiverID in batch {
+       let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
        
-       let totalStake = twabStake + scaledBonus
-       if totalStake > 0.0 {
-           timeWeightedStakes[receiverID] = totalStake
-       }
+       // Finalize TWAB using actual round end time
+       let twabStake = pendingRound.finalizeTWAB(
+           receiverID: receiverID,
+           currentShares: shares,
+           roundEndTime: roundEndTime
+       )
+       
+       // Scale bonus by actual duration
+       let scaledBonus = bonusWeight * actualDuration
+       let totalWeight = twabStake + scaledBonus
+       
+       selectionData.addEntry(receiverID: receiverID, weight: totalWeight)
    }
    ```
 
-2. **Snapshot stored in receipt:**
+3. **`requestDrawRandomness()` called:**
    ```cadence
-   let receipt <- create PrizeDrawReceipt(
-       prizeAmount: prizeAmount,
-       request: <- randomRequest,
-       timeWeightedStakes: timeWeightedStakes  // Frozen snapshot
-   )
+   // Batch processing complete, request randomness from Flow
+   let randomRequest <- self.randomConsumer.requestRandomness()
+   self.pendingDrawReceipt <-! create PrizeDrawReceipt(request: <- randomRequest)
    ```
 
-3. **New epoch starts immediately:**
+4. **`completeDraw()` uses selection data:**
    ```cadence
-   self.savingsDistributor.startNewPeriod()
-   ```
-
-4. **`completeDraw()` uses frozen snapshot:**
-   ```cadence
-   let timeWeightedStakes = unwrappedReceipt.getTimeWeightedStakes()
-   let selectionResult = self.config.winnerSelectionStrategy.selectWinners(
-       randomNumber: randomNumber,
-       receiverDeposits: timeWeightedStakes,  // Uses snapshot, not live values
-       totalPrizeAmount: totalPrizeAmount
-   )
+   // Selection data has cumulative weights for binary search
+   let selectionData = self.pendingSelectionData!
+   let winnerID = selectionData.selectWinner(randomNumber: randomNumber)
    ```
 
 ### Why Snapshot Between Blocks?
@@ -495,10 +565,11 @@ TWAB provides provably fair lottery odds by:
 
 1. **Measuring balance × time** instead of just balance
 2. **Preventing last-minute manipulation** via time-weighting
-3. **Using lazy evaluation** for gas efficiency
-4. **Resetting each epoch** to keep draws independent
+3. **Using cumulative tracking** instead of projections (immune to duration changes)
+4. **Resetting each round** via fresh Round resources
 5. **Supporting bonus weights** that are also time-scaled
 6. **Snapshotting at commit time** to prevent post-randomness manipulation
+7. **Using batched processing** for scalability with large user bases
 
-This creates a lottery system where consistent, long-term participants have proportionally fair odds compared to opportunistic large depositors.
+This creates a lottery system where consistent, long-term participants have proportionally fair odds compared to opportunistic large depositors. The cumulative approach also ensures admin configuration changes (like adjusting draw intervals) don't corrupt existing TWAB data.
 

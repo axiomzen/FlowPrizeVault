@@ -92,7 +92,7 @@ access(all) fun testDepositAfterRoundEnded() {
 }
 
 // ============================================================================
-// TESTS - TWAB Projection Edge Cases
+// TESTS - TWAB Cumulative Edge Cases
 // ============================================================================
 
 access(all) fun testWithdrawalBringsTWABNearZero() {
@@ -432,7 +432,7 @@ access(all) fun testPartialWithdrawalTWAB() {
     // Get entries after withdrawal
     let entriesAfter = getUserEntries(user.address, poolID)
     
-    // Entries should be less than before (withdrawal reduces remaining projection)
+    // Entries should be less than before (withdrawal reduces accumulated TWAB)
     Test.assert(
         entriesAfter < entriesBefore,
         message: "Entries should decrease after withdrawal. Before: "
