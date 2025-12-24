@@ -332,7 +332,7 @@ access(all) fun testGapDepositFinalizedCorrectly() {
     // Wait for round to end
     Test.moveTime(by: 61.0)
     
-    // Gap user deposits (should trigger initializeIfNeeded in ended round)
+    // Gap user deposits (should trigger finalizeUserForGap in ended round)
     let gapUser = Test.createAccount()
     setupUserWithFundsAndCollection(gapUser, amount: depositAmount + 10.0)
     depositToPool(gapUser, poolID: poolID, amount: depositAmount)
