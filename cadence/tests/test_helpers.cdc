@@ -102,6 +102,42 @@ fun setupUserWithFundsAndCollection(_ account: Test.TestAccount, amount: UFix64)
     setupPoolPositionCollection(account)
 }
 
+access(all)
+fun setupSponsorPositionCollection(_ account: Test.TestAccount) {
+    let setupResult = _executeTransaction(
+        "../transactions/prize-savings/setup_sponsor_collection.cdc",
+        [],
+        account
+    )
+    assertTransactionSucceeded(setupResult, context: "Setup sponsor collection")
+}
+
+access(all)
+fun setupSponsorWithFundsAndCollection(_ account: Test.TestAccount, amount: UFix64) {
+    fundAccountWithFlow(account, amount: amount)
+    setupSponsorPositionCollection(account)
+}
+
+access(all)
+fun sponsorDepositToPool(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64) {
+    let depositResult = _executeTransaction(
+        "../transactions/prize-savings/sponsor_deposit.cdc",
+        [poolID, amount],
+        account
+    )
+    assertTransactionSucceeded(depositResult, context: "Sponsor deposit")
+}
+
+access(all)
+fun sponsorWithdrawFromPool(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64) {
+    let withdrawResult = _executeTransaction(
+        "../transactions/prize-savings/sponsor_withdraw.cdc",
+        [poolID, amount],
+        account
+    )
+    assertTransactionSucceeded(withdrawResult, context: "Sponsor withdraw")
+}
+
 // ============================================================================
 // POOL OPERATION HELPERS
 // ============================================================================
@@ -239,6 +275,45 @@ fun getUserEntriesDebug(_ userAddress: Address, _ poolID: UInt64): {String: AnyS
 }
 
 // ============================================================================
+// SPONSOR QUERY HELPERS
+// ============================================================================
+
+access(all)
+fun getSponsorBalance(_ sponsorAddress: Address, _ poolID: UInt64): {String: UFix64} {
+    let scriptResult = _executeScript("../scripts/test/get_sponsor_balance.cdc", [sponsorAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: UFix64}
+}
+
+access(all)
+fun getSponsorEntries(_ sponsorAddress: Address, _ poolID: UInt64): UFix64 {
+    let scriptResult = _executeScript("../scripts/test/get_sponsor_entries.cdc", [sponsorAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
+}
+
+access(all)
+fun isSponsor(_ poolID: UInt64, _ receiverID: UInt64): Bool {
+    let scriptResult = _executeScript("../scripts/test/is_sponsor.cdc", [poolID, receiverID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! Bool
+}
+
+access(all)
+fun getSponsorCount(_ poolID: UInt64): Int {
+    let scriptResult = _executeScript("../scripts/test/get_sponsor_count.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! Int
+}
+
+access(all)
+fun getRegisteredReceiverCount(_ poolID: UInt64): Int {
+    let scriptResult = _executeScript("../scripts/test/get_registered_receiver_count.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! Int
+}
+
+// ============================================================================
 // USER ACTION HELPERS
 // ============================================================================
 
@@ -260,6 +335,17 @@ fun withdrawFromPool(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64
         account
     )
     assertTransactionSucceeded(withdrawResult, context: "Withdraw from pool")
+}
+
+access(all)
+fun processRewards(_ poolID: UInt64) {
+    let deployerAccount = getDeployerAccount()
+    let processResult = _executeTransaction(
+        "../transactions/test/process_pool_rewards.cdc",
+        [poolID],
+        deployerAccount
+    )
+    assertTransactionSucceeded(processResult, context: "Process pool rewards")
 }
 
 access(all)
