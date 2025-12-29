@@ -611,3 +611,206 @@ access(all) fun testMultipleUsersShareDeficitProportionally() {
     let loss2 = initial2 - final2
     Test.assert(loss2 > 4.0 && loss2 < 6.0, message: "User2 should lose about 5 FLOW")
 }
+
+// ============================================================================
+// TESTS - Auto-Triggered Deficit Sync During User Operations
+// ============================================================================
+// These tests verify that deficit sync is automatically triggered during
+// deposits and withdrawals, not just when admin explicitly calls sync.
+// This is critical for fair loss socialization - without auto-triggering,
+// early withdrawers could escape losses while later users bear the full burden.
+// ============================================================================
+
+access(all) fun testDeficitAutoAppliedDuringDeposit() {
+    // Setup: Create pool with initial deposit
+    let poolID = createPoolWithDistribution(savings: 1.0, lottery: 0.0, treasury: 0.0)
+    let poolIndex = Int(poolID)
+    
+    // Create first user and deposit
+    let user1 = Test.createAccount()
+    setupUserWithFundsAndCollection(user1, amount: 110.0)
+    depositToPool(user1, poolID: poolID, amount: 100.0)
+    
+    // Get initial state
+    let initialInfo = getPoolSavingsInfo(poolID)
+    let initialSharePrice = initialInfo["sharePrice"]!
+    let initialTotalStaked = initialInfo["totalStaked"]!
+    
+    Test.assertEqual(1.0, initialSharePrice)
+    Test.assertEqual(100.0, initialTotalStaked)
+    
+    // Simulate deficit - remove 10 FLOW from yield vault
+    // DO NOT call triggerSyncWithYieldSource() - we're testing auto-trigger
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    
+    // Create second user and deposit - this SHOULD auto-trigger sync
+    let user2 = Test.createAccount()
+    setupUserWithFundsAndCollection(user2, amount: 20.0)
+    depositToPool(user2, poolID: poolID, amount: 10.0)
+    
+    // Get final state - share price should have decreased from the deficit
+    let finalInfo = getPoolSavingsInfo(poolID)
+    let finalSharePrice = finalInfo["sharePrice"]!
+    
+    // Share price should be < 1.0 because deficit was applied during user2's deposit
+    Test.assert(finalSharePrice < initialSharePrice,
+        message: "Share price should decrease after deficit is auto-applied during deposit. Initial: "
+            .concat(initialSharePrice.toString()).concat(", Final: ").concat(finalSharePrice.toString()))
+    
+    // Verify user1's balance decreased (they shared in the loss)
+    let user1Balance = getActualBalanceFromResult(getUserActualBalance(user1.address, poolID))
+    Test.assert(user1Balance < 100.0,
+        message: "User1's balance should decrease from deficit. Got: ".concat(user1Balance.toString()))
+}
+
+access(all) fun testDeficitAutoAppliedDuringWithdrawal() {
+    // Setup: Create pool with initial deposit
+    let poolID = createPoolWithDistribution(savings: 1.0, lottery: 0.0, treasury: 0.0)
+    let poolIndex = Int(poolID)
+    
+    // Create user and deposit
+    let user = Test.createAccount()
+    setupUserWithFundsAndCollection(user, amount: 110.0)
+    depositToPool(user, poolID: poolID, amount: 100.0)
+    
+    // Get initial state
+    let initialInfo = getPoolSavingsInfo(poolID)
+    let initialSharePrice = initialInfo["sharePrice"]!
+    
+    Test.assertEqual(1.0, initialSharePrice)
+    
+    // Simulate deficit - remove 10 FLOW from yield vault
+    // DO NOT call triggerSyncWithYieldSource() - we're testing auto-trigger
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    
+    // Withdraw 50 FLOW - this SHOULD auto-trigger sync before calculating withdrawal
+    withdrawFromPool(user, poolID: poolID, amount: 50.0)
+    
+    // Get final state
+    let finalInfo = getPoolSavingsInfo(poolID)
+    let finalSharePrice = finalInfo["sharePrice"]!
+    
+    // Share price should be < 1.0 because deficit was applied during withdrawal
+    Test.assert(finalSharePrice < initialSharePrice,
+        message: "Share price should decrease after deficit is auto-applied during withdrawal. Initial: "
+            .concat(initialSharePrice.toString()).concat(", Final: ").concat(finalSharePrice.toString()))
+    
+    // User's remaining balance should reflect the loss
+    // They started with 100, lost ~10 to deficit, withdrew ~50, should have ~40 left
+    let userBalance = getActualBalanceFromResult(getUserActualBalance(user.address, poolID))
+    Test.assert(userBalance > 35.0 && userBalance < 45.0,
+        message: "User's remaining balance should be ~40 (100 - 10 deficit - 50 withdrawn). Got: "
+            .concat(userBalance.toString()))
+}
+
+access(all) fun testDeficitNotAppliedWithoutUserInteraction() {
+    // This test verifies that deficits DON'T change balances until someone interacts
+    // This is the expected behavior - we just need sync to happen on interaction
+    
+    // Setup: Create pool with initial deposit
+    let poolID = createPoolWithDistribution(savings: 1.0, lottery: 0.0, treasury: 0.0)
+    let poolIndex = Int(poolID)
+    
+    let user = Test.createAccount()
+    setupUserWithFundsAndCollection(user, amount: 110.0)
+    depositToPool(user, poolID: poolID, amount: 100.0)
+    
+    // Get initial state
+    let initialInfo = getPoolSavingsInfo(poolID)
+    let initialSharePrice = initialInfo["sharePrice"]!
+    let initialTotalStaked = initialInfo["totalStaked"]!
+    
+    // Simulate deficit without any interaction
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    
+    // Check pool state WITHOUT any user interaction
+    // Share price should still be the same (no sync happened yet)
+    let midInfo = getPoolSavingsInfo(poolID)
+    let midSharePrice = midInfo["sharePrice"]!
+    let midTotalStaked = midInfo["totalStaked"]!
+    
+    // Internal accounting hasn't changed because no sync happened
+    Test.assertEqual(initialSharePrice, midSharePrice)
+    Test.assertEqual(initialTotalStaked, midTotalStaked)
+    
+    // But yield source actually has less - needsSync should be true
+    // (We can't directly test needsSync from scripts, but we verify the state is stale)
+}
+
+access(all) fun testEarlyWithdrawerCannotEscapeLosses() {
+    // This is the critical fairness test:
+    // If a deficit occurs, both early and late withdrawers should share the loss
+    
+    // Setup: Create pool with two depositors
+    let poolID = createPoolWithDistribution(savings: 1.0, lottery: 0.0, treasury: 0.0)
+    let poolIndex = Int(poolID)
+    
+    let user1 = Test.createAccount()
+    let user2 = Test.createAccount()
+    setupUserWithFundsAndCollection(user1, amount: 110.0)
+    setupUserWithFundsAndCollection(user2, amount: 110.0)
+    
+    depositToPool(user1, poolID: poolID, amount: 100.0)
+    depositToPool(user2, poolID: poolID, amount: 100.0)
+    
+    // Total: 200 FLOW in pool, each user has 50% = 100 FLOW
+    
+    // Simulate 20 FLOW deficit (10% loss for everyone)
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: 20.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    
+    // User1 withdraws first - deficit should be applied, they should lose 10 FLOW
+    // They try to withdraw 100 but should only get ~90
+    withdrawFromPool(user1, poolID: poolID, amount: 90.0)  // Withdraw what they can
+    
+    // User1's remaining balance should be ~0 (they got ~90, have ~0 left)
+    let user1Balance = getActualBalanceFromResult(getUserActualBalance(user1.address, poolID))
+    Test.assert(user1Balance < 5.0,
+        message: "User1 should have little remaining after withdrawing ~90. Got: "
+            .concat(user1Balance.toString()))
+    
+    // User2 should also have ~90 available (they share in the loss)
+    let user2Balance = getActualBalanceFromResult(getUserActualBalance(user2.address, poolID))
+    Test.assert(user2Balance > 85.0 && user2Balance < 95.0,
+        message: "User2 should have ~90 after deficit (100 - 10). Got: "
+            .concat(user2Balance.toString()))
+    
+    // The key invariant: Both users lost ~10% each, the loss was shared fairly
+}
+
+access(all) fun testMultipleDeficitsAppliedOnEachInteraction() {
+    // Verify that multiple deficits are properly tracked and applied
+    
+    let poolID = createPoolWithDistribution(savings: 1.0, lottery: 0.0, treasury: 0.0)
+    let poolIndex = Int(poolID)
+    
+    let user = Test.createAccount()
+    setupUserWithFundsAndCollection(user, amount: 200.0)
+    depositToPool(user, poolID: poolID, amount: 100.0)
+    
+    // First deficit: 10 FLOW
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    
+    // Deposit more to trigger sync
+    depositToPool(user, poolID: poolID, amount: 10.0)
+    
+    let info1 = getPoolSavingsInfo(poolID)
+    let sharePrice1 = info1["sharePrice"]!
+    
+    // Share price should have decreased from first deficit
+    Test.assert(sharePrice1 < 1.0, 
+        message: "Share price should be < 1.0 after first deficit")
+    
+    // Second deficit: 10 more FLOW
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    
+    // Deposit again to trigger sync
+    depositToPool(user, poolID: poolID, amount: 10.0)
+    
+    let info2 = getPoolSavingsInfo(poolID)
+    let sharePrice2 = info2["sharePrice"]!
+    
+    // Share price should have decreased further
+    Test.assert(sharePrice2 < sharePrice1,
+        message: "Share price should decrease further after second deficit. First: "
+            .concat(sharePrice1.toString()).concat(", Second: ").concat(sharePrice2.toString()))
+}

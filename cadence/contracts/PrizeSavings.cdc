@@ -3201,8 +3201,8 @@ access(all) contract PrizeSavings {
                     panic("Pool is paused. No operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
             }
             
-            // Process pending yield before deposit to ensure fair share price
-            if self.getAvailableYieldRewards() > 0.0 {
+            // Process pending yield/deficit before deposit to ensure fair share price
+            if self.needsSync() {
                 self.syncWithYieldSource()
             }
             
@@ -3359,8 +3359,8 @@ access(all) contract PrizeSavings {
                 let _ = self.checkAndAutoRecover()
             }
             
-            // Process pending yield before withdrawal (if in normal mode)
-            if self.emergencyState == PoolEmergencyState.Normal && self.getAvailableYieldRewards() > 0.0 {
+            // Process pending yield/deficit before withdrawal (if in normal mode)
+            if self.emergencyState == PoolEmergencyState.Normal && self.needsSync() {
                 self.syncWithYieldSource()
             }
             
@@ -4565,6 +4565,16 @@ access(all) contract PrizeSavings {
                 return available - allocatedFunds
             }
             return 0.0
+        }
+        
+        /// Returns true if internal accounting differs from yield source balance.
+        /// Handles both excess (gains) and deficit (losses).
+        /// This is used to determine if syncWithYieldSource() needs to be called.
+        access(all) fun needsSync(): Bool {
+            let yieldSource = &self.config.yieldConnector as &{DeFiActions.Source}
+            let yieldBalance = yieldSource.minimumAvailable()
+            let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
+            return yieldBalance != allocatedFunds
         }
         
         access(all) view fun getLotteryPoolBalance(): UFix64 {
