@@ -3345,28 +3345,14 @@ access(all) contract PrizeSavings {
             // Get new shares AFTER the withdrawal
             let newShares = self.savingsDistributor.getUserShares(receiverID: receiverID)
             
-            // Update TWAB in the appropriate round(s)
-            // Check if we're in the gap period (active round has ended but startDraw not called)
-            let inGapPeriod = self.activeRound.hasEnded()
-            
-            if inGapPeriod {
-                // Gap period: finalize user's TWAB in ended round with pre-transaction shares
-                // Use configured end time as the effective end for this round
-                let effectiveEndTime = self.activeRound.getConfiguredEndTime()
-                self.activeRound.finalizeUserForGap(
-                    receiverID: receiverID,
-                    currentShares: oldShares,
-                    endTime: effectiveEndTime
-                )
-            } else {
-                // Normal: record share change and accumulate TWAB
-                self.activeRound.recordShareChange(
-                    receiverID: receiverID,
-                    oldShares: oldShares,
-                    newShares: newShares,
-                    atTime: now
-                )
-            }
+            // Update TWAB in the active round
+            // Round extends naturally until startDraw() is called - record at actual timestamp
+            self.activeRound.recordShareChange(
+                receiverID: receiverID,
+                oldShares: oldShares,
+                newShares: newShares,
+                atTime: now
+            )
             
             // Also finalize in pending draw round if one exists
             if let pendingRound = &self.pendingDrawRound as &Round? {
