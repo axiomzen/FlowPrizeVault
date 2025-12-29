@@ -82,6 +82,13 @@ access(all) contract PrizeSavings {
     /// Public path for PoolPositionCollection capability (read-only access).
     access(all) let PoolPositionCollectionPublicPath: PublicPath
     
+    /// Storage path where users store their SponsorPositionCollection resource.
+    /// Sponsors earn savings yield but are NOT eligible to win lottery prizes.
+    access(all) let SponsorPositionCollectionStoragePath: StoragePath
+    
+    /// Public path for SponsorPositionCollection capability (read-only access).
+    access(all) let SponsorPositionCollectionPublicPath: PublicPath
+    
     // ============================================================
     // EVENTS - Core Operations
     // ============================================================
@@ -97,6 +104,14 @@ access(all) contract PrizeSavings {
     /// @param receiverID - UUID of the user's PoolPositionCollection
     /// @param amount - Amount deposited
     access(all) event Deposited(poolID: UInt64, receiverID: UInt64, amount: UFix64)
+    
+    /// Emitted when a sponsor deposits funds (lottery-ineligible).
+    /// Sponsors earn savings yield but cannot win lottery prizes.
+    /// @param poolID - Pool receiving the deposit
+    /// @param receiverID - UUID of the sponsor's SponsorPositionCollection
+    /// @param amount - Amount deposited
+    /// @param shares - Number of shares minted
+    access(all) event SponsorDeposited(poolID: UInt64, receiverID: UInt64, amount: UFix64, shares: UFix64)
     
     /// Emitted when a user withdraws funds from a pool.
     /// @param poolID - Pool being withdrawn from
@@ -2679,6 +2694,11 @@ access(all) contract PrizeSavings {
         /// Mapping of receiverID to bonus lottery weight records.
         access(self) let receiverBonusWeights: {UInt64: BonusWeightRecord}
         
+        /// Tracks which receivers are sponsors (lottery-ineligible).
+        /// Sponsors earn savings yield but cannot win lottery prizes.
+        /// Key: receiverID (UUID of SponsorPositionCollection), Value: true if sponsor
+        access(self) let sponsorReceivers: {UInt64: Bool}
+        
         // ============================================================
         // ACCOUNTING STATE
         // ============================================================
@@ -2790,6 +2810,7 @@ access(all) contract PrizeSavings {
             self.registeredReceivers = {}
             self.registeredReceiverList = []
             self.receiverBonusWeights = {}
+            self.sponsorReceivers = {}
             
             // Initialize accounting
             self.totalDeposited = 0.0
@@ -3229,6 +3250,78 @@ access(all) contract PrizeSavings {
             emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: amount)
         }
         
+        /// Deposits funds as a sponsor (lottery-ineligible).
+        /// 
+        /// Called internally by SponsorPositionCollection.deposit().
+        /// 
+        /// Sponsors earn savings yield through share price appreciation but
+        /// are NOT eligible to win lottery prizes. This is useful for:
+        /// - Protocol treasuries seeding initial liquidity
+        /// - Foundations incentivizing participation without competing
+        /// - Users who want yield but don't want lottery exposure
+        /// 
+        /// DIFFERENCES FROM REGULAR DEPOSIT:
+        /// - Not added to registeredReceiverList (no lottery eligibility)
+        /// - No TWAB tracking (no lottery weight needed)
+        /// - Tracked in sponsorReceivers mapping instead
+        /// 
+        /// @param from - Vault containing funds to deposit (consumed)
+        /// @param receiverID - UUID of the sponsor's SponsorPositionCollection
+        access(contract) fun sponsorDeposit(from: @{FungibleToken.Vault}, receiverID: UInt64) {
+            pre {
+                from.balance > 0.0: "Deposit amount must be positive. Amount: ".concat(from.balance.toString())
+                from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
+            }
+            
+            // Enforce state-specific deposit rules
+            switch self.emergencyState {
+                case PoolEmergencyState.Normal:
+                    // Normal: enforce minimum deposit
+                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit. Required: ".concat(self.config.minimumDeposit.toString()).concat(", got: ").concat(from.balance.toString()))
+                case PoolEmergencyState.PartialMode:
+                    // Partial: enforce deposit limit
+                    let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
+                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: ".concat(receiverID.toString()))
+                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: ".concat(depositLimit.toString()).concat(", got: ").concat(from.balance.toString()))
+                case PoolEmergencyState.EmergencyMode:
+                    // Emergency: no deposits allowed
+                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+                case PoolEmergencyState.Paused:
+                    // Paused: nothing allowed
+                    panic("Pool is paused. No operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+            }
+            
+            // Process pending yield before deposit to ensure fair share price
+            if self.getAvailableYieldRewards() > 0.0 {
+                self.syncWithYieldSource()
+            }
+            
+            let amount = from.balance
+            
+            // Record deposit in savings distributor (mints shares - same as regular deposit)
+            let newSharesMinted = self.savingsDistributor.deposit(receiverID: receiverID, amount: amount)
+            
+            // Mark as sponsor (lottery-ineligible)
+            self.sponsorReceivers[receiverID] = true
+            
+            // Update receiver's principal (deposits + prizes)
+            let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
+            self.receiverDeposits[receiverID] = currentPrincipal + amount
+            
+            // Update pool totals
+            self.totalDeposited = self.totalDeposited + amount
+            self.totalStaked = self.totalStaked + amount
+            
+            // Deposit to yield source to start earning
+            self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
+            destroy from
+            
+            // NOTE: No registeredReceiverList registration - sponsors are NOT lottery-eligible
+            // NOTE: No TWAB/Round tracking - no lottery weight needed
+            
+            emit SponsorDeposited(poolID: self.poolID, receiverID: receiverID, amount: amount, shares: newSharesMinted)
+        }
+        
         /// Withdraws funds for a receiver.
         /// 
         /// Called internally by PoolPositionCollection.withdraw().
@@ -3255,7 +3348,7 @@ access(all) contract PrizeSavings {
         /// @return Vault containing withdrawn funds (may be empty on failure)
         access(contract) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Vault} {
             pre {
-                self.registeredReceivers[receiverID] != nil: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
+                self.registeredReceivers[receiverID] != nil || self.sponsorReceivers[receiverID] == true: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
             }
             
             // Paused pool: nothing allowed
@@ -3384,7 +3477,14 @@ access(all) contract PrizeSavings {
             // would corrupt indices (swap-and-pop). Ghost users with 0 shares get 0 weight.
             // They'll be cleaned up after the draw completes.
             if newShares == 0.0 && self.pendingSelectionData == nil {
-                self.unregisterReceiver(receiverID: receiverID)
+                // Handle sponsors vs regular receivers differently
+                if self.sponsorReceivers[receiverID] == true {
+                    // Clean up sponsor mapping
+                    self.sponsorReceivers.remove(key: receiverID)
+                } else {
+                    // Unregister regular receiver from lottery
+                    self.unregisterReceiver(receiverID: receiverID)
+                }
             }
             
             emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: actualWithdrawn)
@@ -4425,6 +4525,18 @@ access(all) contract PrizeSavings {
             return self.registeredReceiverList.length
         }
         
+        /// Returns whether a receiver is a sponsor (lottery-ineligible).
+        /// @param receiverID - UUID of the receiver to check
+        /// @return true if the receiver is a sponsor, false otherwise
+        access(all) view fun isSponsor(receiverID: UInt64): Bool {
+            return self.sponsorReceivers[receiverID] ?? false
+        }
+        
+        /// Returns the total number of sponsors in this pool.
+        access(all) view fun getSponsorCount(): Int {
+            return self.sponsorReceivers.keys.length
+        }
+        
         access(all) view fun isDrawInProgress(): Bool {
             return self.pendingDrawReceipt != nil
         }
@@ -4803,6 +4915,137 @@ access(all) contract PrizeSavings {
     }
     
     // ============================================================
+    // SPONSOR POSITION COLLECTION RESOURCE
+    // ============================================================
+    
+    /// Sponsor's position collection for lottery-ineligible deposits.
+    /// 
+    /// This resource allows users to make deposits that earn savings yield
+    /// but are NOT eligible to win lottery prizes. Useful for:
+    /// - Protocol treasuries seeding initial liquidity
+    /// - Foundations incentivizing participation without competing
+    /// - Users who want yield but don't want lottery exposure
+    /// 
+    /// A single account can have BOTH a PoolPositionCollection (lottery-eligible)
+    /// AND a SponsorPositionCollection (lottery-ineligible) simultaneously.
+    /// Each has its own UUID, enabling independent positions.
+    /// 
+    /// ⚠️ CRITICAL SECURITY WARNING:
+    /// This resource's UUID serves as the account key for ALL sponsor deposits.
+    /// - All funds and shares are keyed to this resource's UUID
+    /// - If this resource is destroyed or lost, funds become INACCESSIBLE
+    /// - Users should treat this resource like a wallet private key
+    /// 
+    /// USAGE:
+    /// 1. Create and store: account.storage.save(<- createSponsorPositionCollection(), to: path)
+    /// 2. Deposit: collection.deposit(poolID: 0, from: <- vault)
+    /// 3. Withdraw: let vault <- collection.withdraw(poolID: 0, amount: 10.0)
+    access(all) resource SponsorPositionCollection {
+        /// Tracks which pools this collection is registered with.
+        access(self) let registeredPools: {UInt64: Bool}
+        
+        init() {
+            self.registeredPools = {}
+        }
+        
+        /// Returns this collection's receiver ID (UUID).
+        /// Used internally to identify this sponsor's position in pools.
+        access(all) view fun getReceiverID(): UInt64 {
+            return self.uuid
+        }
+        
+        /// Returns list of pool IDs this collection is registered with.
+        access(all) view fun getRegisteredPoolIDs(): [UInt64] {
+            return self.registeredPools.keys
+        }
+        
+        /// Checks if this collection is registered with a specific pool.
+        /// @param poolID - Pool ID to check
+        access(all) view fun isRegisteredWithPool(poolID: UInt64): Bool {
+            return self.registeredPools[poolID] == true
+        }
+        
+        /// Deposits funds as a sponsor (lottery-ineligible).
+        /// 
+        /// Sponsors earn savings yield but cannot win lottery prizes.
+        /// Requires PositionOps entitlement.
+        /// 
+        /// @param poolID - ID of pool to deposit into
+        /// @param from - Vault containing funds to deposit (consumed)
+        access(PositionOps) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}) {
+            // Track registration locally
+            if self.registeredPools[poolID] == nil {
+                self.registeredPools[poolID] = true
+            }
+            
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            poolRef.sponsorDeposit(from: <- from, receiverID: self.uuid)
+        }
+        
+        /// Withdraws funds from a pool.
+        /// 
+        /// Can withdraw up to total balance (deposits + earned interest).
+        /// May return empty vault if yield source has liquidity issues.
+        /// 
+        /// @param poolID - ID of pool to withdraw from
+        /// @param amount - Amount to withdraw
+        /// @return Vault containing withdrawn funds
+        access(PositionOps) fun withdraw(poolID: UInt64, amount: UFix64): @{FungibleToken.Vault} {
+            pre {
+                self.registeredPools[poolID] == true: "Not registered with pool"
+            }
+            
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            return <- poolRef.withdraw(amount: amount, receiverID: self.uuid)
+        }
+        
+        /// Returns the sponsor's share balance in a pool.
+        /// @param poolID - Pool ID to check
+        access(all) view fun getPoolShares(poolID: UInt64): UFix64 {
+            if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
+                return poolRef.getUserSavingsShares(receiverID: self.uuid)
+            }
+            return 0.0
+        }
+        
+        /// Returns the sponsor's asset balance in a pool (shares converted to assets).
+        /// @param poolID - Pool ID to check
+        access(all) view fun getPoolAssetBalance(poolID: UInt64): UFix64 {
+            if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
+                return poolRef.getReceiverTotalBalance(receiverID: self.uuid)
+            }
+            return 0.0
+        }
+        
+        /// Returns 0.0 - sponsors have no lottery entries by design.
+        /// @param poolID - Pool ID to check
+        /// @return Always 0.0 (sponsors are lottery-ineligible)
+        access(all) view fun getPoolEntries(poolID: UInt64): UFix64 {
+            return 0.0  // Sponsors are never lottery-eligible
+        }
+        
+        /// Returns a complete balance breakdown for this sponsor in a pool.
+        /// Note: totalEarnedPrizes will always be 0 since sponsors cannot win.
+        /// @param poolID - Pool ID to check
+        /// @return PoolBalance struct with balance components
+        access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
+            // Return zero balance if not registered
+            if self.registeredPools[poolID] == nil {
+                return PoolBalance(deposits: 0.0, totalEarnedPrizes: 0.0, savingsEarned: 0.0)
+            }
+            
+            if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
+                return PoolBalance(
+                    deposits: poolRef.getReceiverDeposit(receiverID: self.uuid),
+                    totalEarnedPrizes: 0.0,  // Sponsors cannot win prizes
+                    savingsEarned: poolRef.getPendingSavingsInterest(receiverID: self.uuid)
+                )
+            }
+            return PoolBalance(deposits: 0.0, totalEarnedPrizes: 0.0, savingsEarned: 0.0)
+        }
+    }
+    
+    // ============================================================
     // CONTRACT-LEVEL FUNCTIONS
     // ============================================================
     
@@ -4880,6 +5123,23 @@ access(all) contract PrizeSavings {
         return <- create PoolPositionCollection()
     }
     
+    /// Creates a new SponsorPositionCollection for a user.
+    /// 
+    /// Sponsors can deposit funds that earn savings yield but are
+    /// NOT eligible to win lottery prizes. A single account can have
+    /// both a PoolPositionCollection and SponsorPositionCollection.
+    /// 
+    /// Typical usage:
+    /// ```
+    /// let collection <- PrizeSavings.createSponsorPositionCollection()
+    /// account.storage.save(<- collection, to: PrizeSavings.SponsorPositionCollectionStoragePath)
+    /// ```
+    /// 
+    /// @return New SponsorPositionCollection resource
+    access(all) fun createSponsorPositionCollection(): @SponsorPositionCollection {
+        return <- create SponsorPositionCollection()
+    }
+    
     // ============================================================
     // ENTRY QUERY FUNCTIONS - Contract-level convenience accessors
     // ============================================================
@@ -4939,6 +5199,10 @@ access(all) contract PrizeSavings {
         // Storage paths for user collections
         self.PoolPositionCollectionStoragePath = /storage/PrizeSavingsCollection
         self.PoolPositionCollectionPublicPath = /public/PrizeSavingsCollection
+        
+        // Storage paths for sponsor collections (lottery-ineligible)
+        self.SponsorPositionCollectionStoragePath = /storage/PrizeSavingsSponsorCollection
+        self.SponsorPositionCollectionPublicPath = /public/PrizeSavingsSponsorCollection
         
         // Storage path for admin resource
         self.AdminStoragePath = /storage/PrizeSavingsAdmin
