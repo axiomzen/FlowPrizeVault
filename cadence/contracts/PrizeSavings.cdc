@@ -1197,8 +1197,8 @@ access(all) contract PrizeSavings {
         access(all) let startTime: UFix64
         
         /// Configured duration for this round (used for hasEnded check).
-        /// The actual duration may differ if admin extends/shortens.
-        access(all) let configuredDuration: UFix64
+        /// Can be modified by admin to extend or shorten the round.
+        access(all) var configuredDuration: UFix64
         
         /// Actual end time when round was finalized (set by startDraw).
         /// nil means round is still active.
@@ -1358,6 +1358,23 @@ access(all) contract PrizeSavings {
         /// @param endTime - The actual end time
         access(contract) fun setActualEndTime(_ endTime: UFix64) {
             self.actualEndTime = endTime
+        }
+        
+        /// Updates the configured duration for this round.
+        /// Called when admin changes draw interval and wants to affect current round.
+        /// This can extend or shorten the round, affecting when hasEnded() returns true.
+        /// No-op if round has been finalized (actualEndTime set) - does not revert.
+        /// 
+        /// @param duration - New duration in seconds (must be >= 1.0)
+        access(contract) fun setConfiguredDuration(_ duration: UFix64) {
+            pre {
+                duration >= 1.0: "Duration must be at least 1 second"
+            }
+            // If round is already finalized, silently skip update
+            if self.actualEndTime != nil {
+                return
+            }
+            self.configuredDuration = duration
         }
         
         /// Returns the actual end time if set, nil otherwise.
@@ -3632,7 +3649,9 @@ access(all) contract PrizeSavings {
             
             // Get the current round's info before transitioning
             let endedRoundID = self.activeRound.getRoundID()
-            let roundDuration = self.activeRound.getDuration()
+            
+            // Get duration from pool config
+            let newRoundDuration = self.config.drawIntervalSeconds
             
             // Set the actual end time on the ending round
             // This is the moment we're finalizing - used for TWAB calculations
@@ -3644,7 +3663,7 @@ access(all) contract PrizeSavings {
             let newRound <- create Round(
                 roundID: newRoundID,
                 startTime: now,
-                configuredDuration: roundDuration
+                configuredDuration: newRoundDuration
             )
             
             // Atomic swap: new round goes in, ended round comes out
@@ -3663,7 +3682,7 @@ access(all) contract PrizeSavings {
                 poolID: self.poolID,
                 roundID: newRoundID,
                 startTime: now,
-                duration: roundDuration
+                duration: newRoundDuration
             )
             
             // Update last draw timestamp (draw initiated, even though batch processing pending)
@@ -4089,11 +4108,16 @@ access(all) contract PrizeSavings {
             self.config.setWinnerTrackerCap(cap: cap)
         }
         
-        /// Updates the draw interval. Cannot be changed during active draw.
+        /// Updates the draw interval for the pool and the current active round.
+
         /// @param interval - New interval in seconds
         access(contract) fun setDrawIntervalSeconds(interval: UFix64) {
-            assert(!self.isDrawInProgress(), message: "Cannot change draw interval during an active draw")
+            // Update pool config (for future rounds)
             self.config.setDrawIntervalSeconds(interval: interval)
+            
+            // Also update current active round so change takes effect immediately
+            // Note: This only affects the NEXT draw, not any pendingDrawRound being processed
+            self.activeRound.setConfiguredDuration(interval)
         }
         
         /// Updates the minimum deposit amount.
