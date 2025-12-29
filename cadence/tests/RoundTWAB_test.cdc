@@ -93,7 +93,7 @@ access(all) fun testCanDrawNowAfterRoundEnds() {
 }
 
 // ============================================================================
-// TESTS - Projection-Based TWAB
+// TESTS - Cumulative TWAB
 // ============================================================================
 
 access(all) fun testNearStartDepositGetsNearFullEntries() {
@@ -258,7 +258,7 @@ access(all) fun testGapDepositGetsFullNextRoundEntries() {
     depositToPool(gapUser, poolID: poolID, amount: depositAmount)
     
     // Complete a full draw (4-phase: start -> batch -> randomness -> complete)
-    // This creates new round where gap users get lazy fallback (full-round projection)
+    // This creates new round where gap users get lazy initialization (full-round credit)
     executeFullDraw(existingUser, poolID: poolID)
     
     // Gap user should have full entries in the new round via lazy fallback
@@ -408,7 +408,7 @@ access(all) fun testPartialWithdrawalReducesTWAB() {
     // Get entries after withdrawal
     let entriesAfter = getUserEntries(user.address, poolID)
     
-    // Entries should be less than before (withdrawal reduces remaining projection)
+    // Entries should be less than before (withdrawal reduces accumulated TWAB)
     Test.assert(
         entriesAfter < entriesBefore,
         message: "Entries should decrease after partial withdrawal. Before: "
