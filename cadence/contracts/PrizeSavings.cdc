@@ -72,6 +72,16 @@ access(all) contract PrizeSavings {
     /// Works in tandem with VIRTUAL_SHARES to ensure share price starts near 1.0.
     access(all) let VIRTUAL_ASSETS: UFix64
     
+    /// Minimum yield amount required to trigger distribution.
+    /// Amounts below this threshold remain in the yield source and accumulate
+    /// until the next sync when they may exceed the threshold.
+    /// 
+    /// Set to 100x minimum UFix64 (0.000001) to ensure:
+    /// - All percentage buckets receive non-zero allocations (even 1% buckets)
+    /// - No precision loss from UFix64 rounding during distribution
+    /// - Negligible economic impact (~$0.000002 at $2/FLOW)
+    access(all) let MINIMUM_DISTRIBUTION_THRESHOLD: UFix64
+    
     // ============================================================
     // STORAGE PATHS
     // ============================================================
@@ -3553,6 +3563,11 @@ access(all) contract PrizeSavings {
                 return
             }
             
+            // Skip distribution for amounts below threshold to avoid precision loss
+            if amount < PrizeSavings.MINIMUM_DISTRIBUTION_THRESHOLD {
+                return
+            }
+            
             // Apply distribution strategy
             let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
             
@@ -5205,6 +5220,10 @@ access(all) contract PrizeSavings {
         // Using 0.0001 to minimize dilution (~0.0001%) while providing security
         self.VIRTUAL_SHARES = 0.0001
         self.VIRTUAL_ASSETS = 0.0001
+        
+        // Minimum yield distribution threshold (100x minimum UFix64).
+        // Prevents precision loss when distributing tiny amounts across percentage buckets.
+        self.MINIMUM_DISTRIBUTION_THRESHOLD = 0.000001
         
         // Storage paths for user collections
         self.PoolPositionCollectionStoragePath = /storage/PrizeSavingsCollection
