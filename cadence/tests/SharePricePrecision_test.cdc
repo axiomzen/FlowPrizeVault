@@ -109,7 +109,14 @@ access(all) fun testRoundTripNormalAmount() {
     // Create user and deposit
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 1.0)
+    
+    // Record FLOW balance after setup, before deposit
+    let preDepositFlowBalance = getUserFlowBalance(user.address)
+    
     depositToPool(user, poolID: poolID, amount: depositAmount)
+    
+    // Record FLOW balance after deposit
+    let postDepositFlowBalance = getUserFlowBalance(user.address)
     
     // Verify user balance equals deposit
     let userDetails = getUserShareDetails(user.address, poolID)
@@ -129,6 +136,18 @@ access(all) fun testRoundTripNormalAmount() {
         precisionLoss <= ACCEPTABLE_PRECISION_LOSS,
         message: "Precision loss too high: ".concat(precisionLoss.toString())
     )
+    
+    // Actually withdraw and verify received amount matches deposit
+    withdrawFromPool(user, poolID: poolID, amount: assetValue)
+    let finalFlowBalance = getUserFlowBalance(user.address)
+    let recovered = finalFlowBalance - postDepositFlowBalance
+    
+    Test.assert(
+        isWithinTolerance(recovered, depositAmount, ACCEPTABLE_PRECISION_LOSS),
+        message: "Round-trip recovery failed. Deposited: "
+            .concat(depositAmount.toString())
+            .concat(", Recovered: ").concat(recovered.toString())
+    )
 }
 
 access(all) fun testRoundTripSmallAmount() {
@@ -139,7 +158,11 @@ access(all) fun testRoundTripSmallAmount() {
     // Create user and deposit
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 1.0)
+    
     depositToPool(user, poolID: poolID, amount: depositAmount)
+    
+    // Record FLOW balance after deposit
+    let postDepositFlowBalance = getUserFlowBalance(user.address)
     
     // Verify precision
     let userDetails = getUserShareDetails(user.address, poolID)
@@ -150,6 +173,18 @@ access(all) fun testRoundTripSmallAmount() {
     Test.assert(
         precisionLoss <= ACCEPTABLE_PRECISION_LOSS,
         message: "Small deposit precision loss too high: ".concat(precisionLoss.toString())
+    )
+    
+    // Actually withdraw and verify received amount
+    withdrawFromPool(user, poolID: poolID, amount: assetValue)
+    let finalFlowBalance = getUserFlowBalance(user.address)
+    let recovered = finalFlowBalance - postDepositFlowBalance
+    
+    Test.assert(
+        isWithinTolerance(recovered, depositAmount, ACCEPTABLE_PRECISION_LOSS),
+        message: "Small amount round-trip failed. Deposited: "
+            .concat(depositAmount.toString())
+            .concat(", Recovered: ").concat(recovered.toString())
     )
 }
 

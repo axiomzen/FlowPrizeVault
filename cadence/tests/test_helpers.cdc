@@ -1057,6 +1057,14 @@ fun getUserShareDetails(_ userAddress: Address, _ poolID: UInt64): {String: UFix
     return scriptResult.returnValue! as! {String: UFix64}
 }
 
+/// Get a user's FLOW token wallet balance (not pool balance)
+access(all)
+fun getUserFlowBalance(_ userAddress: Address): UFix64 {
+    let scriptResult = _executeScript("../scripts/test/get_user_flow_balance.cdc", [userAddress])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
+}
+
 /// Create a pool with a very small minimum deposit for precision testing
 access(all)
 fun createTestPoolWithMinDeposit(minDeposit: UFix64): UInt64 {
