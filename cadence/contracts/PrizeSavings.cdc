@@ -3535,17 +3535,26 @@ access(all) contract PrizeSavings {
             let yieldBalance = self.config.yieldConnector.minimumAvailable()
             let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
             
+            // Calculate absolute difference
+            let difference: UFix64 = yieldBalance > allocatedFunds 
+                ? yieldBalance - allocatedFunds 
+                : allocatedFunds - yieldBalance
+            
+            // Skip sync for amounts below threshold to avoid precision loss.
+            // Small discrepancies accumulate in the yield source until they exceed threshold.
+            if difference < PrizeSavings.MINIMUM_DISTRIBUTION_THRESHOLD {
+                return
+            }
+            
             // === EXCESS: Apply gains ===
             if yieldBalance > allocatedFunds {
-                let excess = yieldBalance - allocatedFunds
-                self.applyExcess(amount: excess)
+                self.applyExcess(amount: difference)
                 return
             }
             
             // === DEFICIT: Apply shortfall ===
             if yieldBalance < allocatedFunds {
-                let deficit = allocatedFunds - yieldBalance
-                self.applyDeficit(amount: deficit)
+                self.applyDeficit(amount: difference)
                 return
             }
             
@@ -3563,10 +3572,7 @@ access(all) contract PrizeSavings {
                 return
             }
             
-            // Skip distribution for amounts below threshold to avoid precision loss
-            if amount < PrizeSavings.MINIMUM_DISTRIBUTION_THRESHOLD {
-                return
-            }
+            // Note: Threshold check is done in syncWithYieldSource() before calling this function
             
             // Apply distribution strategy
             let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)

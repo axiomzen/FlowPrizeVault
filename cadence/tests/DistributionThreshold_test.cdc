@@ -411,3 +411,77 @@ access(all) fun testZeroYieldNotDistributed() {
     )
 }
 
+// ============================================================================
+// TEST: Deficit Below Threshold Is Skipped
+// ============================================================================
+
+access(all) fun testDeficitBelowThresholdIsNotApplied() {
+    // Setup: Create pool with 100% savings for simpler verification
+    let poolID = setupPoolWithDeposit(
+        savings: 1.0, 
+        lottery: 0.0, 
+        treasury: 0.0, 
+        depositAmount: 100.0
+    )
+    
+    // Get initial state
+    let initialInfo = getPoolSavingsInfo(poolID)
+    let initialTotalStaked = initialInfo["totalStaked"]!
+    let initialSharePrice = initialInfo["sharePrice"]!
+    
+    // Simulate very small deficit (below threshold)
+    let poolIndex = Int(poolID)
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: BELOW_THRESHOLD, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    // Get final state
+    let finalInfo = getPoolSavingsInfo(poolID)
+    let finalTotalStaked = finalInfo["totalStaked"]!
+    let finalSharePrice = finalInfo["sharePrice"]!
+    
+    // Nothing should have changed - deficit below threshold is skipped
+    Test.assert(
+        initialTotalStaked == finalTotalStaked,
+        message: "totalStaked should be unchanged when deficit is below threshold"
+    )
+    Test.assert(
+        initialSharePrice == finalSharePrice,
+        message: "sharePrice should be unchanged when deficit is below threshold"
+    )
+}
+
+// ============================================================================
+// TEST: Deficit At Threshold Is Applied
+// ============================================================================
+
+access(all) fun testDeficitAtThresholdIsApplied() {
+    // Setup: Create pool with 100% savings for simpler verification
+    let poolID = setupPoolWithDeposit(
+        savings: 1.0, 
+        lottery: 0.0, 
+        treasury: 0.0, 
+        depositAmount: 100.0
+    )
+    
+    // Get initial state
+    let initialInfo = getPoolSavingsInfo(poolID)
+    let initialTotalStaked = initialInfo["totalStaked"]!
+    
+    // Simulate deficit exactly at threshold
+    let poolIndex = Int(poolID)
+    simulateYieldDepreciation(poolIndex: poolIndex, amount: AT_THRESHOLD, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    // Get final state
+    let finalInfo = getPoolSavingsInfo(poolID)
+    let finalTotalStaked = finalInfo["totalStaked"]!
+    
+    // Deficit at threshold should be applied
+    Test.assert(
+        finalTotalStaked < initialTotalStaked,
+        message: "totalStaked should decrease when deficit is at threshold. Initial: "
+            .concat(initialTotalStaked.toString())
+            .concat(", Final: ").concat(finalTotalStaked.toString())
+    )
+}
+
