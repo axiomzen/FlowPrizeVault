@@ -1039,3 +1039,93 @@ fun getUserActualBalance(_ userAddress: Address, _ poolID: UInt64): {String: UFi
     return scriptResult.returnValue! as! {String: UFix64}
 }
 
+// ============================================================================
+// PRECISION TESTING HELPERS
+// ============================================================================
+
+access(all)
+fun getSharePricePrecisionInfo(_ poolID: UInt64): {String: UFix64} {
+    let scriptResult = _executeScript("../scripts/test/get_share_price_precision_info.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: UFix64}
+}
+
+access(all)
+fun getUserShareDetails(_ userAddress: Address, _ poolID: UInt64): {String: UFix64} {
+    let scriptResult = _executeScript("../scripts/test/get_user_share_details.cdc", [userAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: UFix64}
+}
+
+/// Create a pool with a very small minimum deposit for precision testing
+access(all)
+fun createTestPoolWithMinDeposit(minDeposit: UFix64): UInt64 {
+    let deployerAccount = getDeployerAccount()
+    let createResult = _executeTransaction(
+        "../transactions/test/create_test_pool_custom_min_deposit.cdc",
+        [minDeposit],
+        deployerAccount
+    )
+    assertTransactionSucceeded(createResult, context: "Create pool with custom min deposit")
+    
+    let poolCount = getPoolCount()
+    return UInt64(poolCount - 1)
+}
+
+/// Helper to calculate absolute difference between two UFix64 values
+access(all)
+fun absDifference(_ a: UFix64, _ b: UFix64): UFix64 {
+    if a > b {
+        return a - b
+    }
+    return b - a
+}
+
+/// Helper to check if a value is within tolerance of expected value
+access(all)
+fun isWithinTolerance(_ actual: UFix64, _ expected: UFix64, _ tolerance: UFix64): Bool {
+    let diff = absDifference(actual, expected)
+    return diff <= tolerance
+}
+
+/// Helper to get the UFix64 precision (smallest representable value)
+access(all)
+fun getUFix64Precision(): UFix64 {
+    return 0.00000001
+}
+
+// ============================================================================
+// EXTREME AMOUNT TESTING HELPERS (Minting)
+// ============================================================================
+
+/// Mints FLOW tokens to an account (for extreme test scenarios)
+/// Uses service account's FlowToken.Administrator to mint unlimited tokens
+/// This bypasses the balance limitation of the service account
+access(all)
+fun mintFlowToAccount(_ account: Test.TestAccount, amount: UFix64) {
+    let serviceAccount = Test.serviceAccount()
+    let mintResult = _executeTransaction(
+        "../transactions/test/mint_flow_to_account.cdc",
+        [account.address, amount],
+        serviceAccount
+    )
+    assertTransactionSucceeded(mintResult, context: "Mint FLOW to account")
+}
+
+/// Simulates yield appreciation using minted tokens (for extreme amounts)
+/// Use this instead of simulateYieldAppreciation when testing with billions of FLOW
+access(all)
+fun simulateExtremeYieldAppreciation(poolIndex: Int, amount: UFix64, vaultPrefix: String) {
+    let deployerAccount = getDeployerAccount()
+    
+    // Mint tokens instead of transferring from limited balance
+    mintFlowToAccount(deployerAccount, amount: amount + 1.0)
+    
+    let result = _executeTransaction(
+        "../transactions/test/add_yield_to_pool_vault.cdc",
+        [poolIndex, amount, vaultPrefix],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Simulate extreme yield appreciation")
+}
+
