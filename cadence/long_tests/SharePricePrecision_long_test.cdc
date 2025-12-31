@@ -18,7 +18,6 @@ import "../tests/test_helpers.cdc"
 // ============================================================================
 
 access(all) let UFIX64_PRECISION: UFix64 = 0.00000001
-access(all) let ACCEPTABLE_PRECISION_LOSS: UFix64 = 0.00000002
 access(all) let PRECISION_VAULT_PREFIX: String = "testYieldVaultPrecision_"
 
 // ============================================================================
@@ -34,7 +33,7 @@ access(all) fun setup() {
 // ============================================================================
 
 access(all) fun testRoundTripMultipleSmallDeposits() {
-    // Test that many small deposits don't accumulate significant error
+    // Test that many small deposits don't accumulate any error
     let poolID = createTestPoolWithMinDeposit(minDeposit: 0.001)
     let singleDeposit: UFix64 = 0.01
     let numDeposits: Int = 20
@@ -56,20 +55,15 @@ access(all) fun testRoundTripMultipleSmallDeposits() {
     let assetValue = userDetails["assetValue"]!
     let deposits = userDetails["deposits"]!
     
-    // Verify deposits were tracked correctly
+    // Verify deposits were tracked correctly - should be exact
     Test.assertEqual(totalDeposit, deposits)
     
-    // Check accumulated precision loss (may be higher with many operations)
+    // Precision loss should be zero without virtual shares
     let precisionLoss = userDetails["precisionLoss"]!
-    let maxAcceptableLoss = ACCEPTABLE_PRECISION_LOSS * UFix64(numDeposits)
+    Test.assertEqual(0.0, precisionLoss)
     
-    Test.assert(
-        precisionLoss <= maxAcceptableLoss,
-        message: "Accumulated precision loss after "
-            .concat(numDeposits.toString())
-            .concat(" deposits too high: ").concat(precisionLoss.toString())
-            .concat(", max acceptable: ").concat(maxAcceptableLoss.toString())
-    )
+    // Asset value should equal deposits exactly
+    Test.assertEqual(totalDeposit, assetValue)
 }
 
 // ============================================================================
@@ -95,17 +89,12 @@ access(all) fun testSharePriceStabilityManyDeposits() {
         i = i + 1
     }
     
-    // Verify share price is still ~1.0 (no yield has occurred)
+    // Verify share price is exactly 1.0 (no yield has occurred)
     let finalInfo = getSharePricePrecisionInfo(poolID)
     let finalSharePrice = finalInfo["sharePrice"]!
     
-    // Share price should be very stable without yield
-    Test.assert(
-        isWithinTolerance(finalSharePrice, initialSharePrice, ACCEPTABLE_PRECISION_LOSS),
-        message: "Share price drifted after many deposits. Initial: "
-            .concat(initialSharePrice.toString())
-            .concat(", Final: ").concat(finalSharePrice.toString())
-    )
+    // Share price should be exactly the same
+    Test.assertEqual(initialSharePrice, finalSharePrice)
     
     // Verify totals are consistent
     let expectedTotalAssets = depositAmount * UFix64(numUsers)
@@ -161,13 +150,14 @@ access(all) fun testExtremeBillionAssetsTinyShares() {
         message: "Extreme share price should be > 50M. Got: ".concat(extremeSharePrice.toString())
     )
     
-    // Verify the math still works - assets ≈ shares * price
+    // Verify the math works exactly - assets = shares * price
     let calculatedAssets = totalShares * extremeSharePrice
-    let assetsDiff = absDifference(calculatedAssets, totalAssets + extremeInfo["virtualAssets"]!)
     
     log("Calculated assets from shares*price: ".concat(calculatedAssets.toString()))
-    log("Actual effective assets: ".concat((totalAssets + extremeInfo["virtualAssets"]!).toString()))
-    log("Difference: ".concat(assetsDiff.toString()))
+    log("Actual total assets: ".concat(totalAssets.toString()))
+    
+    // Should be exact
+    Test.assertEqual(calculatedAssets, totalAssets)
     
     // User's value should have increased massively
     let userDetails = getUserShareDetails(user.address, poolID)
@@ -219,9 +209,9 @@ access(all) fun testExtremeSharePriceWithNewDeposit() {
     log("User2 deposit: ".concat(user2Deposit.toString()))
     
     // User2 should have received shares proportional to deposit/sharePrice
-    // shares ≈ deposit / sharePrice
+    // shares = deposit / sharePrice
     let expectedShares = user2Deposit / highSharePrice
-    log("Expected shares (approx): ".concat(expectedShares.toString()))
+    log("Expected shares: ".concat(expectedShares.toString()))
     
     // Shares should be non-zero (not rounded to zero)
     Test.assert(
@@ -229,16 +219,14 @@ access(all) fun testExtremeSharePriceWithNewDeposit() {
         message: "User2 should have received non-zero shares. Got: ".concat(user2Shares.toString())
     )
     
-    // Asset value should be close to deposit (within precision tolerance)
+    // Asset value should be very close to deposit
+    // Note: At extreme share prices (billions per share), UFix64's 8 decimal places
+    // cause minor precision loss during division/multiplication round-trips
     let valueDiff = absDifference(user2Value, user2Deposit)
     let tolerancePercent = valueDiff / user2Deposit * 100.0
-    log("Value difference: ".concat(valueDiff.toString()))
-    log("Tolerance percent: ".concat(tolerancePercent.toString()).concat("%"))
-    
-    // Allow up to 1% precision loss for extreme ratios
     Test.assert(
-        tolerancePercent < 1.0,
-        message: "User2 value precision loss > 1%. Loss: ".concat(tolerancePercent.toString()).concat("%")
+        tolerancePercent < 0.0001,
+        message: "User2 value precision loss > 0.0001%. Loss: ".concat(tolerancePercent.toString()).concat("%")
     )
 }
 
@@ -266,25 +254,18 @@ access(all) fun testSharePricePrecisionAtMaxUFix64Range() {
     let info = getSharePricePrecisionInfo(poolID)
     let sharePrice = info["sharePrice"]!
     let totalAssets = info["totalAssets"]!
+    let totalShares = info["totalShares"]!
     
     log("Share price at 10B scale: ".concat(sharePrice.toString()))
     log("Total assets: ".concat(totalAssets.toString()))
     
     // Verify calculations still work at this scale
-    // The effective price should be calculable
-    let effectiveAssets = info["effectiveAssets"]!
-    let effectiveShares = info["effectiveShares"]!
-    let manualPrice = effectiveAssets / effectiveShares
+    let manualPrice = totalAssets / totalShares
     
     log("Manual price calculation: ".concat(manualPrice.toString()))
     
-    // Prices should match
-    Test.assert(
-        isWithinTolerance(sharePrice, manualPrice, 0.00000001),
-        message: "Share price mismatch at large scale. Reported: "
-            .concat(sharePrice.toString())
-            .concat(", Calculated: ").concat(manualPrice.toString())
-    )
+    // Prices should match exactly
+    Test.assertEqual(sharePrice, manualPrice)
 }
 
 // ============================================================================
@@ -329,25 +310,15 @@ access(all) fun testManyTinyDepositsVsOneLargeDeposit() {
     log("Large user - Shares: ".concat(largeUserShares.toString()).concat(", Value: ").concat(largeUserValue.toString()))
     log("Tiny user (1000 deposits) - Shares: ".concat(tinyUserShares.toString()).concat(", Value: ").concat(tinyUserValue.toString()))
     
-    // Calculate relative precision loss from many operations
-    // Both should have shares proportional to their deposits
+    // Calculate shares per asset
     let largeSharesPerAsset = largeUserShares / largeAmount
     let tinySharesPerAsset = tinyUserShares / totalTinyAmount
     
     log("Large user shares per asset: ".concat(largeSharesPerAsset.toString()))
     log("Tiny user shares per asset: ".concat(tinySharesPerAsset.toString()))
     
-    // The ratio should be very close (within 0.01% for 1000 operations)
-    let ratioDiff = absDifference(largeSharesPerAsset, tinySharesPerAsset)
-    let ratioPercent = ratioDiff / largeSharesPerAsset * 100.0
-    
-    log("Ratio difference: ".concat(ratioPercent.toString()).concat("%"))
-    
-    // Many operations shouldn't create significant unfairness
-    Test.assert(
-        ratioPercent < 0.01,  // Less than 0.01% difference
-        message: "Accumulated precision loss > 0.01%. Difference: ".concat(ratioPercent.toString()).concat("%")
-    )
+    // Without virtual shares, these should be exactly equal
+    Test.assertEqual(largeSharesPerAsset, tinySharesPerAsset)
 }
 
 // ============================================================================
@@ -390,15 +361,9 @@ access(all) fun testSharePriceStabilityUnderRepeatedYield() {
     log("Final shares: ".concat(finalShares.toString()))
     log("Final price: ".concat(finalPrice.toString()))
     
-    // Verify invariant: effectiveAssets / effectiveShares = sharePrice
-    let calculatedPrice = finalInfo["effectiveAssets"]! / finalInfo["effectiveShares"]!
-    
-    Test.assert(
-        isWithinTolerance(finalPrice, calculatedPrice, ACCEPTABLE_PRECISION_LOSS),
-        message: "Share price invariant violated after repeated yields. Reported: "
-            .concat(finalPrice.toString())
-            .concat(", Calculated: ").concat(calculatedPrice.toString())
-    )
+    // Verify invariant: assets / shares = sharePrice exactly
+    let calculatedPrice = finalAssets / finalShares
+    Test.assertEqual(finalPrice, calculatedPrice)
     
     // User's value should reflect the yield (70% goes to savings)
     let userDetails = getUserShareDetails(user.address, poolID)
@@ -415,4 +380,3 @@ access(all) fun testSharePriceStabilityUnderRepeatedYield() {
             .concat(", Expected min: ").concat(expectedMinValue.toString())
     )
 }
-

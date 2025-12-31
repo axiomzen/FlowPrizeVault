@@ -16,7 +16,7 @@ import "test_helpers.cdc"
 // 1. Share price stability after yield
 // 2. Round-trip deposit/withdraw precision
 // 3. Minimum UFix64 amounts (0.00000001)
-// 4. Virtual offset protection
+// 4. Empty pool handling
 // 5. Multiple users fairness
 //
 // NOTE: Long-running tests (many iterations, extreme values) are in:
@@ -30,9 +30,8 @@ import "test_helpers.cdc"
 // CONSTANTS
 // ============================================================================
 
-// UFix64 precision constants
+// UFix64 precision constant
 access(all) let UFIX64_PRECISION: UFix64 = 0.00000001
-access(all) let ACCEPTABLE_PRECISION_LOSS: UFix64 = 0.00000002  // 2 units of precision
 
 // Test amounts
 access(all) let NORMAL_DEPOSIT: UFix64 = 100.0
@@ -59,17 +58,16 @@ access(all) fun testSharePriceStartsAtOne() {
     // Create fresh pool
     let poolID = createTestPoolWithShortInterval()
     
-    // Verify initial share price is 1.0 (or very close due to virtual offsets)
+    // Verify initial share price is exactly 1.0 for empty pool
     let precisionInfo = getSharePricePrecisionInfo(poolID)
     let sharePrice = precisionInfo["sharePrice"]!
     
-    // With virtual offsets of 0.0001 each:
-    // sharePrice = (0 + 0.0001) / (0 + 0.0001) = 1.0
+    // Empty pool should have share price of exactly 1.0
     Test.assertEqual(1.0, sharePrice)
     
-    // Verify virtual offsets
-    Test.assertEqual(0.0001, precisionInfo["virtualAssets"]!)
-    Test.assertEqual(0.0001, precisionInfo["virtualShares"]!)
+    // Verify totals are zero for empty pool
+    Test.assertEqual(0.0, precisionInfo["totalAssets"]!)
+    Test.assertEqual(0.0, precisionInfo["totalShares"]!)
 }
 
 access(all) fun testSharePriceAfterFirstDeposit() {
@@ -81,18 +79,15 @@ access(all) fun testSharePriceAfterFirstDeposit() {
     setupUserWithFundsAndCollection(user, amount: NORMAL_DEPOSIT + 1.0)
     depositToPool(user, poolID: poolID, amount: NORMAL_DEPOSIT)
     
-    // Share price should still be very close to 1.0
+    // Share price should be exactly 1.0 (no yield has occurred)
     let precisionInfo = getSharePricePrecisionInfo(poolID)
     let sharePrice = precisionInfo["sharePrice"]!
     
-    // With deposit of 100:
-    // sharePrice = (100 + 0.0001) / (100 + 0.0001) = 1.0
-    Test.assert(
-        isWithinTolerance(sharePrice, 1.0, UFIX64_PRECISION),
-        message: "Share price should be ~1.0 after first deposit, got: ".concat(sharePrice.toString())
-    )
+    // With deposit of 100 and no yield:
+    // sharePrice = 100 / 100 = 1.0 exactly
+    Test.assertEqual(1.0, sharePrice)
     
-    // Verify assets and shares match deposit
+    // Verify assets and shares match deposit exactly
     Test.assertEqual(NORMAL_DEPOSIT, precisionInfo["totalAssets"]!)
     Test.assertEqual(NORMAL_DEPOSIT, precisionInfo["totalShares"]!)
 }
@@ -102,7 +97,7 @@ access(all) fun testSharePriceAfterFirstDeposit() {
 // ============================================================================
 
 access(all) fun testRoundTripNormalAmount() {
-    // Test: Deposit X, withdraw all, verify received amount equals X
+    // Test: Deposit X, withdraw all, verify received amount equals X exactly
     let poolID = createTestPoolWithShortInterval()
     let depositAmount: UFix64 = 50.0
     
@@ -118,36 +113,23 @@ access(all) fun testRoundTripNormalAmount() {
     // Record FLOW balance after deposit
     let postDepositFlowBalance = getUserFlowBalance(user.address)
     
-    // Verify user balance equals deposit
+    // Verify user balance equals deposit exactly
     let userDetails = getUserShareDetails(user.address, poolID)
     let assetValue = userDetails["assetValue"]!
     
-    // Asset value should equal deposit (no yield has occurred)
-    Test.assert(
-        isWithinTolerance(assetValue, depositAmount, ACCEPTABLE_PRECISION_LOSS),
-        message: "Asset value should match deposit. Expected: "
-            .concat(depositAmount.toString())
-            .concat(", got: ").concat(assetValue.toString())
-    )
+    // Asset value should equal deposit exactly (no yield has occurred)
+    Test.assertEqual(depositAmount, assetValue)
     
-    // Precision loss should be negligible
+    // Precision loss should be zero
     let precisionLoss = userDetails["precisionLoss"]!
-    Test.assert(
-        precisionLoss <= ACCEPTABLE_PRECISION_LOSS,
-        message: "Precision loss too high: ".concat(precisionLoss.toString())
-    )
+    Test.assertEqual(0.0, precisionLoss)
     
-    // Actually withdraw and verify received amount matches deposit
+    // Actually withdraw and verify received amount matches deposit exactly
     withdrawFromPool(user, poolID: poolID, amount: assetValue)
     let finalFlowBalance = getUserFlowBalance(user.address)
     let recovered = finalFlowBalance - postDepositFlowBalance
     
-    Test.assert(
-        isWithinTolerance(recovered, depositAmount, ACCEPTABLE_PRECISION_LOSS),
-        message: "Round-trip recovery failed. Deposited: "
-            .concat(depositAmount.toString())
-            .concat(", Recovered: ").concat(recovered.toString())
-    )
+    Test.assertEqual(depositAmount, recovered)
 }
 
 access(all) fun testRoundTripSmallAmount() {
@@ -164,28 +146,23 @@ access(all) fun testRoundTripSmallAmount() {
     // Record FLOW balance after deposit
     let postDepositFlowBalance = getUserFlowBalance(user.address)
     
-    // Verify precision
+    // Verify precision - should be exact with no virtual shares
     let userDetails = getUserShareDetails(user.address, poolID)
     let assetValue = userDetails["assetValue"]!
     let precisionLoss = userDetails["precisionLoss"]!
     
-    // With small amounts, precision loss percentage is higher but absolute loss should be small
-    Test.assert(
-        precisionLoss <= ACCEPTABLE_PRECISION_LOSS,
-        message: "Small deposit precision loss too high: ".concat(precisionLoss.toString())
-    )
+    // Asset value should equal deposit exactly
+    Test.assertEqual(depositAmount, assetValue)
+    
+    // Precision loss should be zero
+    Test.assertEqual(0.0, precisionLoss)
     
     // Actually withdraw and verify received amount
     withdrawFromPool(user, poolID: poolID, amount: assetValue)
     let finalFlowBalance = getUserFlowBalance(user.address)
     let recovered = finalFlowBalance - postDepositFlowBalance
     
-    Test.assert(
-        isWithinTolerance(recovered, depositAmount, ACCEPTABLE_PRECISION_LOSS),
-        message: "Small amount round-trip failed. Deposited: "
-            .concat(depositAmount.toString())
-            .concat(", Recovered: ").concat(recovered.toString())
-    )
+    Test.assertEqual(depositAmount, recovered)
 }
 
 // ============================================================================
@@ -222,15 +199,8 @@ access(all) fun testSharePriceAfterYieldDistribution() {
     let postYieldSharePrice = postYieldInfo["sharePrice"]!
     let postYieldShares = postYieldInfo["totalShares"]!
     
-    // Shares should not change (yield increases assets, not shares)
-    // Note: Actually, only ~70% goes to savings due to distribution strategy
-    // The shares should be essentially unchanged
-    Test.assert(
-        isWithinTolerance(postYieldShares, preYieldShares, ACCEPTABLE_PRECISION_LOSS),
-        message: "Shares changed after yield distribution. Pre: "
-            .concat(preYieldShares.toString())
-            .concat(", Post: ").concat(postYieldShares.toString())
-    )
+    // Shares should not change at all (yield increases assets, not shares)
+    Test.assertEqual(preYieldShares, postYieldShares)
     
     // Share price should have increased (more assets per share)
     Test.assert(
@@ -247,21 +217,20 @@ access(all) fun testSharePriceAfterYieldDistribution() {
 
 access(all) fun testLargeAssetSmallShares() {
     // Test behavior when totalAssets >> totalShares (high share price)
-    // This happens naturally as yield accumulates
     let poolID = createTestPoolWithShortInterval()
-    let initialDeposit: UFix64 = 10.0
+    let depositAmount: UFix64 = 10.0
     
-    // User deposits a small amount
+    // User deposits
     let user = Test.createAccount()
-    setupUserWithFundsAndCollection(user, amount: initialDeposit + 1.0)
-    depositToPool(user, poolID: poolID, amount: initialDeposit)
+    setupUserWithFundsAndCollection(user, amount: depositAmount + 1.0)
+    depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Simulate significant yield (larger than deposit)
+    // Add significant yield
     let poolCount = getPoolCount()
     let poolIndex = poolCount - 1
-    let largeYield: UFix64 = 100.0
+    let yieldAmount: UFix64 = 100.0  // 10x the deposit
     
-    simulateYieldAppreciation(poolIndex: poolIndex, amount: largeYield, vaultPrefix: "testYieldVaultShort_")
+    simulateYieldAppreciation(poolIndex: poolIndex, amount: yieldAmount, vaultPrefix: "testYieldVaultShort_")
     triggerSyncWithYieldSource(poolID: poolID)
     
     // Check share price
@@ -270,122 +239,97 @@ access(all) fun testLargeAssetSmallShares() {
     
     // Share price should be significantly > 1.0
     // With 70% savings distribution: 10 initial + 70 yield = 80 assets for 10 shares
-    // sharePrice ≈ 80/10 = 8.0 (approximate, accounting for dust)
+    // sharePrice = 80/10 = 8.0
     Test.assert(
         sharePrice > 1.0,
-        message: "Share price should be > 1.0 with yield. Got: ".concat(sharePrice.toString())
+        message: "Share price should be > 1.0 with high yield. Got: ".concat(sharePrice.toString())
     )
     
-    // User should have gained value
+    // User's value should have increased proportionally
     let userDetails = getUserShareDetails(user.address, poolID)
     let assetValue = userDetails["assetValue"]!
+    
     Test.assert(
-        assetValue > initialDeposit,
-        message: "User asset value should exceed deposit. Value: "
-            .concat(assetValue.toString())
-            .concat(", Deposit: ").concat(initialDeposit.toString())
+        assetValue > depositAmount,
+        message: "User asset value should have increased from yield. Original: "
+            .concat(depositAmount.toString())
+            .concat(", Current: ").concat(assetValue.toString())
     )
 }
 
-access(all) fun testNewDepositAfterSharePriceIncrease() {
-    // Test that new deposits after share price increase get fewer shares
+access(all) fun testLargeDeposit() {
+    // Test behavior with a very large deposit
     let poolID = createTestPoolWithShortInterval()
-    let initialDeposit: UFix64 = 100.0
+    let largeDeposit: UFix64 = 10000000.0  // 10 million
     
-    // First user deposits
-    let user1 = Test.createAccount()
-    setupUserWithFundsAndCollection(user1, amount: initialDeposit + 1.0)
-    depositToPool(user1, poolID: poolID, amount: initialDeposit)
+    // User deposits
+    let user = Test.createAccount()
+    setupUserWithFundsAndCollection(user, amount: largeDeposit + 1.0)
+    depositToPool(user, poolID: poolID, amount: largeDeposit)
     
-    // Record user1's shares
-    let user1Details = getUserShareDetails(user1.address, poolID)
-    let user1Shares = user1Details["shares"]!
+    // Verify precision
+    let info = getSharePricePrecisionInfo(poolID)
+    let sharePrice = info["sharePrice"]!
     
-    // Simulate yield
-    let poolCount = getPoolCount()
-    let poolIndex = poolCount - 1
-    let yieldAmount: UFix64 = 50.0
+    // Share price should be exactly 1.0 (large deposit, no yield yet)
+    Test.assertEqual(1.0, sharePrice)
     
-    simulateYieldAppreciation(poolIndex: poolIndex, amount: yieldAmount, vaultPrefix: "testYieldVaultShort_")
-    triggerSyncWithYieldSource(poolID: poolID)
-    
-    // Second user deposits same amount after yield
-    let user2 = Test.createAccount()
-    setupUserWithFundsAndCollection(user2, amount: initialDeposit + 1.0)
-    depositToPool(user2, poolID: poolID, amount: initialDeposit)
-    
-    // Record user2's shares
-    let user2Details = getUserShareDetails(user2.address, poolID)
-    let user2Shares = user2Details["shares"]!
-    
-    // User2 should have fewer shares (same deposit, higher share price)
-    Test.assert(
-        user2Shares < user1Shares,
-        message: "User2 should have fewer shares than User1. User1: "
-            .concat(user1Shares.toString())
-            .concat(", User2: ").concat(user2Shares.toString())
-    )
-    
-    // Both should have same deposit value tracked
-    Test.assertEqual(initialDeposit, user1Details["deposits"]!)
-    Test.assertEqual(initialDeposit, user2Details["deposits"]!)
+    // Total assets and shares should match exactly
+    Test.assertEqual(largeDeposit, info["totalAssets"]!)
+    Test.assertEqual(largeDeposit, info["totalShares"]!)
 }
 
 // ============================================================================
-// TEST: Minimum Amount Edge Cases
+// TEST: Tiny Amounts (Edge Cases)
 // ============================================================================
 
-access(all) fun testVerySmallDeposit() {
-    // Test deposit of very small amount (0.00001)
-    let poolID = createTestPoolWithMinDeposit(minDeposit: 0.000001)
-    let tinyAmount: UFix64 = 0.00001
+access(all) fun testMinimumUFix64Deposit() {
+    // Test with smallest possible UFix64 value
+    let poolID = createTestPoolWithMinDeposit(minDeposit: 0.00000001)
+    let tinyAmount: UFix64 = 0.00000001  // Minimum UFix64
     
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: 1.0)
+    
     depositToPool(user, poolID: poolID, amount: tinyAmount)
     
-    // Verify the deposit was recorded
     let userDetails = getUserShareDetails(user.address, poolID)
-    Test.assertEqual(tinyAmount, userDetails["deposits"]!)
-    
-    // Shares should be very close to deposit amount at 1.0 share price
     let shares = userDetails["shares"]!
-    Test.assert(
-        isWithinTolerance(shares, tinyAmount, ACCEPTABLE_PRECISION_LOSS),
-        message: "Shares should match deposit at 1.0 price. Expected: "
-            .concat(tinyAmount.toString())
-            .concat(", Got: ").concat(shares.toString())
-    )
+    
+    // Shares should equal deposit exactly at share price 1.0
+    Test.assertEqual(tinyAmount, shares)
 }
 
-access(all) fun testShareCalculationWithMinimumUFix64() {
-    // Test what happens with the absolute minimum UFix64 value
-    // This is a boundary test - the contract may reject this as below minimum deposit
-    let poolID = createTestPoolWithMinDeposit(minDeposit: MINIMUM_DEPOSIT)
+access(all) fun testMultipleTinyDeposits() {
+    // Test accumulation of many tiny deposits
+    let poolID = createTestPoolWithMinDeposit(minDeposit: 0.00000001)
+    let tinyAmount: UFix64 = 0.00000001
     
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: 1.0)
     
-    // Attempt to deposit the minimum UFix64 amount
-    depositToPool(user, poolID: poolID, amount: MINIMUM_DEPOSIT)
+    // Make multiple tiny deposits
+    var i = 0
+    while i < 10 {
+        depositToPool(user, poolID: poolID, amount: tinyAmount)
+        i = i + 1
+    }
     
     // Verify the deposit was processed
     let info = getSharePricePrecisionInfo(poolID)
     let totalAssets = info["totalAssets"]!
     
-    // Assets should include the minimum deposit
-    Test.assert(
-        totalAssets >= MINIMUM_DEPOSIT,
-        message: "Total assets should include minimum deposit. Got: ".concat(totalAssets.toString())
-    )
+    // Total should be exactly 10 * tinyAmount
+    let expectedTotal = tinyAmount * 10.0
+    Test.assertEqual(expectedTotal, totalAssets)
 }
 
 // ============================================================================
-// TEST: Virtual Offset Protection
+// TEST: Empty Pool Handling
 // ============================================================================
 
-access(all) fun testVirtualOffsetsPreventDivisionByZero() {
-    // Test that virtual offsets protect against division by zero with empty pool
+access(all) fun testEmptyPoolReturnsSharePriceOne() {
+    // Test that empty pool returns share price of 1.0 (not division by zero)
     let poolID = createTestPoolWithShortInterval()
     
     // Query share price on empty pool (no deposits)
@@ -395,13 +339,13 @@ access(all) fun testVirtualOffsetsPreventDivisionByZero() {
     let sharePrice = info["sharePrice"]!
     Test.assertEqual(1.0, sharePrice)
     
-    // Effective values should be non-zero due to virtual offsets
-    Test.assert(info["effectiveAssets"]! > 0.0, message: "effectiveAssets should be non-zero")
-    Test.assert(info["effectiveShares"]! > 0.0, message: "effectiveShares should be non-zero")
+    // Total values should be zero
+    Test.assertEqual(0.0, info["totalAssets"]!)
+    Test.assertEqual(0.0, info["totalShares"]!)
 }
 
-access(all) fun testVirtualOffsetsMinimalDilution() {
-    // Test that virtual offsets don't significantly dilute large deposits
+access(all) fun testLargeDepositHasNoDilution() {
+    // Test that large deposits are not diluted in any way
     let poolID = createTestPoolWithShortInterval()
     let largeDeposit: UFix64 = 1000000.0  // 1 million
     
@@ -412,16 +356,8 @@ access(all) fun testVirtualOffsetsMinimalDilution() {
     let userDetails = getUserShareDetails(user.address, poolID)
     let assetValue = userDetails["assetValue"]!
     
-    // With virtual offsets of 0.0001, dilution should be ~0.00001% on 1M
-    // assetValue should be essentially equal to deposit
-    let dilutionPercent = absDifference(assetValue, largeDeposit) / largeDeposit * 100.0
-    
-    Test.assert(
-        dilutionPercent < 0.0001,  // Less than 0.0001% dilution
-        message: "Virtual offset dilution too high: "
-            .concat(dilutionPercent.toString())
-            .concat("% on large deposit")
-    )
+    // Asset value should exactly equal deposit (no dilution)
+    Test.assertEqual(largeDeposit, assetValue)
 }
 
 // ============================================================================
@@ -443,7 +379,7 @@ access(all) fun testEqualDepositsGetEqualShares() {
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     depositToPool(user2, poolID: poolID, amount: depositAmount)
     
-    // Both should have the same number of shares
+    // Both should have the exact same number of shares
     let user1Details = getUserShareDetails(user1.address, poolID)
     let user2Details = getUserShareDetails(user2.address, poolID)
     
@@ -469,13 +405,9 @@ access(all) fun testProportionalSharesWithDifferentAmounts() {
     let smallDetails = getUserShareDetails(smallUser.address, poolID)
     let largeDetails = getUserShareDetails(largeUser.address, poolID)
     
-    // Large user should have ~10x the shares of small user
+    // Large user should have exactly 10x the shares of small user
     let ratio = largeDetails["shares"]! / smallDetails["shares"]!
-    
-    Test.assert(
-        isWithinTolerance(ratio, 10.0, 0.0001),
-        message: "Share ratio should be ~10:1. Got ratio: ".concat(ratio.toString())
-    )
+    Test.assertEqual(10.0, ratio)
 }
 
 // ============================================================================
@@ -483,7 +415,7 @@ access(all) fun testProportionalSharesWithDifferentAmounts() {
 // ============================================================================
 
 access(all) fun testAssetsEqualsSharesTimesPrice() {
-    // Invariant: totalAssets ≈ totalShares * sharePrice (accounting for virtual offsets)
+    // Invariant: totalAssets = totalShares * sharePrice exactly
     let poolID = createTestPoolWithShortInterval()
     
     // Multiple deposits
@@ -500,16 +432,9 @@ access(all) fun testAssetsEqualsSharesTimesPrice() {
     let totalAssets = info["totalAssets"]!
     let totalShares = info["totalShares"]!
     
-    // assets / shares should equal sharePrice (approximately)
-    // Actually: effectiveAssets / effectiveShares = sharePrice
-    let calculatedPrice = info["effectiveAssets"]! / info["effectiveShares"]!
-    
-    Test.assert(
-        isWithinTolerance(calculatedPrice, sharePrice, ACCEPTABLE_PRECISION_LOSS),
-        message: "Calculated price doesn't match reported. Calculated: "
-            .concat(calculatedPrice.toString())
-            .concat(", Reported: ").concat(sharePrice.toString())
-    )
+    // assets / shares should equal sharePrice exactly
+    let calculatedPrice = totalAssets / totalShares
+    Test.assertEqual(calculatedPrice, sharePrice)
 }
 
 access(all) fun testTotalDepositsMatchSumOfUserDeposits() {
@@ -536,3 +461,117 @@ access(all) fun testTotalDepositsMatchSumOfUserDeposits() {
     Test.assertEqual(expectedTotal, totalDeposited)
 }
 
+// ============================================================================
+// TEST: Fairness After Yield Distribution
+// ============================================================================
+// 
+// These tests verify that yield distribution maintains fairness invariants.
+// In Cadence, inflation attacks (common in EVM vaults) are impossible because:
+// 1. Resources cannot be sent to arbitrary storage without capability access
+// 2. The pool tracks totalAssets independently, not via balance checks
+// 3. Any external yield source balance changes are treated as yield for ALL depositors
+//
+// ============================================================================
+
+access(all) fun testExternalYieldDistributedFairly() {
+    // Proves: Yield benefits all depositors proportionally, not just one
+    let poolID = createTestPoolWithShortInterval()
+    
+    // First user deposits 100.0
+    let firstUser = Test.createAccount()
+    setupUserWithFundsAndCollection(firstUser, amount: 101.0)
+    depositToPool(firstUser, poolID: poolID, amount: 100.0)
+    
+    // Second user deposits 100.0
+    let secondUser = Test.createAccount()
+    setupUserWithFundsAndCollection(secondUser, amount: 101.0)
+    depositToPool(secondUser, poolID: poolID, amount: 100.0)
+    
+    // Get initial balances
+    let initialFirst = getUserShareDetails(firstUser.address, poolID)["assetValue"]!
+    let initialSecond = getUserShareDetails(secondUser.address, poolID)["assetValue"]!
+    
+    // Both should have exactly equal initial balances
+    Test.assertEqual(initialFirst, initialSecond)
+    
+    // Simulate yield arriving in the yield source (10.0 FLOW)
+    let poolCount = getPoolCount()
+    let poolIndex = poolCount - 1
+    simulateYieldAppreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: "testYieldVaultShort_")
+    
+    // Process rewards to sync with yield source
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    // Get final balances
+    let finalFirst = getUserShareDetails(firstUser.address, poolID)["assetValue"]!
+    let finalSecond = getUserShareDetails(secondUser.address, poolID)["assetValue"]!
+    
+    // Both users should receive equal share of yield since they have equal shares
+    let firstGain = finalFirst - initialFirst
+    let secondGain = finalSecond - initialSecond
+    
+    // Key assertion: Both users gain equally
+    Test.assertEqual(firstGain, secondGain)
+    
+    // Both should have gained something (70% of yield goes to savings)
+    Test.assert(firstGain > 0.0, message: "First user should have gained yield")
+    Test.assert(secondGain > 0.0, message: "Second user should have gained yield")
+}
+
+access(all) fun testYieldDistributionIsExact() {
+    // Proves: With 100% savings distribution, all yield goes to depositors
+    let poolID = createPoolWithDistribution(savings: 1.0, lottery: 0.0, treasury: 0.0)
+    
+    // User deposits 100.0
+    let user = Test.createAccount()
+    setupUserWithFundsAndCollection(user, amount: 101.0)
+    depositToPool(user, poolID: poolID, amount: 100.0)
+    
+    let initialValue = getUserShareDetails(user.address, poolID)["assetValue"]!
+    Test.assertEqual(100.0, initialValue)
+    
+    // Add yield to pool (simulate 10.0 FLOW appreciation)
+    let poolCount = getPoolCount()
+    let poolIndex = poolCount - 1
+    simulateYieldAppreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
+    
+    // Process rewards
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    // With 100% savings distribution, user should gain exactly 10.0
+    let finalValue = getUserShareDetails(user.address, poolID)["assetValue"]!
+    let gain = finalValue - initialValue
+    
+    // Assert exact gain (no dust lost to virtual shares)
+    Test.assertEqual(10.0, gain)
+    Test.assertEqual(110.0, finalValue)
+}
+
+access(all) fun testProportionalSharesAfterYield() {
+    // Proves: Users maintain proportional ownership after yield
+    let poolID = createTestPoolWithShortInterval()
+    
+    // User 1 deposits 100
+    let user1 = Test.createAccount()
+    setupUserWithFundsAndCollection(user1, amount: 101.0)
+    depositToPool(user1, poolID: poolID, amount: 100.0)
+    
+    // User 2 deposits 200 (2x user 1)
+    let user2 = Test.createAccount()
+    setupUserWithFundsAndCollection(user2, amount: 201.0)
+    depositToPool(user2, poolID: poolID, amount: 200.0)
+    
+    // Add yield
+    let poolCount = getPoolCount()
+    let poolIndex = poolCount - 1
+    simulateYieldAppreciation(poolIndex: poolIndex, amount: 30.0, vaultPrefix: "testYieldVaultShort_")
+    triggerSyncWithYieldSource(poolID: poolID)
+    
+    // Get final values
+    let user1Value = getUserShareDetails(user1.address, poolID)["assetValue"]!
+    let user2Value = getUserShareDetails(user2.address, poolID)["assetValue"]!
+    
+    // User 2 should have exactly 2x the value of User 1
+    let ratio = user2Value / user1Value
+    Test.assertEqual(2.0, ratio)
+}

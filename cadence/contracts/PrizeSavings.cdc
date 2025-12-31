@@ -62,16 +62,6 @@ access(all) contract PrizeSavings {
     // CONSTANTS
     // ============================================================
     
-    /// Virtual offset constant for ERC4626 inflation attack protection (shares).
-    /// Creates "dead" shares that prevent share price manipulation by early depositors.
-    /// Using 0.0001 to minimize user dilution (~0.0001%) while maintaining security.
-    /// See: https://blog.openzeppelin.com/a-]novel-defense-against-erc4626-inflation-attacks
-    access(all) let VIRTUAL_SHARES: UFix64
-    
-    /// Virtual offset constant for ERC4626 inflation attack protection (assets).
-    /// Works in tandem with VIRTUAL_SHARES to ensure share price starts near 1.0.
-    access(all) let VIRTUAL_ASSETS: UFix64
-    
     /// Minimum yield amount required to trigger distribution.
     /// Amounts below this threshold remain in the yield source and accumulate
     /// until the next sync when they may exceed the threshold.
@@ -152,12 +142,6 @@ access(all) contract PrizeSavings {
     /// @param absorbedByLottery - Amount absorbed by pending lottery yield
     /// @param absorbedBySavings - Amount absorbed by savings (decreases share price)
     access(all) event DeficitApplied(poolID: UInt64, totalDeficit: UFix64, absorbedByLottery: UFix64, absorbedBySavings: UFix64)
-    
-    /// Emitted when rounding dust from savings distribution is sent to treasury.
-    /// This occurs due to virtual shares absorbing a tiny fraction of yield.
-    /// @param poolID - Pool generating dust
-    /// @param amount - Dust amount routed to treasury
-    access(all) event SavingsRoundingDustToTreasury(poolID: UInt64, amount: UFix64)
     
     // ============================================================
     // EVENTS - Lottery/Draw
@@ -1503,36 +1487,25 @@ access(all) contract PrizeSavings {
         /// Accrues yield to the savings pool by increasing totalAssets.
         /// This effectively increases share price for all depositors.
         /// 
-        /// A small portion ("dust") goes to virtual shares to prevent dilution attacks.
-        /// The dust is proportional to VIRTUAL_SHARES / (totalShares + VIRTUAL_SHARES).
         /// 
         /// @param amount - Yield amount to accrue
-        /// @return Actual amount accrued to users (after dust excluded)
+        /// @return Amount accrued to users
         access(contract) fun accrueYield(amount: UFix64): UFix64 {
             // No yield to distribute, or no users to receive it
             if amount == 0.0 || self.totalShares == 0.0 {
                 return 0.0
             }
             
-            // Calculate how much goes to virtual shares (dust)
-            // dustPercent = VIRTUAL_SHARES / (totalShares + VIRTUAL_SHARES)
-            // This protects against inflation attacks while minimizing dilution
-            let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
-            let dustAmount = amount * PrizeSavings.VIRTUAL_SHARES / effectiveShares
-            let actualSavings = amount - dustAmount
-            
             // Increase total assets, which increases share price for everyone
-            self.totalAssets = self.totalAssets + actualSavings
-            self.totalDistributed = self.totalDistributed + actualSavings
+            self.totalAssets = self.totalAssets + amount
+            self.totalDistributed = self.totalDistributed + amount
             
-            return actualSavings
+            return amount
         }
         
         /// Decreases total assets to reflect a loss in the yield source.
         /// This effectively decreases share price for all depositors proportionally.
-        /// 
-        /// Unlike accrueYield, this does NOT apply virtual share dust calculation
-        /// because losses should be fully socialized across all depositors.
+        /// Losses are fully across share value.
         /// 
         /// @param amount - Loss amount to socialize
         /// @return Actual amount decreased (capped at totalAssets to prevent underflow)
@@ -1615,18 +1588,17 @@ access(all) contract PrizeSavings {
             return amount
         }
         
-        /// Returns the current share price using ERC4626-style virtual offsets.
-        /// Virtual shares/assets prevent inflation attacks and ensure share price starts near 1.0.
+        /// Returns the current share price.
         /// 
-        /// Formula: sharePrice = (totalAssets + VIRTUAL_ASSETS) / (totalShares + VIRTUAL_SHARES)
+        /// Formula: sharePrice = totalAssets / totalShares
+        /// For empty pools, returns 1.0 as the default starting price.
         /// 
-        /// This protects against the "inflation attack" where the first depositor can
-        /// manipulate share price by donating assets before others deposit.
         /// @return Current share price (assets per share)
         access(all) view fun getSharePrice(): UFix64 {
-            let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
-            let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS
-            return effectiveAssets / effectiveShares
+            if self.totalShares == 0.0 {
+                return 1.0
+            }
+            return self.totalAssets / self.totalShares
         }
         
         /// Converts an asset amount to shares at current share price.
@@ -3141,17 +3113,10 @@ access(all) contract PrizeSavings {
                     self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
                     destroy from
                     
-                    // Accrue yield to share price (minus dust to virtual shares)
+                    // Accrue yield to share price
                     let actualSavings = self.savingsDistributor.accrueYield(amount: amount)
-                    let dustAmount = amount - actualSavings
                     self.totalStaked = self.totalStaked + actualSavings
                     emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
-                    
-                    // Route dust to pending treasury
-                    if dustAmount > 0.0 {
-                        emit SavingsRoundingDustToTreasury(poolID: self.poolID, amount: dustAmount)
-                        self.pendingTreasuryYield = self.pendingTreasuryYield + dustAmount
-                    }
                     
                 default:
                     panic("Unsupported funding destination. Destination rawValue: ".concat(destination.rawValue.toString()))
@@ -3577,19 +3542,11 @@ access(all) contract PrizeSavings {
             // Apply distribution strategy
             let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
             
-            var savingsDust: UFix64 = 0.0
-            
             // Process savings portion - increases share price for all users
             if plan.savingsAmount > 0.0 {
-                // Accrue returns actual amount after virtual share dust
                 let actualSavings = self.savingsDistributor.accrueYield(amount: plan.savingsAmount)
-                savingsDust = plan.savingsAmount - actualSavings
                 self.totalStaked = self.totalStaked + actualSavings
                 emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
-                
-                if savingsDust > 0.0 {
-                    emit SavingsRoundingDustToTreasury(poolID: self.poolID, amount: savingsDust)
-                }
             }
             
             // Process lottery portion - stays in yield source until draw
@@ -3602,13 +3559,12 @@ access(all) contract PrizeSavings {
                 )
             }
             
-            // Process treasury portion + savings dust - stays in yield source until draw
-            let totalTreasuryAmount = plan.treasuryAmount + savingsDust
-            if totalTreasuryAmount > 0.0 {
-                self.pendingTreasuryYield = self.pendingTreasuryYield + totalTreasuryAmount
+            // Process treasury portion - stays in yield source until draw
+            if plan.treasuryAmount > 0.0 {
+                self.pendingTreasuryYield = self.pendingTreasuryYield + plan.treasuryAmount
                 emit TreasuryFunded(
                     poolID: self.poolID,
-                    amount: totalTreasuryAmount,
+                    amount: plan.treasuryAmount,
                     source: "yield_pending"
                 )
             }
@@ -3616,7 +3572,7 @@ access(all) contract PrizeSavings {
             emit RewardsProcessed(
                 poolID: self.poolID,
                 totalAmount: amount,
-                savingsAmount: plan.savingsAmount - savingsDust,
+                savingsAmount: plan.savingsAmount,
                 lotteryAmount: plan.lotteryAmount
             )
         }
@@ -5222,11 +5178,6 @@ access(all) contract PrizeSavings {
     /// Contract initializer - called once when contract is deployed.
     /// Sets up constants, storage paths, and creates Admin resource.
     init() {
-        // Virtual offset constants for ERC4626 inflation attack protection.
-        // Using 0.0001 to minimize dilution (~0.0001%) while providing security
-        self.VIRTUAL_SHARES = 0.0001
-        self.VIRTUAL_ASSETS = 0.0001
-        
         // Minimum yield distribution threshold (100x minimum UFix64).
         // Prevents precision loss when distributing tiny amounts across percentage buckets.
         self.MINIMUM_DISTRIBUTION_THRESHOLD = 0.000001

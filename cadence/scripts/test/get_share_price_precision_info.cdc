@@ -11,10 +11,6 @@ import "PrizeSavings"
 ///   - "sharePrice": Current share price (assets per share)
 ///   - "totalAssets": Total assets under management
 ///   - "totalShares": Total shares outstanding
-///   - "effectiveAssets": totalAssets + VIRTUAL_ASSETS
-///   - "effectiveShares": totalShares + VIRTUAL_SHARES
-///   - "virtualAssets": VIRTUAL_ASSETS constant
-///   - "virtualShares": VIRTUAL_SHARES constant
 ///   - "totalDeposited": Sum of all deposits (principal)
 ///   - "totalDistributed": Cumulative yield distributed
 access(all) fun main(poolID: UInt64): {String: UFix64} {
@@ -25,13 +21,7 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
     let totalShares = poolRef.getTotalSavingsShares()
     let sharePrice = poolRef.getSavingsSharePrice()
     
-    // Virtual offsets from contract constants
-    let virtualAssets = PrizeSavings.VIRTUAL_ASSETS
-    let virtualShares = PrizeSavings.VIRTUAL_SHARES
-    
     // Log values for debugging
-    log("VIRTUAL_ASSETS: ".concat(virtualAssets.toString()))
-    log("VIRTUAL_SHARES: ".concat(virtualShares.toString()))
     log("sharePrice: ".concat(sharePrice.toString()))
     log("totalAssets: ".concat(totalAssets.toString()))
     log("totalShares: ".concat(totalShares.toString()))
@@ -40,12 +30,7 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
         "sharePrice": sharePrice,
         "totalAssets": totalAssets,
         "totalShares": totalShares,
-        "effectiveAssets": totalAssets + virtualAssets,
-        "effectiveShares": totalShares + virtualShares,
-        "virtualAssets": virtualAssets,
-        "virtualShares": virtualShares,
         "totalDeposited": poolRef.totalDeposited,
         "totalDistributed": poolRef.getTotalSavingsDistributed()
     }
 }
-
