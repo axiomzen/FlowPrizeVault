@@ -1,6 +1,13 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 
-/// Update Draw Interval transaction - Changes the time between lottery draws (Admin only)
+/// Update Draw Interval for Future Rounds (Admin only)
+///
+/// This transaction changes the draw interval for FUTURE rounds only.
+/// Rounds created after the next startDraw() will use the new interval.
+///
+/// IMPORTANT:
+/// - Does NOT affect the current round's timing or lottery eligibility
+/// - To change when the current round's draw can start, use update_draw_interval_current_round.cdc
 ///
 /// Parameters:
 /// - poolID: The ID of the pool to update
@@ -17,12 +24,12 @@ transaction(poolID: UInt64, newInterval: UFix64) {
     }
     
     execute {
-        self.adminRef.updatePoolDrawInterval(
+        self.adminRef.updatePoolDrawIntervalForFutureRounds(
             poolID: poolID,
             newInterval: newInterval
         )
         
-        log("Updated draw interval for pool ".concat(poolID.toString()).concat(" to ").concat(newInterval.toString()).concat(" seconds"))
+        log("Updated draw interval for pool ".concat(poolID.toString()).concat(" to ").concat(newInterval.toString()).concat(" seconds (future rounds only)"))
     }
 }
 

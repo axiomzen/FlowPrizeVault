@@ -724,13 +724,26 @@ fun updateDistributionStrategy(poolID: UInt64, savings: UFix64, lottery: UFix64,
 
 access(all)
 fun updateDrawInterval(poolID: UInt64, newInterval: UFix64) {
+    // Uses the combined transaction that updates BOTH future rounds AND current round
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/update_draw_interval_both.cdc",
+        [poolID, newInterval],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Update draw interval")
+}
+
+access(all)
+fun updateDrawIntervalForFutureOnly(poolID: UInt64, newInterval: UFix64) {
+    // Only updates future rounds, not the current round
     let deployerAccount = getDeployerAccount()
     let result = _executeTransaction(
         "../transactions/test/update_draw_interval.cdc",
         [poolID, newInterval],
         deployerAccount
     )
-    assertTransactionSucceeded(result, context: "Update draw interval")
+    assertTransactionSucceeded(result, context: "Update draw interval (future only)")
 }
 
 access(all)
