@@ -1,11 +1,15 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 
-/// Lottery entries (share-seconds) information for a user
+/// Lottery entries (normalized TWAB weight) information for a user.
+/// With normalized TWAB, entries ≈ average shares held over the round.
 access(all) struct UserLotteryEntries {
     access(all) let receiverID: UInt64
     access(all) let currentBalance: UFix64
     access(all) let projectedEntries: UFix64
+    /// Bonus weight assigned by admin (still fully functional)
     access(all) let bonusWeight: UFix64
+    /// With normalized TWAB, this now equals bonusWeight (no scaling needed).
+    /// Kept for backwards compatibility - previously was bonusWeight × roundDuration.
     access(all) let scaledBonusAtDraw: UFix64
     access(all) let totalWeightAtDraw: UFix64
     access(all) let roundID: UInt64
@@ -97,19 +101,21 @@ access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
     let roundEndTime = poolRef.getRoundEndTime()
     let secondsUntilDraw = poolRef.getTimeUntilNextDraw()
     
-    // Current lottery entries (share-seconds)
+    // Current lottery entries (normalized TWAB = average shares)
     let currentBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
     
-    // Current entries (normalized by elapsed time)
+    // Current entries (normalized TWAB projected to round end)
     let projectedEntries = poolRef.getUserEntries(receiverID: receiverID)
     
-    // Get raw TWAB for bonus calculation (current accumulated + pending)
-    let projectedTwab = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
+    // Get normalized TWAB (already in "average shares" units)
+    let projectedNormalizedWeight = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
     
-    // Bonus weight info
+    // Bonus weight info - with normalized TWAB, bonus is NOT scaled by duration
     let bonusWeight = poolRef.getBonusWeight(receiverID: receiverID)
-    let scaledBonusAtDraw = bonusWeight * roundDuration
-    let totalWeightAtDraw = projectedTwab + scaledBonusAtDraw
+    // Keep scaledBonusAtDraw for backwards compatibility, but with normalized TWAB
+    // it equals bonusWeight (no scaling needed)
+    let scaledBonusAtDraw = bonusWeight
+    let totalWeightAtDraw = projectedNormalizedWeight + bonusWeight
     
     return UserLotteryEntries(
         receiverID: receiverID,
