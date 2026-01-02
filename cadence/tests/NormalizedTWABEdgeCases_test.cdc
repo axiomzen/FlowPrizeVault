@@ -9,7 +9,7 @@ import "test_helpers.cdc"
 // These tests verify edge cases in the TWAB implementation:
 // 1. Gap period weight capping (weight bounded to shares)
 // 2. Late startDraw() uses configured round window for winner selection
-// 3. Draw interval changes mid-round (eligibilityDuration is immutable)
+// 3. Draw interval changes affect future rounds only (current round is immutable)
 // 4. User withdrawal to 0 during batch processing behavior
 // 5. New deposits during batch don't affect current draw
 // ============================================================================
@@ -138,7 +138,7 @@ access(all) fun testLateStartDrawUsesCappedWeights() {
 // TEST 3: Draw Interval Change Mid-Round
 // 
 // Verifies that changing the draw interval mid-round does NOT affect
-// TWAB normalization (uses immutable eligibilityDuration).
+// TWAB normalization (current round's duration is immutable).
 // ============================================================================
 
 access(all) fun testIntervalChangeMidRoundDoesNotAffectTWAB() {

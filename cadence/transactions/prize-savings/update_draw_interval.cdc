@@ -6,8 +6,8 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 /// Rounds created after the next startDraw() will use the new interval.
 ///
 /// IMPORTANT:
-/// - Does NOT affect the current round's timing or lottery eligibility
-/// - To change when the current round's draw can start, use update_draw_interval_current_round.cdc
+/// - Does NOT affect the current round's duration or lottery eligibility
+/// - The current round's duration is immutable once created
 ///
 /// Parameters:
 /// - poolID: The ID of the pool to update

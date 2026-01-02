@@ -253,16 +253,6 @@ access(all) contract PrizeSavings {
     /// @param adminUUID - UUID of the Admin resource performing the update (audit trail)
     access(all) event FutureRoundsIntervalUpdated(poolID: UInt64, oldInterval: UFix64, newInterval: UFix64, adminUUID: UInt64)
     
-    /// Emitted when the current round's draw timing is changed.
-    /// This is an operational change that affects when startDraw() can be called.
-    /// Does NOT affect lottery eligibility (eligibilityDuration is immutable).
-    /// @param poolID - ID of the pool being configured
-    /// @param roundID - The current round being modified
-    /// @param oldDuration - Previous configured duration in seconds
-    /// @param newDuration - New configured duration in seconds
-    /// @param adminUUID - UUID of the Admin resource performing the update (audit trail)
-    access(all) event CurrentRoundDurationUpdated(poolID: UInt64, roundID: UInt64, oldDuration: UFix64, newDuration: UFix64, adminUUID: UInt64)
-    
     /// Emitted when the minimum deposit requirement is changed.
     /// @param poolID - ID of the pool being configured
     /// @param oldMinimum - Previous minimum deposit amount
@@ -732,48 +722,6 @@ access(all) contract PrizeSavings {
                 poolID: poolID,
                 oldInterval: oldInterval,
                 newInterval: newInterval,
-                adminUUID: self.uuid
-            )
-        }
-        
-        /// Updates when the current round's draw can start (does NOT affect existing users' lottery odds).
-        /// 
-        /// This function ONLY changes the current round's configuredDuration, which controls
-        /// when hasEnded() returns true (when startDraw() can be called).
-        /// 
-        /// IMPORTANT:
-        /// - Does NOT affect lottery eligibility (eligibilityDuration is immutable)
-        /// - Does NOT retroactively change existing users' lottery odds
-        /// - Does NOT affect future rounds (use updatePoolDrawIntervalForFutureRounds for that)
-        /// 
-        /// WARNING: If you extend configuredDuration beyond the original eligibilityDuration,
-        /// new deposits after eligibilityDuration will get ZERO lottery weight for this round,
-        /// even though hasEnded() returns false (round appears "active"). Those deposits will
-        /// count fully in the NEXT round. Frontends should display eligibilityDuration to users,
-        /// not configuredDuration, to show when lottery eligibility actually ends.
-        /// 
-        /// Use cases:
-        /// - Delay a draw if you need more time (operational)
-        /// - Extend the current round for operational reasons
-        /// - Shorten the round to trigger draw earlier
-        /// 
-        /// @param poolID - ID of the pool to update
-        /// @param newInterval - New duration for current round (must be >= 1.0)
-        access(ConfigOps) fun updatePoolDrawIntervalForCurrentRound(
-            poolID: UInt64,
-            newInterval: UFix64
-        ) {
-            let poolRef = PrizeSavings.getPoolInternal(poolID)
-            
-            let oldDuration = poolRef.getActiveRoundDuration()
-            let roundID = poolRef.getActiveRoundID()
-            poolRef.setCurrentRoundDuration(duration: newInterval)
-            
-            emit CurrentRoundDurationUpdated(
-                poolID: poolID,
-                roundID: roundID,
-                oldDuration: oldDuration,
-                newDuration: newInterval,
                 adminUUID: self.uuid
             )
         }
@@ -1292,32 +1240,15 @@ access(all) contract PrizeSavings {
     /// - User holds 1M shares for half the round: weight = 500K
     /// - User deposits 1M at round end: weight ≈ 0
     /// 
-    /// TWO DURATION FIELDS (Important for Admins):
-    /// 
-    /// This resource has two separate duration concepts:
-    /// 
-    /// 1. eligibilityDuration (IMMUTABLE):
-    ///    - Set at round creation and NEVER changes
-    ///    - Determines the lottery eligibility window (when TWAB stops accumulating)
-    ///    - Deposits after eligibilityDuration passes have ZERO lottery weight for this round
-    ///    - Used for TWAB normalization math to ensure consistent scaling
-    /// 
-    /// 2. configuredDuration (MUTABLE):
-    ///    - Can be modified by admin during the round
-    ///    - Controls when hasEnded() returns true (when startDraw() can be called)
-    ///    - Does NOT affect lottery eligibility or TWAB calculations
-    ///    - Allows admin to delay/extend when a draw can be initiated
-    /// 
     /// ADMIN BEHAVIOR:
     /// - updatePoolDrawIntervalForFutureRounds(): Changes interval for future rounds only
-    /// - updatePoolDrawIntervalForCurrentRound(): Changes when current round's draw can start
-    /// - The eligibilityDuration is locked at round creation and cannot be changed
-    /// - To change the lottery eligibility window, wait until the next round
+    /// - The current round's duration is immutable once created
+    /// - To change the lottery window, wait until the next round
     /// 
     /// Round Lifecycle:
-    /// 1. Round created with startTime, eligibilityDuration and configuredDuration (initially equal)
+    /// 1. Round created with startTime and duration (immutable)
     /// 2. Active: deposits/withdrawals accumulate normalized weight
-    /// 3. Gap period: eligibilityDuration passed but startDraw() not called yet
+    /// 3. Gap period: duration passed but startDraw() not called yet
     ///    - Users depositing during gap have ZERO lottery weight for this round
     ///    - Their shares will count fully in the NEXT round
     /// 4. Frozen: moved to pendingDrawRound, actualEndTime set
@@ -1325,8 +1256,8 @@ access(all) contract PrizeSavings {
     /// 6. Destroyed: after completeDraw() distributes prizes
     /// 
     /// Gap Period Handling:
-    /// - Deposits after eligibilityDuration but before startDraw() have zero weight
-    /// - Weight is capped at eligibilityDuration (not configuredDuration)
+    /// - Deposits after duration ends but before startDraw() have zero weight
+    /// - Weight is capped at round duration
     /// - New round starts fresh with no inherited state
     
     access(all) resource Round {
@@ -1336,29 +1267,19 @@ access(all) contract PrizeSavings {
         /// Timestamp when this round started.
         access(all) let startTime: UFix64
         
-        /// IMMUTABLE duration that defines the lottery eligibility window.
+        /// IMMUTABLE duration that defines the round length.
         /// Set at round creation, NEVER changes.
         /// 
-        /// This is the effective "round end" for lottery purposes:
-        /// - TWAB accumulation stops at (startTime + eligibilityDuration)
-        /// - Deposits after this time have zero lottery weight for this round
-        /// - Used for TWAB normalization to ensure consistent scaling
+        /// This controls:
+        /// - When hasEnded() returns true (when startDraw() can be called)
+        /// - TWAB accumulation window (deposits after duration have zero lottery weight)
+        /// - TWAB normalization math to ensure consistent scaling
         /// 
         /// Why immutable? Changing this mid-round would retroactively change
         /// existing users' lottery odds, which would be unfair.
-        access(all) let eligibilityDuration: UFix64
-        
-        /// Configured duration for this round (controls when draw can start).
-        /// Can be modified by admin to extend or shorten when hasEnded() returns true.
-        /// 
-        /// NOTE: Changes do NOT affect lottery eligibility or TWAB calculations.
-        /// Only eligibilityDuration (immutable) controls the lottery window.
-        /// 
-        /// Use cases for modifying this:
-        /// - Delay a draw if admin is unavailable
-        /// - Extend round if yield source needs more time to accrue
-        /// - Shorten round in emergencies (though eligibility window is already set)
-        access(all) var configuredDuration: UFix64
+        /// To delay a draw, simply don't call startDraw() - the round naturally
+        /// stays in "gap period" until you're ready.
+        access(all) let duration: UFix64
         
         /// Actual end time when round was finalized (set by startDraw).
         /// nil means round is still active.
@@ -1366,7 +1287,7 @@ access(all) contract PrizeSavings {
         
         /// Accumulated NORMALIZED weight from round start to lastUpdateTime.
         /// Key: receiverID, Value: accumulated normalized weight (≈ average shares).
-        /// Normalization: shares × (elapsed / eligibilityDuration) instead of shares × elapsed
+        /// Normalization: shares × (elapsed / duration) instead of shares × elapsed
         access(self) var userAccumulatedTWAB: {UInt64: UFix64}
         
         /// Timestamp of last TWAB update for each user.
@@ -1380,15 +1301,11 @@ access(all) contract PrizeSavings {
         /// Creates a new Round.
         /// @param roundID - Unique round identifier
         /// @param startTime - When the round starts
-        /// @param configuredDuration - Expected duration (used for both eligibilityDuration and configuredDuration)
-        init(roundID: UInt64, startTime: UFix64, configuredDuration: UFix64) {
+        /// @param duration - Round duration (immutable once set)
+        init(roundID: UInt64, startTime: UFix64, duration: UFix64) {
             self.roundID = roundID
             self.startTime = startTime
-            // eligibilityDuration is IMMUTABLE - locked at creation for consistent TWAB math
-            // This defines when lottery eligibility stops accumulating
-            self.eligibilityDuration = configuredDuration
-            // configuredDuration can be modified to delay/extend when draw can start
-            self.configuredDuration = configuredDuration
+            self.duration = duration
             self.actualEndTime = nil
             self.userAccumulatedTWAB = {}
             self.userLastUpdateTime = {}
@@ -1421,15 +1338,12 @@ access(all) contract PrizeSavings {
         
         /// Accumulates NORMALIZED pending weight from lastUpdateTime to upToTime.
         /// 
-        /// Formula: pendingWeight = shares × (elapsed / eligibilityDuration)
+        /// Formula: pendingWeight = shares × (elapsed / duration)
         /// 
         /// This produces "average shares" values that are bounded and predictable,
         /// regardless of round duration or TVL.
         /// 
-        /// Uses immutable eligibilityDuration (not configuredDuration) for consistent
-        /// scaling even if admin changes configuredDuration mid-round.
-        /// 
-        /// Elapsed time is clamped to the eligibility window end, so weight never
+        /// Elapsed time is clamped to the round end, so weight never
         /// exceeds shares during gap periods.
         /// 
         /// @param receiverID - User's receiver ID
@@ -1443,21 +1357,21 @@ access(all) contract PrizeSavings {
             let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
             
             // Only accumulate if time has passed and we have a valid duration
-            if upToTime > lastUpdate && self.eligibilityDuration > 0.0 {
+            if upToTime > lastUpdate && self.duration > 0.0 {
                 let elapsed = upToTime - lastUpdate
                 
-                // NORMALIZED: divide by eligibilityDuration (immutable) first to keep values small
-                var elapsedFraction = elapsed / self.eligibilityDuration
+                // NORMALIZED: divide by duration first to keep values small
+                var elapsedFraction = elapsed / self.duration
                 
                 // CLAMP: Ensure total accumulated fraction doesn't exceed 1.0
-                // This prevents weight > shares during gap periods (deposits after eligibility ends)
-                let eligibilityEndTime = self.startTime + self.eligibilityDuration
-                if upToTime > eligibilityEndTime {
-                    // Clamp to eligibility end time - deposits after this have zero additional weight
-                    let clampedElapsed = eligibilityEndTime > lastUpdate 
-                        ? eligibilityEndTime - lastUpdate 
+                // This prevents weight > shares during gap periods (deposits after round ends)
+                let roundEndTime = self.startTime + self.duration
+                if upToTime > roundEndTime {
+                    // Clamp to round end time - deposits after this have zero additional weight
+                    let clampedElapsed = roundEndTime > lastUpdate 
+                        ? roundEndTime - lastUpdate 
                         : 0.0
-                    elapsedFraction = clampedElapsed / self.eligibilityDuration
+                    elapsedFraction = clampedElapsed / self.duration
                 }
                 
                 let pending = withShares * elapsedFraction
@@ -1474,8 +1388,7 @@ access(all) contract PrizeSavings {
         /// Uses normalized calculation: for a user who held shares for the full round,
         /// their weight = shares × 1.0 = shares (clamped to not exceed shares)
         /// 
-        /// IMPORTANT: Uses immutable eligibilityDuration and clamps to <= 1.0
-        /// to prevent weight inflation during gap periods.
+        /// Clamps to <= 1.0 to prevent weight inflation during gap periods.
         /// 
         /// @param receiverID - User's receiver ID
         /// @param currentShares - User's current share balance
@@ -1491,9 +1404,9 @@ access(all) contract PrizeSavings {
                 self.accumulatePendingTWAB(receiverID: receiverID, upToTime: endTime, withShares: shares)
             } else {
                 // First interaction during gap: they had currentShares for full round
-                if self.eligibilityDuration > 0.0 {
+                if self.duration > 0.0 {
                     let fullDuration = endTime - self.startTime
-                    var durationFraction = fullDuration / self.eligibilityDuration
+                    var durationFraction = fullDuration / self.duration
                     
                     // CLAMP: Cap at 1.0 to prevent weight > shares during gap
                     if durationFraction > 1.0 {
@@ -1517,8 +1430,7 @@ access(all) contract PrizeSavings {
         /// For a user who held X shares for the entire round, returns X (capped).
         /// For a user who held X shares for half the round, returns X/2.
         /// 
-        /// IMPORTANT: Uses immutable eligibilityDuration and clamps to eligibility end
-        /// to prevent weight inflation during gap periods.
+        /// Clamps to round end to prevent weight inflation during gap periods.
         /// 
         /// @param receiverID - User's receiver ID
         /// @param currentShares - User's current share balance (for lazy users)
@@ -1536,15 +1448,15 @@ access(all) contract PrizeSavings {
             
             // Calculate remaining accumulation from last update to round end (NORMALIZED)
             var pending: UFix64 = 0.0
-            if roundEndTime > lastUpdate && self.eligibilityDuration > 0.0 {
-                // CLAMP: Use eligibility end time, not actual end time, to prevent inflation
-                let eligibilityEndTime = self.startTime + self.eligibilityDuration
-                let clampedEndTime = roundEndTime < eligibilityEndTime ? roundEndTime : eligibilityEndTime
+            if roundEndTime > lastUpdate && self.duration > 0.0 {
+                // CLAMP: Use round end time to prevent inflation
+                let configuredEndTime = self.startTime + self.duration
+                let clampedEndTime = roundEndTime < configuredEndTime ? roundEndTime : configuredEndTime
                 
                 if clampedEndTime > lastUpdate {
                     let elapsed = clampedEndTime - lastUpdate
-                    // NORMALIZED: shares × (elapsed / eligibilityDuration)
-                    let elapsedFraction = elapsed / self.eligibilityDuration
+                    // NORMALIZED: shares × (elapsed / duration)
+                    let elapsedFraction = elapsed / self.duration
                     pending = shares * elapsedFraction
                 }
             }
@@ -1556,7 +1468,7 @@ access(all) contract PrizeSavings {
         /// Calculates accumulated + pending up to current time.
         /// 
         /// Returns "average shares" (normalized), NOT share-seconds.
-        /// Values are clamped to the eligibility end to prevent inflation.
+        /// Values are clamped to round end to prevent inflation.
         /// 
         /// @param receiverID - User's receiver ID
         /// @param currentShares - User's current share balance
@@ -1573,15 +1485,15 @@ access(all) contract PrizeSavings {
             
             // Calculate pending from last update to now (NORMALIZED)
             var pending: UFix64 = 0.0
-            if atTime > lastUpdate && self.eligibilityDuration > 0.0 {
-                // CLAMP: Use eligibility end time to prevent inflation during gap
-                let eligibilityEndTime = self.startTime + self.eligibilityDuration
-                let clampedTime = atTime < eligibilityEndTime ? atTime : eligibilityEndTime
+            if atTime > lastUpdate && self.duration > 0.0 {
+                // CLAMP: Use round end time to prevent inflation during gap
+                let roundEndTime = self.startTime + self.duration
+                let clampedTime = atTime < roundEndTime ? atTime : roundEndTime
                 
                 if clampedTime > lastUpdate {
                     let elapsed = clampedTime - lastUpdate
-                    // NORMALIZED: shares × (elapsed / eligibilityDuration)
-                    let elapsedFraction = elapsed / self.eligibilityDuration
+                    // NORMALIZED: shares × (elapsed / duration)
+                    let elapsedFraction = elapsed / self.duration
                     pending = shares * elapsedFraction
                 }
             }
@@ -1597,60 +1509,21 @@ access(all) contract PrizeSavings {
             self.actualEndTime = endTime
         }
         
-        /// Updates the configured duration for this round.
-        /// Called when admin changes draw interval and wants to affect when draw can start.
-        /// This can extend or shorten the round, affecting when hasEnded() returns true.
-        /// No-op if round has been finalized (actualEndTime set) - does not revert.
-        /// 
-        /// IMPORTANT: This does NOT affect TWAB normalization or existing users' lottery odds.
-        /// The eligibilityDuration (immutable) controls when lottery weight stops accumulating.
-        /// This only changes when hasEnded() returns true (when startDraw() can be called).
-        /// 
-        /// WARNING: If configuredDuration is extended beyond eligibilityDuration, users who
-        /// deposit after eligibilityDuration passes will get ZERO lottery weight for this round,
-        /// even though hasEnded() returns false (round appears "active"). Their deposits will
-        /// count fully in the NEXT round. Frontends should use eligibilityDuration (not
-        /// configuredDuration) to show users when lottery eligibility ends.
-        /// 
-        /// Use cases:
-        /// - Delay a draw if admin needs more time (operational)
-        /// - Extend round for operational reasons
-        /// - Does NOT retroactively change existing users' lottery odds
-        /// 
-        /// @param duration - New duration in seconds (must be >= 1.0)
-        access(contract) fun setConfiguredDuration(_ duration: UFix64) {
-            pre {
-                duration >= 1.0: "Duration must be at least 1 second"
-            }
-            // If round is already finalized, silently skip update
-            if self.actualEndTime != nil {
-                return
-            }
-            self.configuredDuration = duration
-        }
-        
-        /// Returns the immutable eligibility duration used for TWAB calculations.
-        /// This defines the lottery eligibility window and is set at round creation.
-        /// Deposits after (startTime + eligibilityDuration) have zero lottery weight.
-        access(all) view fun getEligibilityDuration(): UFix64 {
-            return self.eligibilityDuration
-        }
-        
         /// Returns the actual end time if set, nil otherwise.
         access(all) view fun getActualEndTime(): UFix64? {
             return self.actualEndTime
         }
         
-        /// Returns whether this round has ended based on configured duration.
-        /// Note: This is used for "can we start a draw" check, not for TWAB calculation.
+        /// Returns whether this round has ended based on duration.
+        /// Used for "can we start a draw" check.
         access(all) view fun hasEnded(): Bool {
-            return getCurrentBlock().timestamp >= (self.startTime + self.configuredDuration)
+            return getCurrentBlock().timestamp >= (self.startTime + self.duration)
         }
         
-        /// Returns the configured end time (startTime + configuredDuration).
+        /// Returns the end time (startTime + duration).
         /// Used for gap period detection.
         access(all) view fun getConfiguredEndTime(): UFix64 {
-            return self.startTime + self.configuredDuration
+            return self.startTime + self.duration
         }
         
         /// Returns the round ID.
@@ -1663,14 +1536,14 @@ access(all) contract PrizeSavings {
             return self.startTime
         }
         
-        /// Returns the configured duration.
+        /// Returns the round duration.
         access(all) view fun getDuration(): UFix64 {
-            return self.configuredDuration
+            return self.duration
         }
         
-        /// Returns the configured end time (for backwards compatibility).
+        /// Returns the end time (startTime + duration).
         access(all) view fun getEndTime(): UFix64 {
-            return self.startTime + self.configuredDuration
+            return self.startTime + self.duration
         }
         
         /// Returns whether a user has been initialized in this round.
@@ -3081,7 +2954,7 @@ access(all) contract PrizeSavings {
             self.activeRound <- create Round(
                 roundID: 1,
                 startTime: getCurrentBlock().timestamp,
-                configuredDuration: config.drawIntervalSeconds
+                duration: config.drawIntervalSeconds
             )
             self.pendingDrawRound <- nil
             
@@ -3587,11 +3460,12 @@ access(all) contract PrizeSavings {
         /// If yield source has insufficient liquidity, returns empty vault
         /// and may trigger emergency mode.
         /// 
-        /// @param amount - Amount to withdraw
+        /// @param amount - Amount to withdraw (must be > 0)
         /// @param receiverID - UUID of the withdrawer's PoolPositionCollection
         /// @return Vault containing withdrawn funds (may be empty on failure)
         access(contract) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Vault} {
             pre {
+                amount > 0.0: "Withdraw amount must be greater than 0"
                 self.registeredReceivers[receiverID] != nil || self.sponsorReceivers[receiverID] == true: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
             }
             
@@ -3990,7 +3864,7 @@ access(all) contract PrizeSavings {
             let newRound <- create Round(
                 roundID: newRoundID,
                 startTime: now,
-                configuredDuration: newRoundDuration
+                duration: newRoundDuration
             )
             
             // Atomic swap: new round goes in, ended round comes out
@@ -4458,23 +4332,9 @@ access(all) contract PrizeSavings {
             self.config.setDrawIntervalSeconds(interval: interval)
         }
         
-        /// Updates only the current round's duration (when draw can start).
-        /// Does not affect future rounds or the current round's eligibility window.
-        /// 
-        /// @param duration - New duration for current round
-        access(contract) fun setCurrentRoundDuration(duration: UFix64) {
-            // Only update current round's configuredDuration
-            self.activeRound.setConfiguredDuration(duration)
-        }
-        
-        /// Returns the current active round's configured duration.
+        /// Returns the current active round's duration.
         access(all) view fun getActiveRoundDuration(): UFix64 {
             return self.activeRound.getDuration()
-        }
-        
-        /// Returns the current active round's eligibility duration (immutable, for lottery).
-        access(all) view fun getActiveRoundEligibilityDuration(): UFix64 {
-            return self.activeRound.getEligibilityDuration()
         }
         
         /// Returns the current active round's ID.
@@ -5112,10 +4972,11 @@ access(all) contract PrizeSavings {
         /// May return empty vault if yield source has liquidity issues.
         /// 
         /// @param poolID - ID of pool to withdraw from
-        /// @param amount - Amount to withdraw
+        /// @param amount - Amount to withdraw (must be > 0)
         /// @return Vault containing withdrawn funds
         access(PositionOps) fun withdraw(poolID: UInt64, amount: UFix64): @{FungibleToken.Vault} {
             pre {
+                amount > 0.0: "Withdraw amount must be greater than 0"
                 self.registeredPools[poolID] == true: "Not registered with pool"
             }
             
@@ -5292,10 +5153,11 @@ access(all) contract PrizeSavings {
         /// May return empty vault if yield source has liquidity issues.
         /// 
         /// @param poolID - ID of pool to withdraw from
-        /// @param amount - Amount to withdraw
+        /// @param amount - Amount to withdraw (must be > 0)
         /// @return Vault containing withdrawn funds
         access(PositionOps) fun withdraw(poolID: UInt64, amount: UFix64): @{FungibleToken.Vault} {
             pre {
+                amount > 0.0: "Withdraw amount must be greater than 0"
                 self.registeredPools[poolID] == true: "Not registered with pool"
             }
             
