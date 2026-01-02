@@ -8,9 +8,9 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
     return {
         "emergencyState": poolRef.getEmergencyState().rawValue,
         "totalDeposited": poolRef.totalDeposited,
-        "totalStaked": poolRef.totalStaked,
+        "allocatedSavings": poolRef.allocatedSavings,
         "lastDrawTimestamp": poolRef.lastDrawTimestamp,
-        "pendingLotteryYield": poolRef.getPendingLotteryYield(),
+        "allocatedLotteryYield": poolRef.getAllocatedLotteryYield(),
         "isDrawInProgress": poolRef.isDrawInProgress(),
         "canDrawNow": poolRef.canDrawNow(),
         "lotteryPoolBalance": poolRef.getLotteryPoolBalance(),

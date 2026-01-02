@@ -4,7 +4,7 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 access(all) struct PoolStats {
     access(all) let poolID: UInt64
     access(all) let totalDeposited: UFix64
-    access(all) let totalStaked: UFix64
+    access(all) let allocatedSavings: UFix64
     access(all) let lotteryPoolBalance: UFix64
     access(all) let totalTreasuryForwarded: UFix64
     access(all) let totalSavingsDistributed: UFix64
@@ -28,7 +28,7 @@ access(all) struct PoolStats {
     init(
         poolID: UInt64,
         totalDeposited: UFix64,
-        totalStaked: UFix64,
+        allocatedSavings: UFix64,
         lotteryPoolBalance: UFix64,
         totalTreasuryForwarded: UFix64,
         totalSavingsDistributed: UFix64,
@@ -51,7 +51,7 @@ access(all) struct PoolStats {
     ) {
         self.poolID = poolID
         self.totalDeposited = totalDeposited
-        self.totalStaked = totalStaked
+        self.allocatedSavings = allocatedSavings
         self.lotteryPoolBalance = lotteryPoolBalance
         self.totalTreasuryForwarded = totalTreasuryForwarded
         self.totalSavingsDistributed = totalSavingsDistributed
@@ -89,7 +89,7 @@ access(all) fun main(poolID: UInt64): PoolStats {
     return PoolStats(
         poolID: poolID,
         totalDeposited: poolRef.totalDeposited,
-        totalStaked: poolRef.totalStaked,
+        allocatedSavings: poolRef.allocatedSavings,
         lotteryPoolBalance: poolRef.getLotteryPoolBalance(),
         totalTreasuryForwarded: poolRef.getTotalTreasuryForwarded(),
         totalSavingsDistributed: poolRef.getTotalSavingsDistributed(),

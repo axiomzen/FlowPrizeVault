@@ -551,7 +551,7 @@ access(all) contract PrizeSavings {
         /// nil = deposits disabled in partial mode.
         access(all) let partialModeDepositLimit: UFix64?
         
-        /// Minimum ratio of yield source balance to totalStaked (0.8-1.0).
+        /// Minimum ratio of yield source balance to allocatedSavings (0.8-1.0).
         /// Below this ratio, health score is reduced.
         access(all) let minBalanceThreshold: UFix64
         
@@ -1577,7 +1577,7 @@ access(all) contract PrizeSavings {
     /// 
     /// 
     /// INVARIANTS:
-    /// - totalAssets should approximately equal Pool.totalStaked
+    /// - totalAssets should approximately equal Pool.allocatedSavings
     /// - sum(userShares) == totalShares
     /// - share price may increase (yield) or decrease (loss socialization)
     access(all) resource SavingsDistributor {
@@ -2826,12 +2826,27 @@ access(all) contract PrizeSavings {
         //   - Excludes savings interest (interest is tracked in share price)
         //   - Updated on: deposit (+), prize awarded (+), withdraw (-)
         //   - This is the "no-loss guarantee" amount
-        //   
-        // totalStaked: Amount of assets tracked belonging directly to users
-        //   - Includes savings interest (increases with accrueYield)
+        // 
+        // ============================================================
+        // YIELD ALLOCATION TRACKING
+        // ============================================================
+        // These three variables partition the yield source balance into buckets.
+        // Their sum (getTotalAllocatedFunds()) represents the total tracked assets.
+        // syncWithYieldSource() syncs these variables with the yield source balance.
+        //
+        // User portion of yield source balance
+        //   - Includes deposits + won prizes + accrued savings yield
         //   - Updated on: deposit (+), prize (+), savings yield (+), withdraw (-)
-        //   - Excludes pending lottery prizes and treasury fees
-        //   
+        access(all) var allocatedSavings: UFix64
+        //
+        // allocatedLotteryYield: Lottery portion awaiting transfer to prize pool
+        //   - Accumulates as yield is earned
+        //   - Transferred to prize pool vault at draw time
+        access(all) var allocatedLotteryYield: UFix64
+        //
+        // allocatedTreasuryYield: Treasury portion awaiting transfer to recipient
+        //   - Accumulates as yield is earned (includes rounding dust)
+        //   - Transferred to recipient or unclaimed vault at draw time
         // 
         // ============================================================
         
@@ -2839,20 +2854,25 @@ access(all) contract PrizeSavings {
         /// This is the "no-loss guarantee"
         access(all) var totalDeposited: UFix64
         
-        /// Total amount tracked belonging directly to users.
-        /// Includes deposits + won prizes + savings interest.
-        access(all) var totalStaked: UFix64
-        
         /// Timestamp of the last completed lottery draw.
         access(all) var lastDrawTimestamp: UFix64
         
-        /// Lottery funds still earning in yield source (not yet materialized).
-        /// Transferred to prize vault at draw time.
-        access(all) var pendingLotteryYield: UFix64
+        // ============================================================
+        // YIELD ALLOCATION VARIABLES
+        // Sum of these three = yield source balance (see getTotalAllocatedFunds)
+        // ============================================================
         
-        /// Treasury funds still earning in yield source (not yet materialized).
-        /// Transferred to recipient or unclaimed vault at draw time.
-        access(all) var pendingTreasuryYield: UFix64
+        /// User allocation: deposits + prizes won + accrued savings yield.
+        /// This is the portion of the yield source that belongs to users.
+        
+        
+        /// Lottery allocation: yield awaiting transfer to prize pool at draw time.
+        /// Stays in yield source earning until materialized during draw.
+        
+        
+        /// Treasury allocation: yield awaiting transfer to recipient at draw time.
+        /// Stays in yield source earning until materialized during draw.
+        access(all) var allocatedTreasuryYield: UFix64
         
         /// Cumulative treasury amount forwarded to recipient.
         access(all) var totalTreasuryForwarded: UFix64
@@ -2931,10 +2951,10 @@ access(all) contract PrizeSavings {
             
             // Initialize accounting
             self.totalDeposited = 0.0
-            self.totalStaked = 0.0
+            self.allocatedSavings = 0.0
             self.lastDrawTimestamp = 0.0
-            self.pendingLotteryYield = 0.0
-            self.pendingTreasuryYield = 0.0
+            self.allocatedLotteryYield = 0.0
+            self.allocatedTreasuryYield = 0.0
             self.totalTreasuryForwarded = 0.0
             self.treasuryRecipientCap = nil
             
@@ -3116,7 +3136,7 @@ access(all) contract PrizeSavings {
             let threshold = self.getEmergencyConfig().minBalanceThreshold
             
             // Check if balance meets threshold (50% of health score)
-            let balanceHealthy = balance >= self.totalStaked * threshold
+            let balanceHealthy = balance >= self.allocatedSavings * threshold
             
             // Calculate withdrawal success rate (50% of health score)
             let withdrawSuccessRate = self.consecutiveWithdrawFailures == 0 ? 1.0 : 
@@ -3251,13 +3271,13 @@ access(all) contract PrizeSavings {
                     // Accrue yield to share price (minus dust to virtual shares)
                     let actualSavings = self.savingsDistributor.accrueYield(amount: amount)
                     let dustAmount = amount - actualSavings
-                    self.totalStaked = self.totalStaked + actualSavings
+                    self.allocatedSavings = self.allocatedSavings + actualSavings
                     emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
                     
                     // Route dust to pending treasury
                     if dustAmount > 0.0 {
                         emit SavingsRoundingDustToTreasury(poolID: self.poolID, amount: dustAmount)
-                        self.pendingTreasuryYield = self.pendingTreasuryYield + dustAmount
+                        self.allocatedTreasuryYield = self.allocatedTreasuryYield + dustAmount
                     }
                     
                 default:
@@ -3278,7 +3298,7 @@ access(all) contract PrizeSavings {
         /// 2. Process any pending yield rewards
         /// 3. Mint shares proportional to deposit
         /// 4. Update TWAB in active round (or mark as gap interactor if round ended)
-        /// 5. Update accounting (receiverDeposits, totalDeposited, totalStaked)
+        /// 5. Update accounting (receiverDeposits, totalDeposited, allocatedSavings)
         /// 6. Deposit to yield source
         /// 
         /// TWAB HANDLING:
@@ -3358,7 +3378,7 @@ access(all) contract PrizeSavings {
             
             // Update pool totals
             self.totalDeposited = self.totalDeposited + amount
-            self.totalStaked = self.totalStaked + amount
+            self.allocatedSavings = self.allocatedSavings + amount
             
             // Deposit to yield source to start earning
             self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
@@ -3427,7 +3447,7 @@ access(all) contract PrizeSavings {
             
             // Update pool totals
             self.totalDeposited = self.totalDeposited + amount
-            self.totalStaked = self.totalStaked + amount
+            self.allocatedSavings = self.allocatedSavings + amount
             
             // Deposit to yield source to start earning
             self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
@@ -3450,7 +3470,7 @@ access(all) contract PrizeSavings {
         /// 4. Withdraw from yield source
         /// 5. Burn shares proportional to withdrawal
         /// 6. Update TWAB in active round (or mark as gap interactor if round ended)
-        /// 7. Update accounting (receiverDeposits, totalDeposited, totalStaked)
+        /// 7. Update accounting (receiverDeposits, totalDeposited, allocatedSavings)
         /// 
         /// TWAB HANDLING:
         /// - If in active round: recordShareChange() accumulates TWAB up to now
@@ -3588,7 +3608,7 @@ access(all) contract PrizeSavings {
             }
             
             // Update pool total (includes both principal and interest)
-            self.totalStaked = self.totalStaked - actualWithdrawn
+            self.allocatedSavings = self.allocatedSavings - actualWithdrawn
             
             // If user has withdrawn to 0 shares, unregister them
             // BUT NOT if a draw is in progress - unregistering during batch processing
@@ -3619,29 +3639,29 @@ access(all) contract PrizeSavings {
         /// adjusts accounting to match reality. Handles both appreciation (excess)
         /// and depreciation (deficit).
         /// 
-        /// ALLOCATED FUNDS:
-        /// allocatedFunds = totalStaked + pendingLotteryYield + pendingTreasuryYield
-        /// This must always equal the yield source balance after sync.
+        /// ALLOCATED FUNDS (see getTotalAllocatedFunds()):
+        /// allocatedSavings + allocatedLotteryYield + allocatedTreasuryYield
+        /// This sum must always equal the yield source balance after sync.
         /// 
         /// EXCESS (yieldBalance > allocatedFunds):
         /// 1. Calculate excess amount
         /// 2. Apply distribution strategy (savings/lottery/treasury split)
-        /// 3. Accrue savings yield to share price (increases totalStaked)
-        /// 4. Add lottery yield to pendingLotteryYield
-        /// 5. Add treasury yield to pendingTreasuryYield
+        /// 3. Accrue savings yield to share price (increases allocatedSavings)
+        /// 4. Add lottery yield to allocatedLotteryYield
+        /// 5. Add treasury yield to allocatedTreasuryYield
         /// 
         /// DEFICIT (yieldBalance < allocatedFunds):
         /// 1. Calculate deficit amount
         /// 2. Distribute proportionally across all allocations
-        /// 3. Reduce pendingTreasuryYield first (protocol absorbs loss first)
-        /// 4. Reduce pendingLotteryYield second
+        /// 3. Reduce allocatedTreasuryYield first (protocol absorbs loss first)
+        /// 4. Reduce allocatedLotteryYield second
         /// 5. Reduce savings (share price) last - protecting user principal
         /// 
         /// Called automatically during deposits and withdrawals.
         /// Can also be called manually by admin.
         access(contract) fun syncWithYieldSource() {
             let yieldBalance = self.config.yieldConnector.minimumAvailable()
-            let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
+            let allocatedFunds = self.getTotalAllocatedFunds()
             
             // Calculate absolute difference
             let difference: UFix64 = yieldBalance > allocatedFunds 
@@ -3692,7 +3712,7 @@ access(all) contract PrizeSavings {
                 // Accrue returns actual amount after virtual share dust
                 let actualSavings = self.savingsDistributor.accrueYield(amount: plan.savingsAmount)
                 savingsDust = plan.savingsAmount - actualSavings
-                self.totalStaked = self.totalStaked + actualSavings
+                self.allocatedSavings = self.allocatedSavings + actualSavings
                 emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
                 
                 if savingsDust > 0.0 {
@@ -3702,7 +3722,7 @@ access(all) contract PrizeSavings {
             
             // Process lottery portion - stays in yield source until draw
             if plan.lotteryAmount > 0.0 {
-                self.pendingLotteryYield = self.pendingLotteryYield + plan.lotteryAmount
+                self.allocatedLotteryYield = self.allocatedLotteryYield + plan.lotteryAmount
                 emit LotteryPrizePoolFunded(
                     poolID: self.poolID,
                     amount: plan.lotteryAmount,
@@ -3713,7 +3733,7 @@ access(all) contract PrizeSavings {
             // Process treasury portion + savings dust - stays in yield source until draw
             let totalTreasuryAmount = plan.treasuryAmount + savingsDust
             if totalTreasuryAmount > 0.0 {
-                self.pendingTreasuryYield = self.pendingTreasuryYield + totalTreasuryAmount
+                self.allocatedTreasuryYield = self.allocatedTreasuryYield + totalTreasuryAmount
                 emit TreasuryFunded(
                     poolID: self.poolID,
                     amount: totalTreasuryAmount,
@@ -3739,8 +3759,8 @@ access(all) contract PrizeSavings {
         /// - Treasury absorbs: 20% of deficit
         /// 
         /// SHORTFALL HANDLING (priority order - protect user principal):
-        /// 1. Treasury absorbs its share first (capped by pendingTreasuryYield)
-        /// 2. Lottery absorbs its share + treasury shortfall (capped by pendingLotteryYield)
+        /// 1. Treasury absorbs its share first (capped by allocatedTreasuryYield)
+        /// 2. Lottery absorbs its share + treasury shortfall (capped by allocatedLotteryYield)
         /// 3. Savings absorbs remainder (share price decrease affects all users)
         /// 
         /// @param amount - Total deficit to absorb
@@ -3762,13 +3782,13 @@ access(all) contract PrizeSavings {
             var treasuryShortfall: UFix64 = 0.0
             
             if targetTreasuryLoss > 0.0 {
-                if self.pendingTreasuryYield >= targetTreasuryLoss {
+                if self.allocatedTreasuryYield >= targetTreasuryLoss {
                     absorbedByTreasury = targetTreasuryLoss
                 } else {
-                    absorbedByTreasury = self.pendingTreasuryYield
+                    absorbedByTreasury = self.allocatedTreasuryYield
                     treasuryShortfall = targetTreasuryLoss - absorbedByTreasury
                 }
-                self.pendingTreasuryYield = self.pendingTreasuryYield - absorbedByTreasury
+                self.allocatedTreasuryYield = self.allocatedTreasuryYield - absorbedByTreasury
             }
             
             // === STEP 2: Lottery absorbs its share + treasury shortfall ===
@@ -3777,13 +3797,13 @@ access(all) contract PrizeSavings {
             let totalLotteryTarget = targetLotteryLoss + treasuryShortfall
             
             if totalLotteryTarget > 0.0 {
-                if self.pendingLotteryYield >= totalLotteryTarget {
+                if self.allocatedLotteryYield >= totalLotteryTarget {
                     absorbedByLottery = totalLotteryTarget
                 } else {
-                    absorbedByLottery = self.pendingLotteryYield
+                    absorbedByLottery = self.allocatedLotteryYield
                     lotteryShortfall = totalLotteryTarget - absorbedByLottery
                 }
-                self.pendingLotteryYield = self.pendingLotteryYield - absorbedByLottery
+                self.allocatedLotteryYield = self.allocatedLotteryYield - absorbedByLottery
             }
             
             // === STEP 3: Savings absorbs remainder (share price decrease) ===
@@ -3792,7 +3812,7 @@ access(all) contract PrizeSavings {
             
             if totalSavingsLoss > 0.0 {
                 absorbedBySavings = self.savingsDistributor.decreaseTotalAssets(amount: totalSavingsLoss)
-                self.totalStaked = self.totalStaked - absorbedBySavings
+                self.allocatedSavings = self.allocatedSavings - absorbedBySavings
             }
             
             emit DeficitApplied(
@@ -4022,18 +4042,18 @@ access(all) contract PrizeSavings {
             }
             
             // Materialize pending lottery funds from yield source
-            if self.pendingLotteryYield > 0.0 {
-                let lotteryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.pendingLotteryYield)
+            if self.allocatedLotteryYield > 0.0 {
+                let lotteryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedLotteryYield)
                 let actualWithdrawn = lotteryVault.balance
                 self.lotteryDistributor.fundPrizePool(vault: <- lotteryVault)
-                self.pendingLotteryYield = self.pendingLotteryYield - actualWithdrawn
+                self.allocatedLotteryYield = self.allocatedLotteryYield - actualWithdrawn
             }
             
             // Materialize pending treasury funds from yield source
-            if self.pendingTreasuryYield > 0.0 {
-                let treasuryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.pendingTreasuryYield)
+            if self.allocatedTreasuryYield > 0.0 {
+                let treasuryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedTreasuryYield)
                 let actualWithdrawn = treasuryVault.balance
-                self.pendingTreasuryYield = self.pendingTreasuryYield - actualWithdrawn
+                self.allocatedTreasuryYield = self.allocatedTreasuryYield - actualWithdrawn
                 
                 // Forward to recipient if configured, otherwise store in unclaimed vault
                 if let cap = self.treasuryRecipientCap {
@@ -4207,7 +4227,7 @@ access(all) contract PrizeSavings {
                 
                 // Update pool totals
                 self.totalDeposited = self.totalDeposited + prizeAmount
-                self.totalStaked = self.totalStaked + prizeAmount
+                self.allocatedSavings = self.allocatedSavings + prizeAmount
                 
                 // Re-deposit prize to yield source (continues earning)
                 self.config.yieldConnector.depositCapacity(from: &prizeVault as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
@@ -4700,8 +4720,8 @@ access(all) contract PrizeSavings {
         }
         
         access(all) view fun getCurrentReinvestedSavings(): UFix64 {
-            if self.totalStaked > self.totalDeposited {
-                return self.totalStaked - self.totalDeposited
+            if self.allocatedSavings > self.totalDeposited {
+                return self.allocatedSavings - self.totalDeposited
             }
             return 0.0
         }
@@ -4710,7 +4730,7 @@ access(all) contract PrizeSavings {
             let yieldSource = &self.config.yieldConnector as &{DeFiActions.Source}
             let available = yieldSource.minimumAvailable()
             // Exclude already-allocated funds (same logic as syncWithYieldSource)
-            let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
+            let allocatedFunds = self.getTotalAllocatedFunds()
             if available > allocatedFunds {
                 return available - allocatedFunds
             }
@@ -4723,20 +4743,47 @@ access(all) contract PrizeSavings {
         access(all) fun needsSync(): Bool {
             let yieldSource = &self.config.yieldConnector as &{DeFiActions.Source}
             let yieldBalance = yieldSource.minimumAvailable()
-            let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
-            return yieldBalance != allocatedFunds
+            return yieldBalance != self.getTotalAllocatedFunds()
         }
         
-        access(all) view fun getLotteryPoolBalance(): UFix64 {
-            return self.lotteryDistributor.getPrizePoolBalance() + self.pendingLotteryYield
+        // ============================================================
+        // YIELD ALLOCATION GETTERS
+        // ============================================================
+        
+        /// Returns total funds allocated across all buckets (savings + lottery + treasury).
+        /// This sum should always equal the yield source balance after sync.
+        access(all) view fun getTotalAllocatedFunds(): UFix64 {
+            return self.allocatedSavings + self.allocatedLotteryYield + self.allocatedTreasuryYield
         }
         
-        access(all) view fun getPendingLotteryYield(): UFix64 {
-            return self.pendingLotteryYield
+        /// Returns the allocated savings amount (user portion of yield source).
+        access(all) view fun getAllocatedSavings(): UFix64 {
+            return self.allocatedSavings
+        }
+        
+        /// Returns the allocated lottery yield (awaiting transfer to prize pool).
+        access(all) view fun getAllocatedLotteryYield(): UFix64 {
+            return self.allocatedLotteryYield
         }
 
+        /// Returns the allocated treasury yield (awaiting transfer to recipient).
+        access(all) view fun getAllocatedTreasuryYield(): UFix64 {
+            return self.allocatedTreasuryYield
+        }
+        
+        /// Returns total lottery pool balance including pending yield.
+        access(all) view fun getLotteryPoolBalance(): UFix64 {
+            return self.lotteryDistributor.getPrizePoolBalance() + self.allocatedLotteryYield
+        }
+        
+        /// @deprecated Use getAllocatedLotteryYield() instead
+        access(all) view fun getPendingLotteryYield(): UFix64 {
+            return self.allocatedLotteryYield
+        }
+
+        /// @deprecated Use getAllocatedTreasuryYield() instead
         access(all) view fun getPendingTreasuryYield(): UFix64 {
-            return self.pendingTreasuryYield
+            return self.allocatedTreasuryYield
         }
 
         access(all) view fun getUnclaimedTreasuryBalance(): UFix64 {
