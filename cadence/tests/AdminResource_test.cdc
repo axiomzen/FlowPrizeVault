@@ -81,62 +81,8 @@ access(all) fun testAdminCanUpdateMinimumDeposit() {
 }
 
 // ============================================================================
-// TESTS - Draw Interval Update - Active Round Propagation
-// ============================================================================
-
-access(all) fun testUpdateDrawIntervalUpdatesActiveRound() {
-    let poolID = createTestPoolWithMediumInterval() // 60 second interval
-    
-    // Verify initial round duration
-    let stateBefore = getPoolInitialState(poolID)
-    Test.assertEqual(60.0, stateBefore["roundDuration"]! as! UFix64)
-    
-    // Update interval
-    updateDrawInterval(poolID: poolID, newInterval: 120.0)
-    
-    // Verify active round duration also updated
-    let stateAfter = getPoolInitialState(poolID)
-    Test.assertEqual(120.0, stateAfter["roundDuration"]! as! UFix64)
-}
-
-access(all) fun testUpdateDrawIntervalAffectsHasEnded() {
-    let poolID = createTestPoolWithMediumInterval() // 60 second interval
-    
-    // Wait 30 seconds (halfway through round)
-    Test.moveTime(by: 30.0)
-    
-    // Round should not have ended yet
-    let stateBefore = getPoolInitialState(poolID)
-    Test.assertEqual(false, stateBefore["isRoundEnded"]! as! Bool)
-    
-    // Shorten interval to 20 seconds (less than elapsed time)
-    updateDrawInterval(poolID: poolID, newInterval: 20.0)
-    
-    // Round should now be ended
-    let stateAfter = getPoolInitialState(poolID)
-    Test.assertEqual(true, stateAfter["isRoundEnded"]! as! Bool)
-}
-
-access(all) fun testUpdateDrawIntervalCanExtendRound() {
-    let poolID = createTestPoolWithMediumInterval() // 60 second interval
-    
-    // Wait for round to end
-    Test.moveTime(by: 61.0)
-    
-    // Round should have ended
-    let stateBefore = getPoolInitialState(poolID)
-    Test.assertEqual(true, stateBefore["isRoundEnded"]! as! Bool)
-    
-    // Extend interval to 120 seconds
-    updateDrawInterval(poolID: poolID, newInterval: 120.0)
-    
-    // Round should no longer be ended (exits gap period)
-    let stateAfter = getPoolInitialState(poolID)
-    Test.assertEqual(false, stateAfter["isRoundEnded"]! as! Bool)
-}
-
-// ============================================================================
 // TESTS - Draw Interval Update - During Gap Period
+// Note: Interval updates only affect FUTURE rounds, not the current active round.
 // ============================================================================
 
 access(all) fun testUpdateDrawIntervalDuringGapPeriod() {
@@ -166,76 +112,6 @@ access(all) fun testUpdateDrawIntervalDuringGapPeriod() {
     Test.assertEqual(300.0, details["drawIntervalSeconds"]! as! UFix64)
 }
 
-access(all) fun testUpdateDrawIntervalExitsGapPeriodByExtending() {
-    let poolID = createTestPoolWithMediumInterval() // 60 second interval
-    let depositAmount: UFix64 = 100.0
-    
-    // Setup user
-    let user = Test.createAccount()
-    setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
-    depositToPool(user, poolID: poolID, amount: depositAmount)
-    
-    // Wait for round to end (enter gap period)
-    Test.moveTime(by: 61.0)
-    
-    // In gap period
-    Test.assertEqual(true, (getPoolInitialState(poolID)["isRoundEnded"]! as! Bool))
-    
-    // Extend interval to 120 seconds - should exit gap
-    updateDrawInterval(poolID: poolID, newInterval: 120.0)
-    
-    // No longer in gap period
-    Test.assertEqual(false, (getPoolInitialState(poolID)["isRoundEnded"]! as! Bool))
-    
-    // User can continue to deposit normally (not in gap)
-    depositToPool(user, poolID: poolID, amount: 10.0)
-    
-    // Wait for the extended round to end
-    Test.moveTime(by: 60.0)
-    
-    // Now in gap period again
-    Test.assertEqual(true, (getPoolInitialState(poolID)["isRoundEnded"]! as! Bool))
-}
-
-access(all) fun testUserDepositsAfterIntervalExtensionExitingGap() {
-    let poolID = createTestPoolWithMediumInterval() // 60 second interval
-    let depositAmount: UFix64 = 100.0
-    
-    // Setup users
-    let user1 = Test.createAccount()
-    let user2 = Test.createAccount()
-    setupUserWithFundsAndCollection(user1, amount: depositAmount + 10.0)
-    setupUserWithFundsAndCollection(user2, amount: depositAmount + 10.0)
-    
-    // User1 deposits at start
-    depositToPool(user1, poolID: poolID, amount: depositAmount)
-    
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
-    
-    // Wait for round to end (enter gap period)
-    Test.moveTime(by: 61.0)
-    
-    // Extend interval - exits gap
-    updateDrawInterval(poolID: poolID, newInterval: 180.0)
-    
-    // User2 deposits after interval extension (no longer in gap)
-    depositToPool(user2, poolID: poolID, amount: depositAmount)
-    
-    // Wait for extended round to end
-    Test.moveTime(by: 120.0)
-    
-    // Execute draw
-    executeFullDraw(user1, poolID: poolID)
-    
-    // Both users should have entries since they were both in the round
-    let user1Entries = getUserEntries(user1.address, poolID)
-    let user2Entries = getUserEntries(user2.address, poolID)
-    
-    Test.assert(user1Entries > 0.0, message: "User1 should have entries")
-    Test.assert(user2Entries > 0.0, message: "User2 should have entries")
-}
-
 // ============================================================================
 // TESTS - Draw Interval Update - During Batch Processing
 // ============================================================================
@@ -256,11 +132,11 @@ access(all) fun testUpdateDrawIntervalDuringBatchProcessing() {
     Test.moveTime(by: 61.0)
     startDraw(user, poolID: poolID)
     
-    // Now in batch processing phase - update should still work
-    // (it updates pool config and NEW active round, not the pending round)
+    // Now in batch processing phase - update pool config should still work
+    // Note: This only affects future rounds, not the active round that was created at startDraw
     updateDrawInterval(poolID: poolID, newInterval: 300.0)
     
-    // Verify update succeeded
+    // Verify pool config update succeeded
     let details = getPoolDetails(poolID)
     Test.assertEqual(300.0, details["drawIntervalSeconds"]! as! UFix64)
     
@@ -270,9 +146,10 @@ access(all) fun testUpdateDrawIntervalDuringBatchProcessing() {
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
     
-    // New round should have the updated duration
+    // Active round was created at startDraw with the OLD 60s duration
+    // (interval updates only affect future rounds)
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(300.0, state["roundDuration"]! as! UFix64)
+    Test.assertEqual(60.0, state["roundDuration"]! as! UFix64)
 }
 
 access(all) fun testNewRoundGetsUpdatedIntervalAfterDraw() {
@@ -287,19 +164,19 @@ access(all) fun testNewRoundGetsUpdatedIntervalAfterDraw() {
     // Fund lottery
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
-    // Update interval before draw
+    // Update interval - only affects future rounds
     updateDrawInterval(poolID: poolID, newInterval: 180.0)
     
-    // Verify current round updated
-    Test.assertEqual(180.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
+    // Current round (round 1) still has original 60s duration
+    Test.assertEqual(60.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
     
-    // Wait for round to end with new duration
-    Test.moveTime(by: 181.0)
+    // Wait for round to end (using original 60s duration)
+    Test.moveTime(by: 61.0)
     
-    // Execute draw
+    // Execute draw - new round created with updated 180s interval
     executeFullDraw(user, poolID: poolID)
     
-    // New round (round 2) should also have 180s duration
+    // New round (round 2) should have 180s duration (from updated pool config)
     let stateAfterDraw = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(2), stateAfterDraw["currentRoundID"]! as! UInt64)
     Test.assertEqual(180.0, stateAfterDraw["roundDuration"]! as! UFix64)
@@ -342,54 +219,20 @@ access(all) fun testIntervalUpdateDoesNotAffectPendingDrawRound() {
 // TESTS - Draw Interval Update - Edge Cases
 // ============================================================================
 
-access(all) fun testMultipleIntervalUpdatesInSameRound() {
+access(all) fun testMultipleIntervalUpdatesPoolConfig() {
     let poolID = createTestPoolWithMediumInterval() // 60 second interval
     
-    // Update multiple times
+    // Update pool config multiple times
     updateDrawInterval(poolID: poolID, newInterval: 120.0)
-    Test.assertEqual(120.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
-    
     updateDrawInterval(poolID: poolID, newInterval: 30.0)
-    Test.assertEqual(30.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
-    
     updateDrawInterval(poolID: poolID, newInterval: 300.0)
-    Test.assertEqual(300.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
     
-    // Final value should persist
+    // Final value should persist in pool config
     let details = getPoolDetails(poolID)
     Test.assertEqual(300.0, details["drawIntervalSeconds"]! as! UFix64)
-}
-
-access(all) fun testShortenIntervalCausesImmediateGapPeriod() {
-    let poolID = createTestPoolWithMediumInterval() // 60 second interval
-    let depositAmount: UFix64 = 100.0
     
-    // Setup user
-    let user = Test.createAccount()
-    setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
-    depositToPool(user, poolID: poolID, amount: depositAmount)
-    
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
-    
-    // Wait 45 seconds (3/4 through round)
-    Test.moveTime(by: 45.0)
-    
-    // Not in gap yet
-    Test.assertEqual(false, (getPoolInitialState(poolID)["isRoundEnded"]! as! Bool))
-    
-    // Shorten interval to 30 seconds - now past the end time
-    updateDrawInterval(poolID: poolID, newInterval: 30.0)
-    
-    // Now in gap period
-    Test.assertEqual(true, (getPoolInitialState(poolID)["isRoundEnded"]! as! Bool))
-    
-    // Can execute draw immediately
-    executeFullDraw(user, poolID: poolID)
-    
-    // Verify draw completed
-    let state = getPoolInitialState(poolID)
-    Test.assertEqual(UInt64(2), state["currentRoundID"]! as! UInt64)
+    // Current round still has original 60s duration (interval updates only affect future rounds)
+    Test.assertEqual(60.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
 }
 
 access(all) fun testIntervalUpdateAcrossMultipleRounds() {
@@ -404,31 +247,38 @@ access(all) fun testIntervalUpdateAcrossMultipleRounds() {
     // Fund lottery for round 1
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
-    // Round 1 with 1s interval
+    // Update interval to 5s BEFORE the draw - this will apply to round 2
+    updateDrawInterval(poolID: poolID, newInterval: 5.0)
+    
+    // Round 1 still has 1s interval (was created before the update)
+    Test.assertEqual(1.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
+    
+    // Wait for round 1 to end and execute draw
     Test.moveTime(by: 2.0)
     executeFullDraw(user, poolID: poolID)
     Test.assertEqual(UInt64(2), (getPoolInitialState(poolID)["currentRoundID"]! as! UInt64))
     
-    // Update interval for round 2
-    updateDrawInterval(poolID: poolID, newInterval: 5.0)
+    // Round 2 was created with the updated 5s interval
     Test.assertEqual(5.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
     
     // Fund lottery for round 2 (prize was distributed in round 1)
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
-    // Complete round 2 with new 5s interval
+    // Update interval to 10s - will apply to round 3
+    updateDrawInterval(poolID: poolID, newInterval: 10.0)
+    
+    // Complete round 2 with its 5s interval
     Test.moveTime(by: 6.0)
     executeFullDraw(user, poolID: poolID)
     Test.assertEqual(UInt64(3), (getPoolInitialState(poolID)["currentRoundID"]! as! UInt64))
     
-    // Update interval again for round 3
-    updateDrawInterval(poolID: poolID, newInterval: 10.0)
+    // Round 3 was created with the updated 10s interval
     Test.assertEqual(10.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
 }
 
 access(all) fun testFinalizedRoundDurationNotModified() {
     // This test verifies that once a round is finalized (moved to pendingDrawRound),
-    // its duration cannot be modified. The silent skip behavior ensures no revert.
+    // its duration cannot be modified. Interval updates only affect future rounds.
     
     let poolID = createTestPoolWithMediumInterval() // 60 second interval
     let depositAmount: UFix64 = 100.0
@@ -446,15 +296,19 @@ access(all) fun testFinalizedRoundDurationNotModified() {
     startDraw(user, poolID: poolID)
     
     // At this point:
-    // - activeRound (round 2) has duration from pool config
+    // - activeRound (round 2) was created with 60s (pool config at the time)
     // - pendingDrawRound (round 1) is finalized with actualEndTime set
     
-    // Update interval - should update active round, not pending
+    // Update interval - only affects future rounds (round 3+), not current or pending
     updateDrawInterval(poolID: poolID, newInterval: 999.0)
     
-    // Active round (round 2) should have new duration
+    // Active round (round 2) still has original 60s duration (was created before update)
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(999.0, state["roundDuration"]! as! UFix64)
+    Test.assertEqual(60.0, state["roundDuration"]! as! UFix64)
+    
+    // Pool config has been updated
+    let details = getPoolDetails(poolID)
+    Test.assertEqual(999.0, details["drawIntervalSeconds"]! as! UFix64)
     
     // Complete draw - pending round should still work correctly
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
