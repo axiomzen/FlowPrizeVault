@@ -267,6 +267,22 @@ access(all) contract PrizeSavings {
     /// @param adminUUID - UUID of the Admin resource that created the pool (audit trail)
     access(all) event PoolCreatedByAdmin(poolID: UInt64, assetType: String, strategy: String, adminUUID: UInt64)
     
+    /// Emitted when admin performs storage cleanup on a pool.
+    /// @param poolID - ID of the pool being cleaned
+    /// @param ghostReceiversCleaned - Number of 0-share receivers unregistered
+    /// @param userSharesCleaned - Number of 0-value userShares entries removed
+    /// @param receiverDepositsCleaned - Number of 0-value receiverDeposits entries removed
+    /// @param pendingNFTClaimsCleaned - Number of empty pendingNFTClaims arrays removed
+    /// @param adminUUID - UUID of the Admin resource performing cleanup (audit trail)
+    access(all) event PoolStorageCleanedUp(
+        poolID: UInt64,
+        ghostReceiversCleaned: Int,
+        userSharesCleaned: Int,
+        receiverDepositsCleaned: Int,
+        pendingNFTClaimsCleaned: Int,
+        adminUUID: UInt64
+    )
+    
     // ============================================================
     // EVENTS - Pool State Changes
     // ============================================================
@@ -1084,6 +1100,41 @@ access(all) contract PrizeSavings {
             return actualAmount
         }
 
+        /// Cleans up stale dictionary entries and ghost receivers to manage storage growth.
+        /// 
+        /// This function should be called periodically (e.g., after each draw or weekly) to:
+        /// 1. Remove "ghost" receivers (0-share users still in registeredReceiverList)
+        /// 2. Clean up userShares entries with 0.0 value
+        /// 3. Clean up receiverDeposits entries with 0.0 value
+        /// 4. Remove empty pendingNFTClaims arrays
+        /// 
+        /// Uses batching to avoid gas limits - call multiple times if needed.
+        /// 
+        /// @param poolID - ID of the pool to clean up
+        /// @param receiverLimit - Max ghost receivers to process (for gas management)
+        /// @return CleanupResult with counts of cleaned entries
+        access(ConfigOps) fun cleanupPoolStaleEntries(
+            poolID: UInt64,
+            receiverLimit: Int
+        ): {String: Int} {
+            pre {
+                receiverLimit > 0: "Receiver limit must be positive"
+            }
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            let result = poolRef.cleanupStaleEntries(receiverLimit: receiverLimit)
+            
+            emit PoolStorageCleanedUp(
+                poolID: poolID,
+                ghostReceiversCleaned: result["ghostReceivers"] ?? 0,
+                userSharesCleaned: result["userShares"] ?? 0,
+                receiverDepositsCleaned: result["receiverDeposits"] ?? 0,
+                pendingNFTClaimsCleaned: result["pendingNFTClaims"] ?? 0,
+                adminUUID: self.uuid
+            )
+            
+            return result
+        }
+
     }
     
     /// Storage path for the Admin resource.
@@ -1749,6 +1800,19 @@ access(all) contract PrizeSavings {
         access(all) view fun getUserShares(receiverID: UInt64): UFix64 {
             return self.userShares[receiverID] ?? 0.0
         }
+        
+        /// Returns all user share keys for cleanup iteration.
+        /// @return Array of receiver IDs that have share entries
+        access(contract) view fun getUserSharesKeys(): [UInt64] {
+            return self.userShares.keys
+        }
+        
+        /// Removes a user's share entry from the dictionary.
+        /// Used by admin cleanup to remove stale 0-value entries.
+        /// @param receiverID - User's receiver ID to remove
+        access(contract) fun removeUserShares(receiverID: UInt64) {
+            let _ = self.userShares.remove(key: receiverID)
+        }
     }
     
     // ============================================================
@@ -1949,6 +2013,21 @@ access(all) contract PrizeSavings {
                 return <- nftsRef.remove(at: nftIndex)
             }
             panic("Failed to access pending NFT claims. receiverID: ".concat(receiverID.toString()).concat(", nftIndex: ").concat(nftIndex.toString()))
+        }
+        
+        /// Returns all pending NFT claims keys for cleanup iteration.
+        /// @return Array of receiver IDs that have pending NFT claims
+        access(contract) view fun getPendingNFTClaimsKeys(): [UInt64] {
+            return self.pendingNFTClaims.keys
+        }
+        
+        /// Removes a receiver's pending NFT claims entry from the dictionary.
+        /// Used by admin cleanup to remove empty arrays.
+        /// @param receiverID - Receiver ID to remove
+        access(contract) fun removePendingNFTClaims(receiverID: UInt64) {
+            if let emptyArray <- self.pendingNFTClaims.remove(key: receiverID) {
+                destroy emptyArray
+            }
         }
     }
     
@@ -2995,9 +3074,86 @@ access(all) contract PrizeSavings {
             }
             
             // Remove last element (O(1))
-            self.registeredReceiverList.removeLast()
+            let _removedReceiver = self.registeredReceiverList.removeLast()
             // Remove from dictionary
-            self.registeredReceivers.remove(key: receiverID)
+            let _removedIndex = self.registeredReceivers.remove(key: receiverID)
+        }
+        
+        /// Cleans up stale dictionary entries and ghost receivers to manage storage growth.
+        /// 
+        /// Handles:
+        /// 1. Ghost receivers - users with 0 shares still in registeredReceiverList
+        /// 2. userShares entries with 0.0 value
+        /// 3. receiverDeposits entries with 0.0 value  
+        /// 4. Empty pendingNFTClaims arrays
+        /// 
+        /// IMPORTANT: Cannot be called during active draw processing (would corrupt indices).
+        /// Should be called periodically (e.g., after draws, weekly) by admin.
+        /// Uses receiverLimit to avoid gas limits - call multiple times if needed.
+        /// 
+        /// @param receiverLimit - Max ghost receivers to process per call
+        /// @return Dictionary with cleanup counts
+        access(contract) fun cleanupStaleEntries(receiverLimit: Int): {String: Int} {
+            pre {
+                self.pendingSelectionData == nil: "Cannot cleanup during active draw - would corrupt batch indices"
+            }
+            
+            var ghostReceiversCleaned = 0
+            var userSharesCleaned = 0
+            var receiverDepositsCleaned = 0
+            var pendingNFTClaimsCleaned = 0
+            
+            // 1. Clean ghost receivers (0-share users still in registeredReceiverList)
+            // Use index-based iteration with swap-and-pop awareness
+            var i = 0
+            var processed = 0
+            while i < self.registeredReceiverList.length && processed < receiverLimit {
+                let receiverID = self.registeredReceiverList[i]
+                let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+                
+                if shares == 0.0 {
+                    // This receiver is a ghost - unregister them
+                    self.unregisterReceiver(receiverID: receiverID)
+                    ghostReceiversCleaned = ghostReceiversCleaned + 1
+                    // Don't increment i - swap-and-pop moved a new element here
+                } else {
+                    i = i + 1
+                }
+                processed = processed + 1
+            }
+            
+            // 2. Clean userShares with 0 values
+            let userSharesKeys = self.savingsDistributor.getUserSharesKeys()
+            for key in userSharesKeys {
+                if self.savingsDistributor.getUserShares(receiverID: key) == 0.0 {
+                    self.savingsDistributor.removeUserShares(receiverID: key)
+                    userSharesCleaned = userSharesCleaned + 1
+                }
+            }
+            
+            // 3. Clean receiverDeposits with 0 values
+            for key in self.receiverDeposits.keys {
+                if self.receiverDeposits[key] == 0.0 {
+                    let _ = self.receiverDeposits.remove(key: key)
+                    receiverDepositsCleaned = receiverDepositsCleaned + 1
+                }
+            }
+            
+            // 4. Clean empty pendingNFTClaims arrays
+            let pendingNFTKeys = self.lotteryDistributor.getPendingNFTClaimsKeys()
+            for key in pendingNFTKeys {
+                if self.lotteryDistributor.getPendingNFTCount(receiverID: key) == 0 {
+                    self.lotteryDistributor.removePendingNFTClaims(receiverID: key)
+                    pendingNFTClaimsCleaned = pendingNFTClaimsCleaned + 1
+                }
+            }
+            
+            return {
+                "ghostReceivers": ghostReceiversCleaned,
+                "userShares": userSharesCleaned,
+                "receiverDeposits": receiverDepositsCleaned,
+                "pendingNFTClaims": pendingNFTClaimsCleaned
+            }
         }
 
         // ============================================================
@@ -3586,12 +3742,12 @@ access(all) contract PrizeSavings {
             // If user has withdrawn to 0 shares, unregister them
             // BUT NOT if a draw is in progress - unregistering during batch processing
             // would corrupt indices (swap-and-pop). Ghost users with 0 shares get 0 weight.
-            // They'll be cleaned up after the draw completes.
+            // They can be cleaned up via admin cleanupStaleEntries() after the draw.
             if newShares == 0.0 && self.pendingSelectionData == nil {
                 // Handle sponsors vs regular receivers differently
                 if self.sponsorReceivers[receiverID] == true {
                     // Clean up sponsor mapping
-                    self.sponsorReceivers.remove(key: receiverID)
+                    let _ = self.sponsorReceivers.remove(key: receiverID)
                 } else {
                     // Unregister regular receiver from lottery
                     self.unregisterReceiver(receiverID: receiverID)
