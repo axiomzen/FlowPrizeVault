@@ -26,7 +26,7 @@ Lottery Fairness:
 - Supports unlimited TVL and any round duration within UFix64 limits
 
 Core Components:
-- SavingsDistributor: Shares vault with normalized TWAB for lottery weights
+- ShareTracker: Manages share-based accounting
 - LotteryDistributor: Prize pool, NFT prizes, and draw execution
 - Pool: Deposits, withdrawals, yield processing, and prize draws
 - PoolPositionCollection: User's resource for interacting with pools
@@ -490,7 +490,7 @@ access(all) contract PrizeSavings {
     /// Specifies the destination for direct funding operations.
     /// Used by admin's fundPoolDirect() function.
     access(all) enum PoolFundingDestination: UInt8 {
-        /// Fund the savings distributor (increases share price for all users)
+        /// Fund the share tracker (increases share price for all users)
         access(all) case Savings
         /// Fund the lottery prize pool (available for next draw)
         access(all) case Lottery
@@ -1558,12 +1558,12 @@ access(all) contract PrizeSavings {
     }
     
     // ============================================================
-    // SAVINGS DISTRIBUTOR RESOURCE
+    // SHARE TRACKER RESOURCE
     // ============================================================
     
-    /// ERC4626-style shares distributor with virtual offset protection against inflation attacks.
+    /// ERC4626-style share accounting ledger with virtual offset protection against inflation attacks.
     /// 
-    /// This resource manages the savings component of the prize pool:
+    /// This resource manages share-based accounting for user deposits:
     /// - Tracks user shares and converts between shares <-> assets
     /// - Accrues yield by increasing share price (not individual balances)
     /// 
@@ -1580,7 +1580,7 @@ access(all) contract PrizeSavings {
     /// - totalAssets should approximately equal Pool.allocatedSavings
     /// - sum(userShares) == totalShares
     /// - share price may increase (yield) or decrease (loss socialization)
-    access(all) resource SavingsDistributor {
+    access(all) resource ShareTracker {
         /// Total shares outstanding across all users.
         access(self) var totalShares: UFix64
         
@@ -1594,10 +1594,10 @@ access(all) contract PrizeSavings {
         /// Cumulative yield distributed since pool creation (for statistics).
         access(all) var totalDistributed: UFix64
         
-        /// Type of fungible token vault this distributor handles.
+        /// Type of fungible token vault this tracker handles.
         access(self) let vaultType: Type
         
-        /// Initializes a new SavingsDistributor.
+        /// Initializes a new ShareTracker.
         /// @param vaultType - Type of fungible token to track
         init(vaultType: Type) {
             self.totalShares = 0.0
@@ -1692,12 +1692,12 @@ access(all) contract PrizeSavings {
             let userShareBalance = self.userShares[receiverID] ?? 0.0
             assert(
                 userShareBalance > 0.0,
-                message: "SavingsDistributor.withdraw: No shares to withdraw for receiver "
+                message: "ShareTracker.withdraw: No shares to withdraw for receiver "
                     .concat(receiverID.toString())
             )
             assert(
                 self.totalShares > 0.0 && self.totalAssets > 0.0,
-                message: "SavingsDistributor.withdraw: Invalid distributor state - totalShares: "
+                message: "ShareTracker.withdraw: Invalid tracker state - totalShares: "
                     .concat(self.totalShares.toString())
                     .concat(", totalAssets: ").concat(self.totalAssets.toString())
             )
@@ -1706,7 +1706,7 @@ access(all) contract PrizeSavings {
             let currentAssetValue = self.convertToAssets(userShareBalance)
             assert(
                 amount <= currentAssetValue,
-                message: "SavingsDistributor.withdraw: Insufficient balance - requested "
+                message: "ShareTracker.withdraw: Insufficient balance - requested "
                     .concat(amount.toString())
                     .concat(" but receiver ").concat(receiverID.toString())
                     .concat(" only has ").concat(currentAssetValue.toString())
@@ -2736,7 +2736,7 @@ access(all) contract PrizeSavings {
     /// 
     /// ARCHITECTURE:
     /// Pool contains nested resources:
-    /// - SavingsDistributor: Share-based accounting and TWAB tracking
+    /// - ShareTracker: Share-based accounting
     /// - LotteryDistributor: Prize pool and NFT management
     /// - RandomConsumer: On-chain randomness for fair draws
     /// 
@@ -2751,7 +2751,7 @@ access(all) contract PrizeSavings {
     /// 
     /// DESTRUCTION:
     /// In Cadence 1.0+, nested resources are automatically destroyed with Pool.
-    /// Order: pendingDrawReceipt → randomConsumer → savingsDistributor → lotteryDistributor
+    /// Order: pendingDrawReceipt → randomConsumer → shareTracker → lotteryDistributor
     /// Treasury should be forwarded before destruction.
     access(all) resource Pool {
         // ============================================================
@@ -2890,7 +2890,7 @@ access(all) contract PrizeSavings {
         // ============================================================
         
         /// Manages savings: ERC4626-style share accounting.
-        access(self) let savingsDistributor: @SavingsDistributor
+        access(self) let shareTracker: @ShareTracker
         
         /// Manages lottery: prize pool, NFTs, pending claims.
         access(self) let lotteryDistributor: @LotteryDistributor
@@ -2962,7 +2962,7 @@ access(all) contract PrizeSavings {
             self.unclaimedTreasuryVault <- DeFiActionsUtils.getEmptyVault(config.assetType)
             
             // Create nested resources
-            self.savingsDistributor <- create SavingsDistributor(vaultType: config.assetType)
+            self.shareTracker <- create ShareTracker(vaultType: config.assetType)
             self.lotteryDistributor <- create LotteryDistributor(vaultType: config.assetType)
             
             // Initialize draw state
@@ -3258,8 +3258,8 @@ access(all) contract PrizeSavings {
                 case PoolFundingDestination.Savings:
                     // Savings funding requires depositors to receive the yield
                     assert(
-                        self.savingsDistributor.getTotalShares() > 0.0,
-                        message: "Cannot fund savings with no depositors - funds would be orphaned. Amount: ".concat(from.balance.toString()).concat(", totalShares: ").concat(self.savingsDistributor.getTotalShares().toString())
+                        self.shareTracker.getTotalShares() > 0.0,
+                        message: "Cannot fund savings with no depositors - funds would be orphaned. Amount: ".concat(from.balance.toString()).concat(", totalShares: ").concat(self.shareTracker.getTotalShares().toString())
                     )
                     
                     let amount = from.balance
@@ -3269,7 +3269,7 @@ access(all) contract PrizeSavings {
                     destroy from
                     
                     // Accrue yield to share price (minus dust to virtual shares)
-                    let actualSavings = self.savingsDistributor.accrueYield(amount: amount)
+                    let actualSavings = self.shareTracker.accrueYield(amount: amount)
                     let dustAmount = amount - actualSavings
                     self.allocatedSavings = self.allocatedSavings + actualSavings
                     emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
@@ -3347,10 +3347,10 @@ access(all) contract PrizeSavings {
             let now = getCurrentBlock().timestamp
             
             // Get current shares BEFORE the deposit for TWAB calculation
-            let oldShares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            let oldShares = self.shareTracker.getUserShares(receiverID: receiverID)
             
-            // Record deposit in savings distributor (mints shares)
-            let newSharesMinted = self.savingsDistributor.deposit(receiverID: receiverID, amount: amount)
+            // Record deposit in share tracker (mints shares)
+            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: amount)
             let newShares = oldShares + newSharesMinted
             
             // Update TWAB in the active round
@@ -3435,8 +3435,8 @@ access(all) contract PrizeSavings {
             
             let amount = from.balance
             
-            // Record deposit in savings distributor (mints shares - same as regular deposit)
-            let newSharesMinted = self.savingsDistributor.deposit(receiverID: receiverID, amount: amount)
+            // Record deposit in share tracker (mints shares - same as regular deposit)
+            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: amount)
             
             // Mark as sponsor (lottery-ineligible)
             self.sponsorReceivers[receiverID] = true
@@ -3503,7 +3503,7 @@ access(all) contract PrizeSavings {
             }
             
             // Validate user has sufficient balance
-            let totalBalance = self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
+            let totalBalance = self.shareTracker.getUserAssetValue(receiverID: receiverID)
             assert(totalBalance >= amount, message: "Insufficient balance. You have \(totalBalance) but trying to withdraw \(amount)")
             
             // Check if yield source has sufficient liquidity
@@ -3568,13 +3568,13 @@ access(all) contract PrizeSavings {
             let now = getCurrentBlock().timestamp
             
             // Get current shares BEFORE the withdrawal for TWAB calculation
-            let oldShares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            let oldShares = self.shareTracker.getUserShares(receiverID: receiverID)
             
             // Burn shares proportional to withdrawal
-            let _ = self.savingsDistributor.withdraw(receiverID: receiverID, amount: actualWithdrawn)
+            let _ = self.shareTracker.withdraw(receiverID: receiverID, amount: actualWithdrawn)
             
             // Get new shares AFTER the withdrawal
-            let newShares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            let newShares = self.shareTracker.getUserShares(receiverID: receiverID)
             
             // Update TWAB in the active round
             // Round extends naturally until startDraw() is called - record at actual timestamp
@@ -3710,7 +3710,7 @@ access(all) contract PrizeSavings {
             // Process savings portion - increases share price for all users
             if plan.savingsAmount > 0.0 {
                 // Accrue returns actual amount after virtual share dust
-                let actualSavings = self.savingsDistributor.accrueYield(amount: plan.savingsAmount)
+                let actualSavings = self.shareTracker.accrueYield(amount: plan.savingsAmount)
                 savingsDust = plan.savingsAmount - actualSavings
                 self.allocatedSavings = self.allocatedSavings + actualSavings
                 emit SavingsYieldAccrued(poolID: self.poolID, amount: actualSavings)
@@ -3811,7 +3811,7 @@ access(all) contract PrizeSavings {
             var absorbedBySavings: UFix64 = 0.0
             
             if totalSavingsLoss > 0.0 {
-                absorbedBySavings = self.savingsDistributor.decreaseTotalAssets(amount: totalSavingsLoss)
+                absorbedBySavings = self.shareTracker.decreaseTotalAssets(amount: totalSavingsLoss)
                 self.allocatedSavings = self.allocatedSavings - absorbedBySavings
             }
             
@@ -3967,7 +3967,7 @@ access(all) contract PrizeSavings {
                 let receiverID = self.registeredReceiverList[i]
                 
                 // Get current shares
-                let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+                let shares = self.shareTracker.getUserShares(receiverID: receiverID)
                 
                 // Finalize TWAB using actual round end time
                 // Returns NORMALIZED weight (≈ average shares), not share-seconds
@@ -4205,10 +4205,10 @@ access(all) contract PrizeSavings {
                 )
                 
                 // Get current shares BEFORE the prize deposit for TWAB calculation
-                let oldShares = self.savingsDistributor.getUserShares(receiverID: winnerID)
+                let oldShares = self.shareTracker.getUserShares(receiverID: winnerID)
                 
                 // AUTO-COMPOUND: Add prize to winner's deposit (mints shares)
-                let newSharesMinted = self.savingsDistributor.deposit(receiverID: winnerID, amount: prizeAmount)
+                let newSharesMinted = self.shareTracker.deposit(receiverID: winnerID, amount: prizeAmount)
                 let newShares = oldShares + newSharesMinted
                 
                 // Update TWAB in active round (prize deposits accumulate TWAB like regular deposits)
@@ -4531,7 +4531,7 @@ access(all) contract PrizeSavings {
         
         /// Returns total withdrawable balance (principal + interest)
         access(all) view fun getReceiverTotalBalance(receiverID: UInt64): UFix64 {
-            return self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
+            return self.shareTracker.getUserAssetValue(receiverID: receiverID)
         }
         
         /// Returns lifetime total lottery prizes earned by this receiver.
@@ -4547,31 +4547,31 @@ access(all) contract PrizeSavings {
         /// Note: "principal" here includes both user deposits AND auto-compounded lottery prizes
         access(all) view fun getPendingSavingsInterest(receiverID: UInt64): UFix64 {
             let principal = self.receiverDeposits[receiverID] ?? 0.0  // deposits + prizes
-            let totalBalance = self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
+            let totalBalance = self.shareTracker.getUserAssetValue(receiverID: receiverID)
             return totalBalance > principal ? totalBalance - principal : 0.0
         }
         
         access(all) view fun getUserSavingsShares(receiverID: UInt64): UFix64 {
-            return self.savingsDistributor.getUserShares(receiverID: receiverID)
+            return self.shareTracker.getUserShares(receiverID: receiverID)
         }
         
         access(all) view fun getTotalSavingsShares(): UFix64 {
-            return self.savingsDistributor.getTotalShares()
+            return self.shareTracker.getTotalShares()
         }
         
         access(all) view fun getTotalSavingsAssets(): UFix64 {
-            return self.savingsDistributor.getTotalAssets()
+            return self.shareTracker.getTotalAssets()
         }
         
         access(all) view fun getSavingsSharePrice(): UFix64 {
-            return self.savingsDistributor.getSharePrice()
+            return self.shareTracker.getSharePrice()
         }
         
         /// Returns the user's current TWAB for the active round.
         /// @param receiverID - User's receiver ID
         /// @return Current share-seconds (accumulated + pending up to now)
         access(all) view fun getUserTimeWeightedShares(receiverID: UInt64): UFix64 {
-            let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            let shares = self.shareTracker.getUserShares(receiverID: receiverID)
             let now = getCurrentBlock().timestamp
             return self.activeRound.getCurrentTWAB(receiverID: receiverID, currentShares: shares, atTime: now)
         }
@@ -4671,16 +4671,16 @@ access(all) contract PrizeSavings {
         
         /// Preview how many shares would be minted for a deposit amount (ERC-4626 style)
         access(all) view fun previewDeposit(amount: UFix64): UFix64 {
-            return self.savingsDistributor.convertToShares(amount)
+            return self.shareTracker.convertToShares(amount)
         }
         
         /// Preview how many assets a number of shares is worth (ERC-4626 style)
         access(all) view fun previewRedeem(shares: UFix64): UFix64 {
-            return self.savingsDistributor.convertToAssets(shares)
+            return self.shareTracker.convertToAssets(shares)
         }
         
         access(all) view fun getUserSavingsValue(receiverID: UInt64): UFix64 {
-            return self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
+            return self.shareTracker.getUserAssetValue(receiverID: receiverID)
         }
         
         access(all) view fun isReceiverRegistered(receiverID: UInt64): Bool {
@@ -4716,7 +4716,7 @@ access(all) contract PrizeSavings {
         }
         
         access(all) view fun getTotalSavingsDistributed(): UFix64 {
-            return self.savingsDistributor.getTotalDistributed()
+            return self.shareTracker.getTotalDistributed()
         }
         
         access(all) view fun getCurrentReinvestedSavings(): UFix64 {
@@ -4859,7 +4859,7 @@ access(all) contract PrizeSavings {
             }
             
             let roundEndTime = self.activeRound.getEndTime()
-            let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
+            let shares = self.shareTracker.getUserShares(receiverID: receiverID)
             
             // Project NORMALIZED TWAB forward to round end (assumes current shares held until end)
             // With normalized TWAB, result is already "average shares" - no division needed

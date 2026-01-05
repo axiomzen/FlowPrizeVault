@@ -111,7 +111,7 @@ access(all) fun testNewPoolTreasuryForwardedZero() {
 }
 
 // ============================================================================
-// TESTS - Savings Distributor State
+// TESTS - Share Tracker State
 // ============================================================================
 
 access(all) fun testNewPoolSharePriceOne() {
