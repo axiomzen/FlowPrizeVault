@@ -310,41 +310,49 @@ This gives non-interacting users full credit for their shares over the entire ro
 Admins can grant bonus lottery weights for promotions or rewards:
 
 ```cadence
-access(self) let receiverBonusWeights: {UInt64: BonusWeightRecord}
-
-struct BonusWeightRecord {
-    let bonusWeight: UFix64   // Additional weight per second
-    let reason: String        // Why bonus was granted
-    let addedAt: UFix64       // When bonus was set
-    let addedBy: Address      // Who set it
-}
+/// Mapping of receiverID to bonus lottery weight.
+/// Bonus weight represents equivalent token deposit for the full round duration.
+/// A bonus of 5.0 gives the same lottery weight as holding 5 tokens for the entire round.
+/// Audit trail (reason, timestamp, admin) is preserved in events, not stored here.
+access(self) let receiverBonusWeights: {UInt64: UFix64}
 ```
 
-### Bonus Scaling
+### How Bonus Weight Works
 
-Bonuses are **time-scaled** like regular TWAB to prevent gaming:
+Since TWAB is **normalized** to "average shares", bonus weight is directly additive:
 
 ```cadence
+// Bonus weight represents equivalent token deposit for full round.
+// Since TWAB is normalized to "average shares", a bonusWeight of 5.0
+// is equivalent to holding 5 tokens for the entire draw interval.
 let bonusWeight = self.getBonusWeight(receiverID: receiverID)
-let epochDuration = getCurrentBlock().timestamp - self.savingsDistributor.getEpochStartTime()
-let scaledBonus = bonusWeight * epochDuration
 
-let totalStake = twabStake + scaledBonus
+let totalWeight = twabStake + bonusWeight
 ```
 
-A bonus of `1.0` held for the full epoch adds `epochDuration` share-seconds to the user's weight.
+A bonus of `5.0` gives the user the same lottery weight as if they had deposited 5 additional tokens for the entire round duration. No time-scaling is needed because TWAB is already normalized.
+
+### Audit Trail
+
+Bonus weight audit data (reason, timestamp, adminUUID) is **not stored in contract state** but is preserved in **on-chain events**:
+
+- `BonusLotteryWeightSet` - Emitted when a bonus is set/replaced
+- `BonusLotteryWeightAdded` - Emitted when weight is added to existing bonus
+- `BonusLotteryWeightRemoved` - Emitted when bonus is removed
+
+This keeps contract storage minimal while maintaining full auditability.
 
 ### Admin Functions
 
 ```cadence
 // Set absolute bonus weight
-Admin.setBonusLotteryWeight(poolID, receiverID, bonusWeight, reason, setBy)
+Admin.setBonusLotteryWeight(poolID, receiverID, bonusWeight, reason)
 
 // Add to existing bonus
-Admin.addBonusLotteryWeight(poolID, receiverID, additionalWeight, reason, addedBy)
+Admin.addBonusLotteryWeight(poolID, receiverID, additionalWeight, reason)
 
 // Remove all bonus
-Admin.removeBonusLotteryWeight(poolID, receiverID, removedBy)
+Admin.removeBonusLotteryWeight(poolID, receiverID)
 ```
 
 ---
