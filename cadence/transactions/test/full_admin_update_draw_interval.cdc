@@ -1,6 +1,6 @@
 import "PrizeSavings"
 
-/// Full admin delegate uses both entitlements to update draw interval (ConfigOps function)
+/// Full admin delegate uses both entitlements to update draw interval for future rounds (ConfigOps function)
 transaction(poolID: UInt64, newInterval: UFix64) {
     prepare(signer: auth(Storage) &Account) {
         // Get the full admin capability from own storage
@@ -11,7 +11,7 @@ transaction(poolID: UInt64, newInterval: UFix64) {
         let adminRef = cap.borrow()
             ?? panic("Could not borrow full admin reference")
         
-        adminRef.updatePoolDrawInterval(
+        adminRef.updatePoolDrawIntervalForFutureRounds(
             poolID: poolID,
             newInterval: newInterval
         )

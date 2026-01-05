@@ -11,9 +11,9 @@ transaction(poolID: UInt64, newInterval: UFix64) {
         let adminRef = cap.borrow()
             ?? panic("Could not borrow CriticalOps admin reference")
         
-        // This should fail at runtime because updatePoolDrawInterval requires ConfigOps
+        // This should fail at runtime because updatePoolDrawIntervalForFutureRounds requires ConfigOps
         // but we only have CriticalOps
-        adminRef.updatePoolDrawInterval(
+        adminRef.updatePoolDrawIntervalForFutureRounds(
             poolID: poolID,
             newInterval: newInterval
         )
