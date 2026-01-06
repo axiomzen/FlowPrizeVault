@@ -12,13 +12,13 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
         ?? panic("Pool does not exist")
     
     return {
-        "totalStaked": poolRef.totalStaked,
+        "allocatedSavings": poolRef.allocatedSavings,
         "totalDeposited": poolRef.totalDeposited,
         "totalAssets": poolRef.getTotalSavingsAssets(),
         "totalShares": poolRef.getTotalSavingsShares(),
         "sharePrice": poolRef.getSavingsSharePrice(),
-        "pendingLotteryYield": poolRef.getPendingLotteryYield(),
-        "pendingTreasuryYield": poolRef.getPendingTreasuryYield(),
+        "allocatedLotteryYield": poolRef.getAllocatedLotteryYield(),
+        "allocatedTreasuryYield": poolRef.getAllocatedTreasuryYield(),
         "lotteryPoolBalance": poolRef.getLotteryPoolBalance(),
         "unclaimedTreasuryBalance": poolRef.getUnclaimedTreasuryBalance(),
         "availableYieldRewards": poolRef.getAvailableYieldRewards()

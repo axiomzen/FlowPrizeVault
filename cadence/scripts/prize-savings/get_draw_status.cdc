@@ -34,7 +34,7 @@ access(all) struct DrawStatus {
     access(all) let roundEndTime: UFix64
     access(all) let secondsUntilNextDraw: UFix64
     access(all) let lotteryPoolBalance: UFix64
-    access(all) let pendingLotteryYield: UFix64
+    access(all) let allocatedLotteryYield: UFix64
     access(all) let currentRoundID: UInt64
     access(all) let roundElapsedTime: UFix64
     access(all) let isRoundEnded: Bool
@@ -57,7 +57,7 @@ access(all) struct DrawStatus {
         roundEndTime: UFix64,
         secondsUntilNextDraw: UFix64,
         lotteryPoolBalance: UFix64,
-        pendingLotteryYield: UFix64,
+        allocatedLotteryYield: UFix64,
         currentRoundID: UInt64,
         roundElapsedTime: UFix64,
         isRoundEnded: Bool,
@@ -74,7 +74,7 @@ access(all) struct DrawStatus {
         self.roundEndTime = roundEndTime
         self.secondsUntilNextDraw = secondsUntilNextDraw
         self.lotteryPoolBalance = lotteryPoolBalance
-        self.pendingLotteryYield = pendingLotteryYield
+        self.allocatedLotteryYield = allocatedLotteryYield
         self.currentRoundID = currentRoundID
         self.roundElapsedTime = roundElapsedTime
         self.isRoundEnded = isRoundEnded
@@ -116,7 +116,7 @@ access(all) fun main(poolID: UInt64): DrawStatus {
         roundEndTime: poolRef.getRoundEndTime(),
         secondsUntilNextDraw: poolRef.getTimeUntilNextDraw(),
         lotteryPoolBalance: poolRef.getLotteryPoolBalance(),
-        pendingLotteryYield: poolRef.getPendingLotteryYield(),
+        allocatedLotteryYield: poolRef.getAllocatedLotteryYield(),
         currentRoundID: poolRef.getCurrentRoundID(),
         roundElapsedTime: poolRef.getRoundElapsedTime(),
         isRoundEnded: poolRef.isRoundEnded(),

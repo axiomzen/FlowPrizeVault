@@ -29,7 +29,7 @@ access(all) fun testUserDepositIncreasesPoolTotals() {
     
     let initialTotals = getPoolTotals(poolID)
     let initialDeposited = initialTotals["totalDeposited"]!
-    let initialStaked = initialTotals["totalStaked"]!
+    let initialStaked = initialTotals["allocatedSavings"]!
     
     // Setup user and deposit
     setupUserWithFundsAndCollection(depositUserAccount, amount: depositAmount + 1.0)
@@ -38,7 +38,7 @@ access(all) fun testUserDepositIncreasesPoolTotals() {
     // Verify pool totals increased
     let finalTotals = getPoolTotals(poolID)
     Test.assertEqual(initialDeposited + depositAmount, finalTotals["totalDeposited"]!)
-    Test.assertEqual(initialStaked + depositAmount, finalTotals["totalStaked"]!)
+    Test.assertEqual(initialStaked + depositAmount, finalTotals["allocatedSavings"]!)
 }
 
 access(all) fun testUserDepositUpdatesUserBalance() {
