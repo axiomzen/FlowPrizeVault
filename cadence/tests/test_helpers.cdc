@@ -724,7 +724,7 @@ fun updateDistributionStrategy(poolID: UInt64, savings: UFix64, lottery: UFix64,
 
 access(all)
 fun updateDrawInterval(poolID: UInt64, newInterval: UFix64) {
-    // Uses the combined transaction that updates BOTH future rounds AND current round
+    // Updates draw interval for future rounds (current round is immutable once created)
     let deployerAccount = getDeployerAccount()
     let result = _executeTransaction(
         "../transactions/test/update_draw_interval_both.cdc",

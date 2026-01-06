@@ -500,35 +500,6 @@ access(all) contract PrizeSavings {
     // STRUCTS
     // ============================================================
     
-    /// Records metadata about a bonus lottery weight assigned to a user.
-    /// Bonus weights increase a user's lottery odds for promotional purposes.
-    /// The weight is added to their TWAB-based weight during draw selection.
-    access(all) struct BonusWeightRecord {
-        /// The bonus weight value (added to TWAB weight during draws)
-        access(all) let bonusWeight: UFix64
-        /// Human-readable reason for the bonus (e.g., "Early adopter promotion")
-        access(all) let reason: String
-        /// Timestamp when this bonus was added
-        access(all) let addedAt: UFix64
-        /// UUID of the Admin resource that added this bonus (audit trail)
-        access(all) let adminUUID: UInt64
-        
-        /// Creates a new BonusWeightRecord.
-        /// @param bonusWeight - Must be positive (> 0.0)
-        /// @param reason - Must be non-empty (for audit purposes)
-        /// @param adminUUID - UUID of admin performing the action
-        init(bonusWeight: UFix64, reason: String, adminUUID: UInt64) {
-            pre {
-                bonusWeight > 0.0: "Bonus weight must be greater than zero"
-                reason.length > 0: "Reason cannot be empty"
-            }
-            self.bonusWeight = bonusWeight
-            self.reason = reason
-            self.addedAt = getCurrentBlock().timestamp
-            self.adminUUID = adminUUID
-        }
-    }
-    
     /// Configuration parameters for emergency mode behavior.
     /// Controls auto-triggering, auto-recovery, and partial mode limits.
     access(all) struct EmergencyConfig {
@@ -2808,8 +2779,10 @@ access(all) contract PrizeSavings {
         /// Used for O(n) iteration during batch processing without array allocation.
         access(self) var registeredReceiverList: [UInt64]
         
-        /// Mapping of receiverID to bonus lottery weight records.
-        access(self) let receiverBonusWeights: {UInt64: BonusWeightRecord}
+        /// Mapping of receiverID to bonus lottery weight.
+        /// Bonus weight represents equivalent token deposit for the full round duration.
+        /// A bonus of 5.0 gives the same lottery weight as holding 5 tokens for the entire round.
+        access(self) let receiverBonusWeights: {UInt64: UFix64}
         
         /// Tracks which receivers are sponsors (lottery-ineligible).
         /// Sponsors earn savings yield but cannot win lottery prizes.
@@ -3977,9 +3950,6 @@ access(all) contract PrizeSavings {
                     roundEndTime: roundEndTime
                 )
                 
-                // Add bonus weight DIRECTLY (no scaling needed)
-                // Since TWAB is now normalized to "average shares", bonus weight
-                // is also in the same units and doesn't need duration scaling
                 let bonusWeight = self.getBonusWeight(receiverID: receiverID)
                 
                 let totalWeight = twabStake + bonusWeight
@@ -4373,15 +4343,13 @@ access(all) contract PrizeSavings {
         // ============================================================
         
         /// Sets or replaces a user's bonus lottery weight.
-        /// Bonus weight is added to TWAB during draw selection.
         /// @param receiverID - User's receiver ID
         /// @param bonusWeight - Weight to assign (replaces existing)
-        /// @param reason - Reason for bonus (audit trail)
+        /// @param reason - Reason for bonus
         /// @param adminUUID - Admin performing the action
         access(contract) fun setBonusWeight(receiverID: UInt64, bonusWeight: UFix64, reason: String, adminUUID: UInt64) {
             let timestamp = getCurrentBlock().timestamp
-            let record = BonusWeightRecord(bonusWeight: bonusWeight, reason: reason, adminUUID: adminUUID)
-            self.receiverBonusWeights[receiverID] = record
+            self.receiverBonusWeights[receiverID] = bonusWeight
             
             emit BonusLotteryWeightSet(
                 poolID: self.poolID,
@@ -4394,18 +4362,16 @@ access(all) contract PrizeSavings {
         }
         
         /// Adds weight to a user's existing bonus.
-        /// Cumulative with any previous bonus.
         /// @param receiverID - User's receiver ID
         /// @param additionalWeight - Weight to add
-        /// @param reason - Reason for addition
+        /// @param reason - Reason for addition (emitted in event)
         /// @param adminUUID - Admin performing the action
         access(contract) fun addBonusWeight(receiverID: UInt64, additionalWeight: UFix64, reason: String, adminUUID: UInt64) {
             let timestamp = getCurrentBlock().timestamp
-            let currentBonus = self.receiverBonusWeights[receiverID]?.bonusWeight ?? 0.0
+            let currentBonus = self.receiverBonusWeights[receiverID] ?? 0.0
             let newTotalBonus = currentBonus + additionalWeight
             
-            let record = BonusWeightRecord(bonusWeight: newTotalBonus, reason: reason, adminUUID: adminUUID)
-            self.receiverBonusWeights[receiverID] = record
+            self.receiverBonusWeights[receiverID] = newTotalBonus
             
             emit BonusLotteryWeightAdded(
                 poolID: self.poolID,
@@ -4423,7 +4389,7 @@ access(all) contract PrizeSavings {
         /// @param adminUUID - Admin performing the action
         access(contract) fun removeBonusWeight(receiverID: UInt64, adminUUID: UInt64) {
             let timestamp = getCurrentBlock().timestamp
-            let previousBonus = self.receiverBonusWeights[receiverID]?.bonusWeight ?? 0.0
+            let previousBonus = self.receiverBonusWeights[receiverID] ?? 0.0
             
             let _ = self.receiverBonusWeights.remove(key: receiverID)
             
@@ -4436,16 +4402,10 @@ access(all) contract PrizeSavings {
             )
         }
         
-        /// Returns a user's current bonus weight.
+        /// Returns a user's current bonus weight (equivalent token deposit for full round).
         /// @param receiverID - User's receiver ID
         access(all) view fun getBonusWeight(receiverID: UInt64): UFix64 {
-            return self.receiverBonusWeights[receiverID]?.bonusWeight ?? 0.0
-        }
-        
-        /// Returns the full bonus weight record for a user.
-        /// @param receiverID - User's receiver ID
-        access(all) view fun getBonusWeightRecord(receiverID: UInt64): BonusWeightRecord? {
-            return self.receiverBonusWeights[receiverID]
+            return self.receiverBonusWeights[receiverID] ?? 0.0
         }
         
         /// Returns list of all receiver IDs with bonus weights.
