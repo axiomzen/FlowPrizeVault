@@ -1218,13 +1218,19 @@ access(all) contract PrizeSavings {
         }
         
         /// Calculates distribution by multiplying total by each percentage.
+        /// Treasury receives the remainder to ensure sum == totalAmount (handles UFix64 rounding).
         /// @param totalAmount - Total yield to distribute
         /// @return DistributionPlan with proportional amounts
         access(all) fun calculateDistribution(totalAmount: UFix64): DistributionPlan {
+            let savings = totalAmount * self.savingsPercent
+            let lottery = totalAmount * self.lotteryPercent
+            // Treasury gets the remainder to ensure sum == totalAmount
+            let treasury = totalAmount - savings - lottery
+            
             return DistributionPlan(
-                savings: totalAmount * self.savingsPercent,
-                lottery: totalAmount * self.lotteryPercent,
-                treasury: totalAmount * self.treasuryPercent
+                savings: savings,
+                lottery: lottery,
+                treasury: treasury
             )
         }
         
@@ -4032,10 +4038,6 @@ access(all) contract PrizeSavings {
             
             // Get the actual end time set by startDraw() - this is when we finalized the round
             let roundEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
-            let roundStartTime = pendingRound.getStartTime()
-            
-            // Calculate actual duration (may differ from configured if round was extended/shortened)
-            let actualDuration = roundEndTime > roundStartTime ? roundEndTime - roundStartTime : 0.0
             
             // Use snapshot count - only process users who existed at startDraw time
             let snapshotCount = selectionData.getSnapshotReceiverCount()
