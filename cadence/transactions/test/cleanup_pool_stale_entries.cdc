@@ -3,10 +3,14 @@ import "PrizeSavings"
 /// Cleans up stale dictionary entries and ghost receivers from a pool.
 /// This is an admin operation that should be called periodically.
 ///
+/// GAS OPTIMIZATION:
+/// - Uses forEachKey instead of .keys (avoids O(n) memory copy)
+/// - All cleanups have limits for gas management
+///
 /// @param poolID - The pool to clean up
-/// @param receiverLimit - Maximum number of ghost receivers to process (for gas management)
+/// @param limit - Maximum entries to process per cleanup type (for gas management)
 
-transaction(poolID: UInt64, receiverLimit: Int) {
+transaction(poolID: UInt64, limit: Int) {
     let adminRef: auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin
 
     prepare(signer: auth(BorrowValue) &Account) {
@@ -18,7 +22,7 @@ transaction(poolID: UInt64, receiverLimit: Int) {
     execute {
         let result = self.adminRef.cleanupPoolStaleEntries(
             poolID: poolID,
-            receiverLimit: receiverLimit
+            limit: limit
         )
         
         log("Cleanup completed for pool ".concat(poolID.toString()))
@@ -27,4 +31,3 @@ transaction(poolID: UInt64, receiverLimit: Int) {
         log("  Pending NFT claims cleaned: ".concat((result["pendingNFTClaims"] ?? 0).toString()))
     }
 }
-

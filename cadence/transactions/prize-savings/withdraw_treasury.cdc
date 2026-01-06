@@ -20,23 +20,21 @@ transaction(poolID: UInt64, amount: UFix64, purpose: String) {
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Admin resource not found")
         
-        // Get receiver capability for the signer's vault
+        // Get or create a receiver capability
         self.receiverCap = signer.capabilities.get<&{FungibleToken.Receiver}>(/public/flowTokenReceiver)
-        
-        // Verify the capability is valid
-        assert(self.receiverCap.check(), message: "FlowToken receiver capability is invalid")
+        if !self.receiverCap.check() {
+            panic("FlowToken receiver capability not found or invalid")
+        }
     }
     
     execute {
-        // Withdraw from unclaimed treasury
+        // Withdraw from treasury - function deposits directly via capability
         let withdrawnAmount = self.adminRef.withdrawUnclaimedTreasury(
             poolID: poolID,
             amount: amount,
             recipient: self.receiverCap
         )
         
-        log("Withdrew ".concat(withdrawnAmount.toString()).concat(" from pool ").concat(poolID.toString()).concat(" treasury"))
-        log("Purpose: ".concat(purpose))
+        log("Withdrew ".concat(withdrawnAmount.toString()).concat(" from pool ").concat(poolID.toString()).concat(" treasury for: ").concat(purpose))
     }
 }
-

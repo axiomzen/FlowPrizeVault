@@ -1105,20 +1105,24 @@ access(all) contract PrizeSavings {
         /// 2. Clean up userShares entries with 0.0 value
         /// 3. Remove empty pendingNFTClaims arrays
         /// 
+        /// GAS OPTIMIZATION:
+        /// - Uses forEachKey instead of .keys (avoids O(n) memory copy)
+        /// - All cleanups have limits for gas management
+        /// 
         /// Uses batching to avoid gas limits - call multiple times if needed.
         /// 
         /// @param poolID - ID of the pool to clean up
-        /// @param receiverLimit - Max ghost receivers to process (for gas management)
+        /// @param limit - Max entries to process per cleanup type (for gas management)
         /// @return CleanupResult with counts of cleaned entries
         access(ConfigOps) fun cleanupPoolStaleEntries(
             poolID: UInt64,
-            receiverLimit: Int
+            limit: Int
         ): {String: Int} {
             pre {
-                receiverLimit > 0: "Receiver limit must be positive"
+                limit > 0: "Limit must be positive"
             }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
-            let result = poolRef.cleanupStaleEntries(receiverLimit: receiverLimit)
+            let result = poolRef.cleanupStaleEntries(limit: limit)
             
             emit PoolStorageCleanedUp(
                 poolID: poolID,
@@ -1803,17 +1807,40 @@ access(all) contract PrizeSavings {
             return self.userShares[receiverID] ?? 0.0
         }
         
-        /// Returns all user share keys for cleanup iteration.
-        /// @return Array of receiver IDs that have share entries
-        access(contract) view fun getUserSharesKeys(): [UInt64] {
-            return self.userShares.keys
-        }
-        
         /// Removes a user's share entry from the dictionary.
         /// Used by admin cleanup to remove stale 0-value entries.
         /// @param receiverID - User's receiver ID to remove
         access(contract) fun removeUserShares(receiverID: UInt64) {
             let _ = self.userShares.remove(key: receiverID)
+        }
+        
+        /// Cleans up zero-share entries using forEachKey (avoids .keys memory copy).
+        /// @param limit - Maximum entries to process (for gas management)
+        /// @return Number of entries cleaned
+        access(contract) fun cleanupZeroShareEntries(limit: Int): Int {
+            // Collect keys to check (can't access self inside closure)
+            var keysToCheck: [UInt64] = []
+            var count = 0
+            
+            self.userShares.forEachKey(fun (key: UInt64): Bool {
+                if count >= limit {
+                    return false  // Early exit for gas management
+                }
+                keysToCheck.append(key)
+                count = count + 1
+                return true
+            })
+            
+            // Check and remove zero entries
+            var cleaned = 0
+            for key in keysToCheck {
+                if self.userShares[key] == 0.0 {
+                    let _ = self.userShares.remove(key: key)
+                    cleaned = cleaned + 1
+                }
+            }
+            
+            return cleaned
         }
     }
     
@@ -2017,12 +2044,6 @@ access(all) contract PrizeSavings {
             panic("Failed to access pending NFT claims. receiverID: ".concat(receiverID.toString()).concat(", nftIndex: ").concat(nftIndex.toString()))
         }
         
-        /// Returns all pending NFT claims keys for cleanup iteration.
-        /// @return Array of receiver IDs that have pending NFT claims
-        access(contract) view fun getPendingNFTClaimsKeys(): [UInt64] {
-            return self.pendingNFTClaims.keys
-        }
-        
         /// Removes a receiver's pending NFT claims entry from the dictionary.
         /// Used by admin cleanup to remove empty arrays.
         /// @param receiverID - Receiver ID to remove
@@ -2030,6 +2051,37 @@ access(all) contract PrizeSavings {
             if let emptyArray <- self.pendingNFTClaims.remove(key: receiverID) {
                 destroy emptyArray
             }
+        }
+        
+        /// Cleans up empty pendingNFTClaims entries using forEachKey (avoids .keys memory copy).
+        /// @param limit - Maximum entries to process (for gas management)
+        /// @return Number of entries cleaned
+        access(contract) fun cleanupEmptyNFTClaimEntries(limit: Int): Int {
+            // Collect keys to check (can't access self inside closure)
+            var keysToCheck: [UInt64] = []
+            var count = 0
+            
+            self.pendingNFTClaims.forEachKey(fun (key: UInt64): Bool {
+                if count >= limit {
+                    return false  // Early exit for gas management
+                }
+                keysToCheck.append(key)
+                count = count + 1
+                return true
+            })
+            
+            // Check and remove empty entries
+            var cleaned = 0
+            for key in keysToCheck {
+                if self.pendingNFTClaims[key]?.length == 0 {
+                    if let emptyArray <- self.pendingNFTClaims.remove(key: key) {
+                        destroy emptyArray
+                    }
+                    cleaned = cleaned + 1
+                }
+            }
+            
+            return cleaned
         }
     }
     
@@ -3080,11 +3132,15 @@ access(all) contract PrizeSavings {
         /// 
         /// IMPORTANT: Cannot be called during active draw processing (would corrupt indices).
         /// Should be called periodically (e.g., after draws, weekly) by admin.
-        /// Uses receiverLimit to avoid gas limits - call multiple times if needed.
+        /// Uses limit to avoid gas limits - call multiple times if needed.
         /// 
-        /// @param receiverLimit - Max ghost receivers to process per call
+        /// GAS OPTIMIZATION:
+        /// - Uses forEachKey instead of .keys (avoids O(n) memory copy)
+        /// - All cleanups have limits for gas management
+        /// 
+        /// @param limit - Max entries to process per cleanup type
         /// @return Dictionary with cleanup counts
-        access(contract) fun cleanupStaleEntries(receiverLimit: Int): {String: Int} {
+        access(contract) fun cleanupStaleEntries(limit: Int): {String: Int} {
             pre {
                 self.pendingSelectionData == nil: "Cannot cleanup during active draw - would corrupt batch indices"
             }
@@ -3097,7 +3153,7 @@ access(all) contract PrizeSavings {
             // Use index-based iteration with swap-and-pop awareness
             var i = 0
             var processed = 0
-            while i < self.registeredReceiverList.length && processed < receiverLimit {
+            while i < self.registeredReceiverList.length && processed < limit {
                 let receiverID = self.registeredReceiverList[i]
                 let shares = self.shareTracker.getUserShares(receiverID: receiverID)
                 
@@ -3112,23 +3168,11 @@ access(all) contract PrizeSavings {
                 processed = processed + 1
             }
             
-            // 2. Clean userShares with 0 values
-            let userSharesKeys = self.shareTracker.getUserSharesKeys()
-            for key in userSharesKeys {
-                if self.shareTracker.getUserShares(receiverID: key) == 0.0 {
-                    self.shareTracker.removeUserShares(receiverID: key)
-                    userSharesCleaned = userSharesCleaned + 1
-                }
-            }
+            // 2. Clean userShares with 0 values (forEachKey avoids .keys memory copy)
+            userSharesCleaned = self.shareTracker.cleanupZeroShareEntries(limit: limit)
             
-            // 3. Clean empty pendingNFTClaims arrays
-            let pendingNFTKeys = self.lotteryDistributor.getPendingNFTClaimsKeys()
-            for key in pendingNFTKeys {
-                if self.lotteryDistributor.getPendingNFTCount(receiverID: key) == 0 {
-                    self.lotteryDistributor.removePendingNFTClaims(receiverID: key)
-                    pendingNFTClaimsCleaned = pendingNFTClaimsCleaned + 1
-                }
-            }
+            // 3. Clean empty pendingNFTClaims arrays (forEachKey avoids .keys memory copy)
+            pendingNFTClaimsCleaned = self.lotteryDistributor.cleanupEmptyNFTClaimEntries(limit: limit)
             
             return {
                 "ghostReceivers": ghostReceiversCleaned,

@@ -1,17 +1,18 @@
 import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 
-/// Start Draw Full transaction - Initiates and prepares a lottery draw in one transaction (Admin only)
-/// This performs phases 1-3 of the draw process:
-/// 1. Start draw (snapshot TWAB)
-/// 2. Process all batches (capture weights)
-/// 3. Request randomness
+/// Start Draw Full transaction - Handles phases 1-3 of the draw process (Admin only)
+/// 
+/// This transaction performs:
+///   1. startDraw() - Initiates the draw, creates pendingDrawRound
+///   2. processDrawBatch() - Processes all receivers in batches (loops until complete)
+///   3. requestDrawRandomness() - Requests on-chain randomness for winner selection
 ///
-/// After this, call complete_draw.cdc (phase 4) to select winners and distribute prizes.
+/// After this transaction, wait at least 1 block, then call complete_draw.cdc to finalize.
 ///
 /// Parameters:
-/// - poolID: The ID of the pool to start a draw for
-/// - batchLimit: Maximum receivers to process per batch iteration
-transaction(poolID: UInt64, batchLimit: Int) {
+/// - poolID: The ID of the pool to start the draw for
+/// - batchSize: Number of receivers to process per batch (recommended: 100-500)
+transaction(poolID: UInt64, batchSize: Int) {
     
     let adminRef: auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin
     
@@ -23,39 +24,25 @@ transaction(poolID: UInt64, batchLimit: Int) {
     }
     
     execute {
-        let poolRef = PrizeSavings.borrowPool(poolID: poolID)
-            ?? panic("Pool does not exist")
-        
-        // Check if draw can happen now
-        if !poolRef.canDrawNow() {
-            panic("Cannot start draw yet - not enough time since last draw")
-        }
-        
-        // Check if draw is already in progress
-        if poolRef.isDrawInProgress() {
-            panic("Draw already in progress - call completeDraw first")
-        }
-        
-        // Phase 1: Start the draw (commits to randomness, snapshots TWAB)
+        // Phase 1: Start the draw
         self.adminRef.startPoolDraw(poolID: poolID)
         log("Phase 1: Draw started for pool ".concat(poolID.toString()))
         
-        // Phase 2: Process all batches until complete
+        // Phase 2: Process all batches
+        var totalProcessed = 0
         var batchCount = 0
-        var remaining = self.adminRef.processPoolDrawBatch(poolID: poolID, limit: batchLimit)
-        batchCount = batchCount + 1
+        var remaining = 1 // Start with non-zero to enter loop
         
         while remaining > 0 {
-            remaining = self.adminRef.processPoolDrawBatch(poolID: poolID, limit: batchLimit)
+            remaining = self.adminRef.processPoolDrawBatch(poolID: poolID, limit: batchSize)
             batchCount = batchCount + 1
+            totalProcessed = totalProcessed + batchSize
         }
-        log("Phase 2: Processed ".concat(batchCount.toString()).concat(" batches"))
+        log("Phase 2: Processed all receivers in ".concat(batchCount.toString()).concat(" batches"))
         
         // Phase 3: Request randomness
         self.adminRef.requestPoolDrawRandomness(poolID: poolID)
-        log("Phase 3: Randomness requested")
-        
-        log("Draw ready for completion. Wait at least 1 block, then call complete_draw.cdc")
+        log("Phase 3: Randomness requested - call complete_draw.cdc after next block")
     }
 }
 
