@@ -278,6 +278,8 @@ access(all) contract PrizeSavings {
         ghostReceiversCleaned: Int,
         userSharesCleaned: Int,
         pendingNFTClaimsCleaned: Int,
+        nextIndex: Int,
+        totalReceivers: Int,
         adminUUID: UInt64
     )
     
@@ -1109,26 +1111,32 @@ access(all) contract PrizeSavings {
         /// - Uses forEachKey instead of .keys (avoids O(n) memory copy)
         /// - All cleanups have limits for gas management
         /// 
-        /// Uses batching to avoid gas limits - call multiple times if needed.
+        /// Uses cursor-based batching to avoid gas limits - call multiple times with
+        /// increasing startIndex until nextIndex >= totalReceivers in the result.
         /// 
         /// @param poolID - ID of the pool to clean up
-        /// @param limit - Max entries to process per cleanup type (for gas management)
-        /// @return CleanupResult with counts of cleaned entries
+        /// @param startIndex - Index in registeredReceiverList to start iterating from (0 for first call)
+        /// @param limit - Max receivers to process per call (for gas management)
+        /// @return CleanupResult with counts and nextIndex for continuation
         access(ConfigOps) fun cleanupPoolStaleEntries(
             poolID: UInt64,
+            startIndex: Int,
             limit: Int
         ): {String: Int} {
             pre {
+                startIndex >= 0: "Start index must be non-negative"
                 limit > 0: "Limit must be positive"
             }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
-            let result = poolRef.cleanupStaleEntries(limit: limit)
+            let result = poolRef.cleanupStaleEntries(startIndex: startIndex, limit: limit)
             
             emit PoolStorageCleanedUp(
                 poolID: poolID,
                 ghostReceiversCleaned: result["ghostReceivers"] ?? 0,
                 userSharesCleaned: result["userShares"] ?? 0,
                 pendingNFTClaimsCleaned: result["pendingNFTClaims"] ?? 0,
+                nextIndex: result["nextIndex"] ?? 0,
+                totalReceivers: result["totalReceivers"] ?? 0,
                 adminUUID: self.uuid
             )
             
@@ -3140,7 +3148,12 @@ access(all) contract PrizeSavings {
         /// 
         /// @param limit - Max entries to process per cleanup type
         /// @return Dictionary with cleanup counts
-        access(contract) fun cleanupStaleEntries(limit: Int): {String: Int} {
+        /// Cleans up stale entries with cursor-based iteration.
+        /// 
+        /// @param startIndex - Index to start iterating from in registeredReceiverList
+        /// @param limit - Max receivers to process in this call
+        /// @return Dictionary with cleanup counts and nextIndex for continuation
+        access(contract) fun cleanupStaleEntries(startIndex: Int, limit: Int): {String: Int} {
             pre {
                 self.pendingSelectionData == nil: "Cannot cleanup during active draw - would corrupt batch indices"
             }
@@ -3149,10 +3162,13 @@ access(all) contract PrizeSavings {
             var userSharesCleaned = 0
             var pendingNFTClaimsCleaned = 0
             
+            let totalReceivers = self.registeredReceiverList.length
+            
             // 1. Clean ghost receivers (0-share users still in registeredReceiverList)
-            // Use index-based iteration with swap-and-pop awareness
-            var i = 0
+            // Use cursor-based iteration with swap-and-pop awareness
+            var i = startIndex < totalReceivers ? startIndex : totalReceivers
             var processed = 0
+            
             while i < self.registeredReceiverList.length && processed < limit {
                 let receiverID = self.registeredReceiverList[i]
                 let shares = self.shareTracker.getUserShares(receiverID: receiverID)
@@ -3177,7 +3193,9 @@ access(all) contract PrizeSavings {
             return {
                 "ghostReceivers": ghostReceiversCleaned,
                 "userShares": userSharesCleaned,
-                "pendingNFTClaims": pendingNFTClaimsCleaned
+                "pendingNFTClaims": pendingNFTClaimsCleaned,
+                "nextIndex": i,
+                "totalReceivers": self.registeredReceiverList.length
             }
         }
 

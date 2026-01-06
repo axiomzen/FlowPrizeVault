@@ -28,7 +28,7 @@ access(all) fun testCleanupWithNoStaleEntries() {
     Test.assertEqual(1, initialReceiverCount)
     
     // Run cleanup - should not affect active users
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     
     // Verify receiver count unchanged
     let finalReceiverCount = getRegisteredReceiverCount(poolID)
@@ -59,7 +59,7 @@ access(all) fun testCleanupGhostReceiverAfterFullWithdrawal() {
     Test.assertEqual(0, afterWithdrawCount)
     
     // Cleanup should have nothing to do for receivers (but may clean dict entries)
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     
     let finalReceiverCount = getRegisteredReceiverCount(poolID)
     Test.assertEqual(0, finalReceiverCount)
@@ -112,7 +112,7 @@ access(all) fun testCleanupGhostReceiverCreatedDuringDraw() {
     Test.assertEqual(2, afterDrawCount)
     
     // Now run cleanup - should remove any ghosts (those with 0 shares)
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     
     // Should have at least 1 remaining (winner or participant2)
     // Could be 1 (participant2 only, participant1 ghost cleaned)
@@ -142,7 +142,7 @@ access(all) fun testCleanupBlockedDuringBatchProcessing() {
     startDraw(participant, poolID: poolID)
     
     // Try to run cleanup during draw - should fail
-    let result = cleanupPoolStaleEntriesExpectFailure(poolID, receiverLimit: 100)
+    let result = cleanupPoolStaleEntriesExpectFailure(poolID, startIndex: 0, receiverLimit: 100)
     Test.expect(result, Test.beFailed())
 }
 
@@ -164,7 +164,7 @@ access(all) fun testCleanupBlockedAfterRandomnessRequested() {
     requestDrawRandomness(participant, poolID: poolID)
     
     // Try to run cleanup - should fail (pendingSelectionData still exists)
-    let result = cleanupPoolStaleEntriesExpectFailure(poolID, receiverLimit: 100)
+    let result = cleanupPoolStaleEntriesExpectFailure(poolID, startIndex: 0, receiverLimit: 100)
     Test.expect(result, Test.beFailed())
     
     // Complete the draw
@@ -172,7 +172,7 @@ access(all) fun testCleanupBlockedAfterRandomnessRequested() {
     completeDraw(participant, poolID: poolID)
     
     // Now cleanup should work
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
 }
 
 // ============================================================================
@@ -212,7 +212,7 @@ access(all) fun testCleanupWorksOnMultipleGhostsWithoutDraw() {
     Test.assertEqual(0, afterWithdrawCount)
     
     // Cleanup has no receivers to clean, but may clean dict entries
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     
     let finalCount = getRegisteredReceiverCount(poolID)
     Test.assertEqual(0, finalCount)
@@ -255,7 +255,7 @@ access(all) fun testCleanupDoesNotAffectActiveUsers() {
     completeDraw(active1, poolID: poolID)
     
     // Run cleanup
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     
     // Should have at least 2 active users remaining (may have 3 if withdrawer won)
     let finalCount = getRegisteredReceiverCount(poolID)
@@ -296,7 +296,7 @@ access(all) fun testCleanupAfterUserRedeposits() {
     completeDraw(participant, poolID: poolID)
     
     // Run cleanup - should NOT remove this user (they have balance now)
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     
     // User should still be registered
     let finalCount = getRegisteredReceiverCount(poolID)
@@ -336,16 +336,16 @@ access(all) fun testMultipleCleanupCallsAreIdempotent() {
     let beforeCleanup = getRegisteredReceiverCount(poolID)
     
     // First cleanup
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     let afterFirst = getRegisteredReceiverCount(poolID)
     
     // Second cleanup - should be idempotent (no change)
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     let afterSecond = getRegisteredReceiverCount(poolID)
     Test.assertEqual(afterFirst, afterSecond)
     
     // Third cleanup - still idempotent
-    cleanupPoolStaleEntries(poolID, receiverLimit: 100)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     let afterThird = getRegisteredReceiverCount(poolID)
     Test.assertEqual(afterFirst, afterThird)
 }
@@ -390,17 +390,17 @@ access(all) fun testReceiverLimitOfOne() {
     Test.assertEqual(2, afterDraw)
     
     // Cleanup with limit=1
-    cleanupPoolStaleEntries(poolID, receiverLimit: 1)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 1)
     
     // Should still have at least 1 remaining (either 1 ghost + 0 active, or 1 active after winning)
     let afterFirstCleanup = getRegisteredReceiverCount(poolID)
     Test.assert(afterFirstCleanup >= 1, message: "Should have receivers after partial cleanup")
     
     // Another cleanup
-    cleanupPoolStaleEntries(poolID, receiverLimit: 1)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 1)
     
     // Continue until stable
-    cleanupPoolStaleEntries(poolID, receiverLimit: 10)
+    cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 10)
     
     let finalCount = getRegisteredReceiverCount(poolID)
     // Final count depends on whether someone won the prize
