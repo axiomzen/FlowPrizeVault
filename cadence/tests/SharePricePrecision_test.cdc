@@ -130,13 +130,6 @@ access(all) fun testRoundTripNormalAmount() {
             .concat(", got: ").concat(assetValue.toString())
     )
     
-    // Precision loss should be negligible
-    let precisionLoss = userDetails["precisionLoss"]!
-    Test.assert(
-        precisionLoss <= ACCEPTABLE_PRECISION_LOSS,
-        message: "Precision loss too high: ".concat(precisionLoss.toString())
-    )
-    
     // Actually withdraw and verify received amount matches deposit
     withdrawFromPool(user, poolID: poolID, amount: assetValue)
     let finalFlowBalance = getUserFlowBalance(user.address)
@@ -164,16 +157,9 @@ access(all) fun testRoundTripSmallAmount() {
     // Record FLOW balance after deposit
     let postDepositFlowBalance = getUserFlowBalance(user.address)
     
-    // Verify precision
+    // Verify asset value
     let userDetails = getUserShareDetails(user.address, poolID)
     let assetValue = userDetails["assetValue"]!
-    let precisionLoss = userDetails["precisionLoss"]!
-    
-    // With small amounts, precision loss percentage is higher but absolute loss should be small
-    Test.assert(
-        precisionLoss <= ACCEPTABLE_PRECISION_LOSS,
-        message: "Small deposit precision loss too high: ".concat(precisionLoss.toString())
-    )
     
     // Actually withdraw and verify received amount
     withdrawFromPool(user, poolID: poolID, amount: assetValue)
@@ -326,9 +312,24 @@ access(all) fun testNewDepositAfterSharePriceIncrease() {
             .concat(", User2: ").concat(user2Shares.toString())
     )
     
-    // Both should have same deposit value tracked
-    Test.assertEqual(initialDeposit, user1Details["deposits"]!)
-    Test.assertEqual(initialDeposit, user2Details["deposits"]!)
+    // Re-fetch user1's details after yield was applied
+    let user1DetailsAfterYield = getUserShareDetails(user1.address, poolID)
+    let user1AssetValue = user1DetailsAfterYield["assetValue"]!
+    
+    // User1's asset value should now be > initial deposit (benefited from yield)
+    Test.assert(
+        user1AssetValue > initialDeposit,
+        message: "User1 should have gained value from yield. Value: "
+            .concat(user1AssetValue.toString())
+    )
+    
+    // User2's asset value should be approximately their deposit
+    let user2AssetValue = user2Details["assetValue"]!
+    Test.assert(
+        isWithinTolerance(user2AssetValue, initialDeposit, ACCEPTABLE_PRECISION_LOSS),
+        message: "User2's asset value should match deposit. Value: "
+            .concat(user2AssetValue.toString())
+    )
 }
 
 // ============================================================================
@@ -346,7 +347,13 @@ access(all) fun testVerySmallDeposit() {
     
     // Verify the deposit was recorded
     let userDetails = getUserShareDetails(user.address, poolID)
-    Test.assertEqual(tinyAmount, userDetails["deposits"]!)
+    let assetValue = userDetails["assetValue"]!
+    Test.assert(
+        isWithinTolerance(assetValue, tinyAmount, ACCEPTABLE_PRECISION_LOSS),
+        message: "Asset value should match deposit. Expected: "
+            .concat(tinyAmount.toString())
+            .concat(", got: ").concat(assetValue.toString())
+    )
     
     // Shares should be very close to deposit amount at 1.0 share price
     let shares = userDetails["shares"]!
@@ -512,8 +519,8 @@ access(all) fun testAssetsEqualsSharesTimesPrice() {
     )
 }
 
-access(all) fun testTotalDepositsMatchSumOfUserDeposits() {
-    // Test that pool's totalDeposited matches sum of individual user deposits
+access(all) fun testTotalStakedMatchesSumOfUserDeposits() {
+    // Test that pool's totalStaked matches sum of individual user deposits
     let poolID = createTestPoolWithShortInterval()
     var expectedTotal: UFix64 = 0.0
     
@@ -531,8 +538,8 @@ access(all) fun testTotalDepositsMatchSumOfUserDeposits() {
     }
     
     let info = getSharePricePrecisionInfo(poolID)
-    let totalDeposited = info["totalDeposited"]!
+    let totalStaked = info["totalStaked"]!
     
-    Test.assertEqual(expectedTotal, totalDeposited)
+    Test.assertEqual(expectedTotal, totalStaked)
 }
 

@@ -40,7 +40,7 @@ access(all) fun testSetupUserCollection() {
     
     // If we get here without error, collection was successfully set up
     let balance = getUserPoolBalance(collectionUserAccount.address, 0)
-    Test.assert(balance["deposits"]! > 0.0, message: "Collection should be functional after setup")
+    Test.assert(balance["totalBalance"]! > 0.0, message: "Collection should be functional after setup")
 }
 
 // ============================================================================
@@ -63,6 +63,6 @@ access(all) fun testCollectionRegistersPoolOnDeposit() {
     
     // Verify the pool is now registered
     let userBalance = getUserPoolBalance(newUser.address, poolID)
-    Test.assertEqual(depositAmount, userBalance["deposits"]!)
+    Test.assertEqual(depositAmount, userBalance["totalBalance"]!)
 }
 

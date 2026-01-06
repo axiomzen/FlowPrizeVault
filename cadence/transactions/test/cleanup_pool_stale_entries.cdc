@@ -24,7 +24,6 @@ transaction(poolID: UInt64, receiverLimit: Int) {
         log("Cleanup completed for pool ".concat(poolID.toString()))
         log("  Ghost receivers cleaned: ".concat((result["ghostReceivers"] ?? 0).toString()))
         log("  User shares cleaned: ".concat((result["userShares"] ?? 0).toString()))
-        log("  Receiver deposits cleaned: ".concat((result["receiverDeposits"] ?? 0).toString()))
         log("  Pending NFT claims cleaned: ".concat((result["pendingNFTClaims"] ?? 0).toString()))
     }
 }

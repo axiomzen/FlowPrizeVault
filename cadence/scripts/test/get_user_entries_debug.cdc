@@ -22,7 +22,7 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} 
     // Get TWAB and balance info
     let userTimeWeightedShares = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
     let userSavingsValue = poolRef.getUserSavingsValue(receiverID: receiverID)
-    let userDeposit = poolRef.getReceiverDeposit(receiverID: receiverID)
+    let userTotalBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
     
     // Get round info
     let roundStartTime = poolRef.getRoundStartTime()
@@ -43,7 +43,7 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} 
         "roundDuration": roundDuration,
         "userTimeWeightedShares": userTimeWeightedShares,
         "userSavingsValue": userSavingsValue,
-        "userDeposit": userDeposit,
+        "userTotalBalance": userTotalBalance,
         "roundStartTime": roundStartTime,
         "roundElapsedTime": roundElapsedTime,
         "currentRoundID": currentRoundID,

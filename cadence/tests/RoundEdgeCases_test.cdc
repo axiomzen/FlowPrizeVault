@@ -145,7 +145,7 @@ access(all) fun testFullWithdrawalMidRound() {
     
     // Verify leaving user has 0 balance
     let balance = getUserPoolBalance(leavingUser.address, poolID)
-    Test.assertEqual(0.0, balance["deposits"]!)
+    Test.assertEqual(0.0, balance["totalBalance"]!)
     
     // Advance to end of round and execute draw
     Test.moveTime(by: 31.0)
@@ -223,13 +223,13 @@ access(all) fun testMultipleDepositsInSameBlock() {
     let balance = getUserPoolBalance(user.address, poolID)
     let expectedBalance = depositAmount * 4.0
     let tolerance: UFix64 = 0.01
-    let difference = balance["deposits"]! > expectedBalance 
-        ? balance["deposits"]! - expectedBalance 
-        : expectedBalance - balance["deposits"]!
+    let difference = balance["totalBalance"]! > expectedBalance 
+        ? balance["totalBalance"]! - expectedBalance 
+        : expectedBalance - balance["totalBalance"]!
     
     Test.assert(
         difference < tolerance,
-        message: "Balance should be 100 after 4x25 deposits. Got: ".concat(balance["deposits"]!.toString())
+        message: "Balance should be 100 after 4x25 deposits. Got: ".concat(balance["totalBalance"]!.toString())
     )
     
     // Check entries reflect total

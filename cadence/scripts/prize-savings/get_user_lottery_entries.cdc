@@ -65,21 +65,20 @@ access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
     let poolRef = PrizeSavings.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
     
-    // Get balance info to find the receiverID
-    let balance = collectionRef.getPoolBalance(poolID: poolID)
-    let registeredIDs = poolRef.getRegisteredReceiverIDs()
+    // Get receiverID from the collection
+    let receiverID = collectionRef.getReceiverID()
     
-    // Find the receiverID by matching deposits
-    var receiverID: UInt64 = 0
+    // Check if user is registered in pool
+    let registeredIDs = poolRef.getRegisteredReceiverIDs()
+    var isRegistered = false
     for id in registeredIDs {
-        if poolRef.getReceiverDeposit(receiverID: id) == balance.deposits &&
-           poolRef.getReceiverTotalEarnedPrizes(receiverID: id) == balance.totalEarnedPrizes {
-            receiverID = id
+        if id == receiverID {
+            isRegistered = true
             break
         }
     }
     
-    if receiverID == 0 {
+    if !isRegistered {
         return UserLotteryEntries(
             receiverID: 0,
             currentBalance: 0.0,

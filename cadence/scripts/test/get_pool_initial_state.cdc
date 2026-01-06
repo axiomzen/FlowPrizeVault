@@ -7,7 +7,6 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
     
     return {
         "emergencyState": poolRef.getEmergencyState().rawValue,
-        "totalDeposited": poolRef.totalDeposited,
         "allocatedSavings": poolRef.allocatedSavings,
         "lastDrawTimestamp": poolRef.lastDrawTimestamp,
         "allocatedLotteryYield": poolRef.getAllocatedLotteryYield(),
@@ -24,7 +23,6 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
         "totalSavingsShares": poolRef.getTotalSavingsShares(),
         "totalSavingsAssets": poolRef.getTotalSavingsAssets(),
         "totalSavingsDistributed": poolRef.getTotalSavingsDistributed(),
-        "currentReinvestedSavings": poolRef.getCurrentReinvestedSavings(),
         "registeredReceiverCount": poolRef.getRegisteredReceiverIDs().length
     }
 }

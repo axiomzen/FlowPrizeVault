@@ -3,12 +3,10 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 /// Pool statistics structure
 access(all) struct PoolStats {
     access(all) let poolID: UInt64
-    access(all) let totalDeposited: UFix64
     access(all) let allocatedSavings: UFix64
     access(all) let lotteryPoolBalance: UFix64
     access(all) let totalTreasuryForwarded: UFix64
     access(all) let totalSavingsDistributed: UFix64
-    access(all) let currentReinvestedSavings: UFix64
     access(all) let availableYieldRewards: UFix64
     access(all) let sharePrice: UFix64
     access(all) let totalShares: UFix64
@@ -27,12 +25,10 @@ access(all) struct PoolStats {
     
     init(
         poolID: UInt64,
-        totalDeposited: UFix64,
         allocatedSavings: UFix64,
         lotteryPoolBalance: UFix64,
         totalTreasuryForwarded: UFix64,
         totalSavingsDistributed: UFix64,
-        currentReinvestedSavings: UFix64,
         availableYieldRewards: UFix64,
         sharePrice: UFix64,
         totalShares: UFix64,
@@ -50,12 +46,10 @@ access(all) struct PoolStats {
         isRoundEnded: Bool
     ) {
         self.poolID = poolID
-        self.totalDeposited = totalDeposited
         self.allocatedSavings = allocatedSavings
         self.lotteryPoolBalance = lotteryPoolBalance
         self.totalTreasuryForwarded = totalTreasuryForwarded
         self.totalSavingsDistributed = totalSavingsDistributed
-        self.currentReinvestedSavings = currentReinvestedSavings
         self.availableYieldRewards = availableYieldRewards
         self.sharePrice = sharePrice
         self.totalShares = totalShares
@@ -88,12 +82,10 @@ access(all) fun main(poolID: UInt64): PoolStats {
     
     return PoolStats(
         poolID: poolID,
-        totalDeposited: poolRef.totalDeposited,
         allocatedSavings: poolRef.allocatedSavings,
         lotteryPoolBalance: poolRef.getLotteryPoolBalance(),
         totalTreasuryForwarded: poolRef.getTotalTreasuryForwarded(),
         totalSavingsDistributed: poolRef.getTotalSavingsDistributed(),
-        currentReinvestedSavings: poolRef.getCurrentReinvestedSavings(),
         availableYieldRewards: poolRef.getAvailableYieldRewards(),
         sharePrice: poolRef.getSavingsSharePrice(),
         totalShares: poolRef.getTotalSavingsShares(),

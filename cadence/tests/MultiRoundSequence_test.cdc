@@ -86,7 +86,7 @@ access(all) fun testUserSkipsMiddleRound() {
     Test.assertEqual(5.0, prizesAfterRound1["totalEarnedPrizes"]!)
     
     // User withdraws everything before round 2
-    let currentBalance = getUserPoolBalance(user.address, poolID)["deposits"]!
+    let currentBalance = getUserPoolBalance(user.address, poolID)["totalBalance"]!
     withdrawFromPool(user, poolID: poolID, amount: currentBalance)
     
     // Fund lottery for round 2 (user has 0 shares, should not win)
@@ -136,7 +136,7 @@ access(all) fun testUserChangingBalanceAcrossRounds() {
     executeFullDraw(user, poolID: poolID)
     
     // Round 3: Withdraw 30
-    let balanceBeforeWithdraw = getUserPoolBalance(user.address, poolID)["deposits"]!
+    let balanceBeforeWithdraw = getUserPoolBalance(user.address, poolID)["totalBalance"]!
     withdrawFromPool(user, poolID: poolID, amount: 30.0)
     fundLotteryPool(poolID, amount: 5.0)
     Test.moveTime(by: 61.0)
@@ -198,7 +198,7 @@ access(all) fun testPrizeAffectsNextRoundTWAB() {
     
     // User won 50, now has 150 balance
     let balanceAfterWin = getUserPoolBalance(user.address, poolID)
-    Test.assertEqual(depositAmount + prizeAmount, balanceAfterWin["deposits"]!)
+    Test.assertEqual(depositAmount + prizeAmount, balanceAfterWin["totalBalance"]!)
     
     // Get entries in round 2 - should be higher due to larger balance
     let entriesRound2 = getUserEntries(user.address, poolID)
@@ -353,7 +353,7 @@ access(all) fun testMultipleUsersMultipleRounds() {
     executeFullDraw(user1, poolID: poolID)
     
     // Round 2: User2 withdraws
-    let user2Balance = getUserPoolBalance(user2.address, poolID)["deposits"]!
+    let user2Balance = getUserPoolBalance(user2.address, poolID)["totalBalance"]!
     withdrawFromPool(user2, poolID: poolID, amount: user2Balance)
     
     fundLotteryPool(poolID, amount: 10.0)
@@ -469,7 +469,7 @@ access(all) fun testUserBalanceConsistentAcrossRounds() {
     var roundNum = 1
     
     while roundNum <= 3 {
-        let balanceBefore = getUserPoolBalance(user.address, poolID)["deposits"]!
+        let balanceBefore = getUserPoolBalance(user.address, poolID)["totalBalance"]!
         
         // Verify balance is as expected (with tolerance for rounding)
         let tolerance: UFix64 = 0.1

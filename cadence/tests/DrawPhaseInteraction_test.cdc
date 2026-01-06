@@ -38,7 +38,7 @@ access(all) fun testDepositDuringPhase1StartDraw() {
     
     // Verify deposit succeeded
     let balance = getUserPoolBalance(newUser.address, poolID)
-    Test.assert(balance["deposits"]! > 0.0, message: "New user should have balance after Phase 1 deposit")
+    Test.assert(balance["totalBalance"]! > 0.0, message: "New user should have balance after Phase 1 deposit")
     
     // Complete the draw
     processAllDrawBatches(existingUser, poolID: poolID, batchSize: 1000)
@@ -87,7 +87,7 @@ access(all) fun testDepositDuringPhase2BatchProcessing() {
     
     // Verify deposit succeeded
     let balance = getUserPoolBalance(newUser.address, poolID)
-    Test.assert(balance["deposits"]! > 0.0, message: "New user should have balance after Phase 2 deposit")
+    Test.assert(balance["totalBalance"]! > 0.0, message: "New user should have balance after Phase 2 deposit")
     
     // Complete batch processing and draw
     processAllDrawBatches(users[0], poolID: poolID, batchSize: 1000)
@@ -125,7 +125,7 @@ access(all) fun testDepositDuringPhase3Randomness() {
     
     // Verify deposit succeeded
     let balance = getUserPoolBalance(newUser.address, poolID)
-    Test.assert(balance["deposits"]! > 0.0, message: "New user should have balance after Phase 3 deposit")
+    Test.assert(balance["totalBalance"]! > 0.0, message: "New user should have balance after Phase 3 deposit")
     
     // Complete draw
     commitBlocksForRandomness()
@@ -167,7 +167,7 @@ access(all) fun testWithdrawDuringPhase1StartDraw() {
     
     // Verify withdrawal succeeded
     let balanceAfter = getUserPoolBalance(user2.address, poolID)
-    Test.assertEqual(depositAmount - withdrawAmount, balanceAfter["deposits"]!)
+    Test.assertEqual(depositAmount - withdrawAmount, balanceAfter["totalBalance"]!)
     
     // Complete the draw
     processAllDrawBatches(user1, poolID: poolID, batchSize: 1000)
@@ -210,7 +210,7 @@ access(all) fun testWithdrawDuringPhase2BatchProcessing() {
     
     // Verify withdrawal succeeded
     let balanceAfter = getUserPoolBalance(users[1].address, poolID)
-    Test.assertEqual(50.0, balanceAfter["deposits"]!)
+    Test.assertEqual(50.0, balanceAfter["totalBalance"]!)
     
     // Complete batch and draw
     processAllDrawBatches(users[0], poolID: poolID, batchSize: 1000)
@@ -324,7 +324,7 @@ access(all) fun testUserLeavesCompletelyDuringDraw() {
     
     // Verify leaving user has 0 balance
     let leavingBalance = getUserPoolBalance(leavingUser.address, poolID)
-    Test.assertEqual(0.0, leavingBalance["deposits"]!)
+    Test.assertEqual(0.0, leavingBalance["totalBalance"]!)
     
     // Complete draw
     processAllDrawBatches(stayingUser, poolID: poolID, batchSize: 1000)
@@ -475,13 +475,13 @@ access(all) fun testMultipleDepositsFromSameUserDuringDraw() {
     let expectedWithPrize = expectedBase + DEFAULT_PRIZE_AMOUNT
     
     let tolerance: UFix64 = 0.1
-    let difference = balance["deposits"]! > expectedWithPrize 
-        ? balance["deposits"]! - expectedWithPrize 
-        : expectedWithPrize - balance["deposits"]!
+    let difference = balance["totalBalance"]! > expectedWithPrize 
+        ? balance["totalBalance"]! - expectedWithPrize 
+        : expectedWithPrize - balance["totalBalance"]!
     
     Test.assert(
         difference < tolerance,
-        message: "Balance should reflect all deposits + prize. Got: ".concat(balance["deposits"]!.toString())
+        message: "Balance should reflect all deposits + prize. Got: ".concat(balance["totalBalance"]!.toString())
     )
 }
 
@@ -520,13 +520,13 @@ access(all) fun testMultipleWithdrawalsFromSameUserDuringDraw() {
     let expectedWithPrize = expectedBase + DEFAULT_PRIZE_AMOUNT // 65
     
     let tolerance: UFix64 = 0.1
-    let difference = balance["deposits"]! > expectedWithPrize 
-        ? balance["deposits"]! - expectedWithPrize 
-        : expectedWithPrize - balance["deposits"]!
+    let difference = balance["totalBalance"]! > expectedWithPrize 
+        ? balance["totalBalance"]! - expectedWithPrize 
+        : expectedWithPrize - balance["totalBalance"]!
     
     Test.assert(
         difference < tolerance,
-        message: "Balance should be ~65. Got: ".concat(balance["deposits"]!.toString())
+        message: "Balance should be ~65. Got: ".concat(balance["totalBalance"]!.toString())
     )
 }
 

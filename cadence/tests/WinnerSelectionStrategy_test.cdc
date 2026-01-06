@@ -79,7 +79,7 @@ access(all) fun testSingleWinnerPrizeSingleDepositor() {
     
     // Single depositor should win
     let userBalance = getUserPoolBalance(user.address, poolID)
-    Test.assert(userBalance["deposits"]! > 0.0, message: "User should have deposits plus prize")
+    Test.assert(userBalance["totalBalance"]! > 0.0, message: "User should have deposits plus prize")
 }
 
 // ============================================================================

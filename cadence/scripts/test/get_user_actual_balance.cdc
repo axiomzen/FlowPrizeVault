@@ -1,8 +1,7 @@
 import "PrizeSavings"
 
 /// Get a user's actual withdrawable balance in a pool
-/// This returns the true value of their shares (shares × sharePrice),
-/// which can be less than their deposits if a deficit has occurred.
+/// This returns the true value of their shares (shares × sharePrice)
 ///
 /// Parameters:
 /// - userAddress: The user's address
@@ -10,7 +9,6 @@ import "PrizeSavings"
 ///
 /// Returns: Dictionary with:
 ///   - "actualBalance": The true withdrawable balance (shares × sharePrice)
-///   - "deposits": The original principal deposited
 ///   - "shares": Number of shares held
 ///   - "sharePrice": Current share price
 access(all) fun main(userAddress: Address, poolID: UInt64): {String: UFix64} {
@@ -29,13 +27,11 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: UFix64} {
     
     // Get actual balance from the pool
     let actualBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
-    let deposits = poolRef.getReceiverDeposit(receiverID: receiverID)
     let shares = poolRef.getUserSavingsShares(receiverID: receiverID)
     let sharePrice = poolRef.getSavingsSharePrice()
     
     return {
         "actualBalance": actualBalance,
-        "deposits": deposits,
         "shares": shares,
         "sharePrice": sharePrice
     }

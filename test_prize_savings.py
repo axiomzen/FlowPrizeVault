@@ -132,6 +132,34 @@ def check_result(success: bool, output: str, test_name: str, pattern: Optional[s
     print_success(test_name)
     return True
 
+def do_full_draw(pool_id: str, batch_size: str = "100") -> Tuple[bool, str]:
+    """
+    Execute a complete draw cycle (phases 1-4):
+    1. start_draw_full.cdc (phases 1-3: start, batch process, request randomness)
+    2. wait for next block
+    3. complete_draw.cdc (phase 4: select winners, distribute prizes)
+    
+    Returns (success, output) of the completion phase.
+    """
+    # Phases 1-3
+    success, output = run_flow_tx(
+        "cadence/transactions/prize-savings/start_draw_full.cdc",
+        pool_id,
+        batch_size
+    )
+    if not success:
+        return False, f"start_draw_full failed: {output}"
+    
+    # Wait for next block (randomness requires different block)
+    time.sleep(2)
+    
+    # Phase 4
+    success, output = run_flow_tx(
+        "cadence/transactions/prize-savings/complete_draw.cdc",
+        pool_id
+    )
+    return success, output
+
 def get_admin_address() -> str:
     """Get admin address from flow.json"""
     with open(FLOW_JSON_PATH) as f:
@@ -420,10 +448,20 @@ def test_lottery() -> bool:
     pool_id = str(POOL_ID)
     print_info(f"Testing with Pool ID: {pool_id}")
     
-    # Check draw status
+    # Check draw status and clean up any stuck draw
     print_step("Checking if draw can start...")
     success, output = run_flow_script("cadence/scripts/prize-savings/get_draw_status.cdc", pool_id)
     print(output)
+    
+    # If there's a draw in progress, try to complete it first
+    if "isDrawInProgress: true" in output or "isBatchInProgress: true" in output or "isRandomnessRequested: true" in output:
+        print_info("Found stuck draw - attempting to complete it...")
+        time.sleep(2)  # Wait for block advancement if randomness was requested
+        complete_success, complete_output = run_flow_tx("cadence/transactions/prize-savings/complete_draw.cdc", pool_id)
+        if complete_success:
+            print_success("Completed stuck draw")
+        else:
+            print_info(f"Could not complete stuck draw: {complete_output[:200]}")
     
     # Add more yield
     print_step("Adding more yield for lottery prize pool...")
@@ -437,19 +475,19 @@ def test_lottery() -> bool:
     print_step("Waiting for draw interval (11 seconds)...")
     time.sleep(11)
     
-    # Start draw
-    print_step("Starting lottery draw...")
-    success, output = run_flow_tx("cadence/transactions/prize-savings/start_draw.cdc", pool_id)
-    if check_result(success, output, "Start draw"):
+    # Start draw (phases 1-3: start, process batches, request randomness)
+    print_step("Starting lottery draw (full)...")
+    success, output = run_flow_tx("cadence/transactions/prize-savings/start_draw_full.cdc", pool_id, "100")
+    if check_result(success, output, "Start draw (full)"):
         # Check status
         success, output = run_flow_script("cadence/scripts/prize-savings/get_draw_status.cdc", pool_id)
         print(output)
         
-        # Wait for block
+        # Wait for block (randomness requires next block)
         print_step("Waiting for block advancement...")
         time.sleep(2)
         
-        # Complete draw
+        # Complete draw (phase 4: select winners and distribute prizes)
         print_step("Completing lottery draw...")
         success, output = run_flow_tx("cadence/transactions/prize-savings/complete_draw.cdc", pool_id)
         check_result(success, output, "Complete draw")
@@ -766,7 +804,7 @@ def test_multiple_users() -> bool:
             
             success, output = run_flow_script("cadence/scripts/prize-savings/get_draw_status.cdc", pool_id)
             if "canDrawNow: true" in output:
-                success, _ = run_flow_tx("cadence/transactions/prize-savings/start_draw.cdc", pool_id)
+                success, _ = run_flow_tx("cadence/transactions/prize-savings/start_draw_full.cdc", pool_id, "100")
                 if success:
                     time.sleep(2)
                     success, _ = run_flow_tx("cadence/transactions/prize-savings/complete_draw.cdc", pool_id)
@@ -869,11 +907,12 @@ def test_prize_verification() -> bool:
     print_step("Waiting for draw interval (21 seconds)...")
     time.sleep(21)
     
-    # Execute lottery draw
+    # Execute lottery draw (full phases 1-3)
     print_step("Executing lottery draw...")
     success, output = run_flow_tx(
-        "cadence/transactions/prize-savings/start_draw.cdc",
-        pool_id
+        "cadence/transactions/prize-savings/start_draw_full.cdc",
+        pool_id,
+        "100"
     )
     
     draw_completed = False
@@ -1052,10 +1091,11 @@ def test_nft_prizes() -> bool:
     print_info("Waiting for draw interval (21 seconds)...")
     time.sleep(21)
     
-    # Start draw
+    # Start draw (full phases 1-3)
     success, output = run_flow_tx(
-        "cadence/transactions/prize-savings/start_draw.cdc",
-        pool_id
+        "cadence/transactions/prize-savings/start_draw_full.cdc",
+        pool_id,
+        "100"
     )
     
     nft_awarded = False
@@ -1361,8 +1401,9 @@ def test_edge_cases() -> bool:
             time.sleep(11)
             
             success, output = run_flow_tx(
-                "cadence/transactions/prize-savings/start_draw.cdc",
-                pool_id
+                "cadence/transactions/prize-savings/start_draw_full.cdc",
+                pool_id,
+                "100"
             )
             
             if not success:
@@ -1372,7 +1413,7 @@ def test_edge_cases() -> bool:
                     print_success("Draw rejected (likely due to insufficient pool)")
             else:
                 print_info("Draw started even with low/zero pool (may complete with no prize)")
-                # Try to complete it
+                # Complete it (phases 1-3 done, just need phase 4)
                 time.sleep(2)
                 run_flow_tx("cadence/transactions/prize-savings/complete_draw.cdc", pool_id)
         else:
@@ -1417,8 +1458,9 @@ def test_edge_cases() -> bool:
             # Try to start draw with no participants
             print_info("Attempting draw on pool with no participants...")
             success, output = run_flow_tx(
-                "cadence/transactions/prize-savings/start_draw.cdc",
-                empty_pool_id
+                "cadence/transactions/prize-savings/start_draw_full.cdc",
+                empty_pool_id,
+                "100"
             )
             
             if not success:
@@ -1468,12 +1510,13 @@ def test_draw_timing() -> bool:
     # Immediately try to start a new draw (should fail - interval not elapsed)
     print_info("Attempting to start draw immediately (before interval)...")
     success, output = run_flow_tx(
-        "cadence/transactions/prize-savings/start_draw.cdc",
-        pool_id
+        "cadence/transactions/prize-savings/start_draw_full.cdc",
+        pool_id,
+        "100"
     )
     
     if not success:
-        if "interval" in output.lower() or "too soon" in output.lower() or "not elapsed" in output.lower():
+        if "interval" in output.lower() or "too soon" in output.lower() or "not elapsed" in output.lower() or "not ended" in output.lower():
             print_success("Draw correctly rejected - interval not elapsed")
         elif "already" in output.lower() or "in progress" in output.lower():
             print_info("Draw rejected - may already be in progress")
@@ -1484,7 +1527,7 @@ def test_draw_timing() -> bool:
             print_success("Draw before interval was rejected (expected)")
     else:
         print_info("Draw started - interval may have already elapsed")
-        # Complete it so we can continue testing
+        # Complete it so we can continue testing (phases 1-3 done, just phase 4)
         time.sleep(2)
         run_flow_tx("cadence/transactions/prize-savings/complete_draw.cdc", pool_id)
     
@@ -1534,21 +1577,23 @@ def test_draw_timing() -> bool:
     else:
         print_info("Draw interval already elapsed - can draw now")
     
-    # Start first draw
-    print_info("Starting first draw...")
+    # Start first draw (full phases 1-3)
+    print_info("Starting first draw (full)...")
     success, output = run_flow_tx(
-        "cadence/transactions/prize-savings/start_draw.cdc",
-        pool_id
+        "cadence/transactions/prize-savings/start_draw_full.cdc",
+        pool_id,
+        "100"
     )
     
     if success:
-        print_info("First draw started successfully")
+        print_info("First draw started successfully (phases 1-3 complete)")
         
-        # Immediately try to start second draw (should fail)
+        # Immediately try to start second draw (should fail - draw still in progress)
         print_info("Attempting to start second draw while first is in progress...")
         success2, output2 = run_flow_tx(
-            "cadence/transactions/prize-savings/start_draw.cdc",
-            pool_id
+            "cadence/transactions/prize-savings/start_draw_full.cdc",
+            pool_id,
+            "100"
         )
         
         if not success2:
@@ -1560,7 +1605,7 @@ def test_draw_timing() -> bool:
         else:
             print_error("SECURITY ISSUE: Second draw was allowed while first in progress!")
         
-        # Complete the first draw
+        # Complete the first draw (phase 4)
         print_info("Completing the first draw...")
         time.sleep(2)
         success, output = run_flow_tx(
@@ -1573,20 +1618,22 @@ def test_draw_timing() -> bool:
             print_error(f"Failed to complete first draw: {output[:200]}")
     else:
         # Check if interval not elapsed or other issue
-        if "interval" in output.lower() or "too soon" in output.lower():
+        if "interval" in output.lower() or "too soon" in output.lower() or "not ended" in output.lower():
             print_info("Draw interval not elapsed - waiting longer...")
             time.sleep(25)
-            # Retry
+            # Retry with full draw
             success, output = run_flow_tx(
-                "cadence/transactions/prize-savings/start_draw.cdc",
-                pool_id
+                "cadence/transactions/prize-savings/start_draw_full.cdc",
+                pool_id,
+                "100"
             )
             if success:
                 print_info("First draw started on retry")
                 # Test concurrent
                 success2, output2 = run_flow_tx(
-                    "cadence/transactions/prize-savings/start_draw.cdc",
-                    pool_id
+                    "cadence/transactions/prize-savings/start_draw_full.cdc",
+                    pool_id,
+                    "100"
                 )
                 if not success2:
                     print_success("Concurrent draw prevented (on retry)")
@@ -1600,12 +1647,13 @@ def test_draw_timing() -> bool:
             print_info("Draw already in progress - testing concurrent rejection...")
             # This IS the concurrent draw test - try another
             success2, output2 = run_flow_tx(
-                "cadence/transactions/prize-savings/start_draw.cdc",
-                pool_id
+                "cadence/transactions/prize-savings/start_draw_full.cdc",
+                pool_id,
+                "100"
             )
             if not success2:
                 print_success("Concurrent draw prevented (existing draw in progress)")
-            # Complete existing
+            # Complete existing draw - it may be in various states, so try full cycle
             time.sleep(2)
             run_flow_tx("cadence/transactions/prize-savings/complete_draw.cdc", pool_id)
         else:
@@ -1678,11 +1726,12 @@ def test_draw_timing() -> bool:
             print_info(f"Waiting {wait_time}s for draw interval...")
             time.sleep(wait_time)
         
-        # Start draw
-        print_info("Starting draw...")
+        # Start draw (full phases 1-3)
+        print_info("Starting draw (full)...")
         success, output = run_flow_tx(
-            "cadence/transactions/prize-savings/start_draw.cdc",
-            pool_id
+            "cadence/transactions/prize-savings/start_draw_full.cdc",
+            pool_id,
+            "100"
         )
         
         if success:
@@ -1754,12 +1803,13 @@ def test_draw_timing() -> bool:
     results = []
     for i in range(3):
         success, output = run_flow_tx(
-            "cadence/transactions/prize-savings/start_draw.cdc",
-            pool_id
+            "cadence/transactions/prize-savings/start_draw_full.cdc",
+            pool_id,
+            "100"
         )
         results.append((success, "success" if success else output[:100]))
         if success:
-            print_info(f"  Attempt {i+1}: ✓ Started")
+            print_info(f"  Attempt {i+1}: ✓ Started (full)")
         else:
             print_info(f"  Attempt {i+1}: ✗ Rejected (expected after first)")
     
@@ -1773,7 +1823,7 @@ def test_draw_timing() -> bool:
     else:
         print_error(f"✗ Multiple draws ({successes}/3) started - potential issue!")
     
-    # Clean up - complete any pending draw
+    # Clean up - complete any pending draw (phase 4)
     print_info("Cleaning up...")
     time.sleep(2)
     run_flow_tx("cadence/transactions/prize-savings/complete_draw.cdc", pool_id)
@@ -1853,8 +1903,9 @@ def test_invalid_pool_operations() -> bool:
     # Test 1d: Start draw on non-existent pool
     print_info("1d. Attempting to start draw on non-existent pool...")
     success, output = run_flow_tx(
-        "cadence/transactions/prize-savings/start_draw.cdc",
-        fake_pool_id
+        "cadence/transactions/prize-savings/start_draw_full.cdc",
+        fake_pool_id,
+        "100"
     )
     
     if not success:

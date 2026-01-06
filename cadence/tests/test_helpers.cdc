@@ -1165,7 +1165,7 @@ fun cleanupPoolStaleEntries(_ poolID: UInt64, receiverLimit: Int): {String: Int}
     assertTransactionSucceeded(cleanupResult, context: "Cleanup pool stale entries")
     
     // Return a placeholder - actual counts are logged but not returned to test
-    return {"ghostReceivers": 0, "userShares": 0, "receiverDeposits": 0, "pendingNFTClaims": 0}
+    return {"ghostReceivers": 0, "userShares": 0, "pendingNFTClaims": 0}
 }
 
 access(all)

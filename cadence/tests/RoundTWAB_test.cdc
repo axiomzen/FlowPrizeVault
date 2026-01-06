@@ -569,7 +569,7 @@ access(all) fun testZeroBalanceHasZeroEntries() {
     
     // Leaving user should have 0 balance
     let balance = getUserPoolBalance(leavingUser.address, poolID)
-    Test.assertEqual(0.0, balance["deposits"]!)
+    Test.assertEqual(0.0, balance["totalBalance"]!)
     
     // Fund lottery and execute draw
     fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
