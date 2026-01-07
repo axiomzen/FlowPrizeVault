@@ -25,14 +25,6 @@ access(all) fun testNewPoolEmergencyStateNormal() {
 // TESTS - Balance Tracking
 // ============================================================================
 
-access(all) fun testNewPoolTotalDepositedZero() {
-    createTestPool()
-    let poolID = UInt64(getPoolCount() - 1)
-    
-    let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["totalDeposited"]! as! UFix64)
-}
-
 access(all) fun testNewPoolTotalStakedZero() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
@@ -152,13 +144,5 @@ access(all) fun testNewPoolTotalSavingsDistributedZero() {
     
     let state = getPoolInitialState(poolID)
     Test.assertEqual(0.0, state["totalSavingsDistributed"]! as! UFix64)
-}
-
-access(all) fun testNewPoolCurrentReinvestedSavingsZero() {
-    createTestPool()
-    let poolID = UInt64(getPoolCount() - 1)
-    
-    let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["currentReinvestedSavings"]! as! UFix64)
 }
 

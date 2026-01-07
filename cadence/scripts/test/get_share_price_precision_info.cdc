@@ -15,7 +15,7 @@ import "PrizeSavings"
 ///   - "effectiveShares": totalShares + VIRTUAL_SHARES
 ///   - "virtualAssets": VIRTUAL_ASSETS constant
 ///   - "virtualShares": VIRTUAL_SHARES constant
-///   - "totalDeposited": Sum of all deposits (principal)
+///   - "totalStaked": Balance in underlying yield vault
 ///   - "totalDistributed": Cumulative yield distributed
 access(all) fun main(poolID: UInt64): {String: UFix64} {
     let poolRef = PrizeSavings.borrowPool(poolID: poolID)
@@ -44,7 +44,7 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
         "effectiveShares": totalShares + virtualShares,
         "virtualAssets": virtualAssets,
         "virtualShares": virtualShares,
-        "totalDeposited": poolRef.totalDeposited,
+        "totalStaked": poolRef.totalStaked,
         "totalDistributed": poolRef.getTotalSavingsDistributed()
     }
 }

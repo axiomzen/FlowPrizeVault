@@ -40,7 +40,7 @@ access(all) fun testGapPeriodDeposit() {
     
     // Verify deposit succeeded
     let balance = getUserPoolBalance(gapUser.address, poolID)
-    Test.assert(balance["deposits"]! > 0.0, message: "Gap user should have balance after deposit")
+    Test.assert(balance["totalBalance"]! > 0.0, message: "Gap user should have balance after deposit")
 }
 
 access(all) fun testGapPeriodWithdrawal() {
@@ -60,13 +60,13 @@ access(all) fun testGapPeriodWithdrawal() {
     Test.moveTime(by: 61.0)
     
     // Get balance before withdrawal
-    let balanceBefore = getUserPoolBalance(user.address, poolID)["deposits"]!
+    let balanceBefore = getUserPoolBalance(user.address, poolID)["totalBalance"]!
     
     // Withdraw during gap period
     withdrawFromPool(user, poolID: poolID, amount: withdrawAmount)
     
     // Verify withdrawal succeeded
-    let balanceAfter = getUserPoolBalance(user.address, poolID)["deposits"]!
+    let balanceAfter = getUserPoolBalance(user.address, poolID)["totalBalance"]!
     Test.assert(balanceAfter < balanceBefore, message: "Balance should decrease after withdrawal in gap")
 }
 
@@ -97,13 +97,13 @@ access(all) fun testGapPeriodDepositThenWithdraw() {
     let balance = getUserPoolBalance(gapUser.address, poolID)
     let expectedBalance = depositAmount - 50.0
     let tolerance: UFix64 = 0.01
-    let difference = balance["deposits"]! > expectedBalance 
-        ? balance["deposits"]! - expectedBalance 
-        : expectedBalance - balance["deposits"]!
+    let difference = balance["totalBalance"]! > expectedBalance 
+        ? balance["totalBalance"]! - expectedBalance 
+        : expectedBalance - balance["totalBalance"]!
     
     Test.assert(
         difference < tolerance,
-        message: "Balance should be ~50 after deposit 100, withdraw 50. Got: ".concat(balance["deposits"]!.toString())
+        message: "Balance should be ~50 after deposit 100, withdraw 50. Got: ".concat(balance["totalBalance"]!.toString())
     )
 }
 
@@ -132,7 +132,7 @@ access(all) fun testGapPeriodWithdrawToZero() {
     
     // Verify user has zero balance
     let balance = getUserPoolBalance(leavingUser.address, poolID)
-    Test.assertEqual(0.0, balance["deposits"]!)
+    Test.assertEqual(0.0, balance["totalBalance"]!)
 }
 
 // ============================================================================
@@ -300,13 +300,13 @@ access(all) fun testExistingUserDepositsMoreInGap() {
     let balance = getUserPoolBalance(user.address, poolID)
     let expectedBalance = initialDeposit + additionalDeposit
     let tolerance: UFix64 = 0.01
-    let difference = balance["deposits"]! > expectedBalance 
-        ? balance["deposits"]! - expectedBalance 
-        : expectedBalance - balance["deposits"]!
+    let difference = balance["totalBalance"]! > expectedBalance 
+        ? balance["totalBalance"]! - expectedBalance 
+        : expectedBalance - balance["totalBalance"]!
     
     Test.assert(
         difference < tolerance,
-        message: "Balance should be ~150 after 100+50 deposits. Got: ".concat(balance["deposits"]!.toString())
+        message: "Balance should be ~150 after 100+50 deposits. Got: ".concat(balance["totalBalance"]!.toString())
     )
     
     // Execute draw
@@ -472,13 +472,13 @@ access(all) fun testMultipleGapDepositsFromSameUser() {
     let balance = getUserPoolBalance(existingUser.address, poolID)
     let expectedBalance = depositPerTx * 4.0 // 4 deposits of 25
     let tolerance: UFix64 = 0.01
-    let difference = balance["deposits"]! > expectedBalance 
-        ? balance["deposits"]! - expectedBalance 
-        : expectedBalance - balance["deposits"]!
+    let difference = balance["totalBalance"]! > expectedBalance 
+        ? balance["totalBalance"]! - expectedBalance 
+        : expectedBalance - balance["totalBalance"]!
     
     Test.assert(
         difference < tolerance,
-        message: "Balance should be 100 after 4x25 deposits. Got: ".concat(balance["deposits"]!.toString())
+        message: "Balance should be 100 after 4x25 deposits. Got: ".concat(balance["totalBalance"]!.toString())
     )
 }
 
@@ -506,13 +506,13 @@ access(all) fun testGapPeriodWithMultipleDepositsAndWithdrawals() {
     let balance = getUserPoolBalance(user.address, poolID)
     let expectedBalance: UFix64 = 100.0
     let tolerance: UFix64 = 0.5
-    let difference = balance["deposits"]! > expectedBalance 
-        ? balance["deposits"]! - expectedBalance 
-        : expectedBalance - balance["deposits"]!
+    let difference = balance["totalBalance"]! > expectedBalance 
+        ? balance["totalBalance"]! - expectedBalance 
+        : expectedBalance - balance["totalBalance"]!
     
     Test.assert(
         difference < tolerance,
-        message: "Final balance should be ~100. Got: ".concat(balance["deposits"]!.toString())
+        message: "Final balance should be ~100. Got: ".concat(balance["totalBalance"]!.toString())
     )
     
     // Execute draw

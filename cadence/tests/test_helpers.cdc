@@ -1150,3 +1150,33 @@ fun simulateExtremeYieldAppreciation(poolIndex: Int, amount: UFix64, vaultPrefix
     assertTransactionSucceeded(result, context: "Simulate extreme yield appreciation")
 }
 
+// ============================================================================
+// ADMIN CLEANUP HELPERS
+// ============================================================================
+
+access(all)
+fun cleanupPoolStaleEntries(_ poolID: UInt64, startIndex: Int, receiverLimit: Int): {String: Int} {
+    let deployerAccount = getDeployerAccount()
+    let cleanupResult = _executeTransaction(
+        "../transactions/test/cleanup_pool_stale_entries.cdc",
+        [poolID, startIndex, receiverLimit],
+        deployerAccount
+    )
+    assertTransactionSucceeded(cleanupResult, context: "Cleanup pool stale entries")
+    
+    // Return a placeholder - actual counts are logged but not returned to test
+    return {"ghostReceivers": 0, "userShares": 0, "pendingNFTClaims": 0, "nextIndex": 0, "totalReceivers": 0}
+}
+
+access(all)
+fun cleanupPoolStaleEntriesExpectFailure(_ poolID: UInt64, startIndex: Int, receiverLimit: Int): Test.TransactionResult {
+    let deployerAccount = getDeployerAccount()
+    let txn = Test.Transaction(
+        code: Test.readFile("../transactions/test/cleanup_pool_stale_entries.cdc"),
+        authorizers: [deployerAccount.address],
+        signers: [deployerAccount],
+        arguments: [poolID, startIndex, receiverLimit]
+    )
+    return Test.executeTransaction(txn)
+}
+

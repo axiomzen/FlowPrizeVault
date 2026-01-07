@@ -1,10 +1,10 @@
 import "PrizeSavings"
 
-/// Returns the sponsor's balance breakdown in a pool.
+/// Returns the sponsor's balance in a pool.
 /// 
 /// @param sponsorAddress - Address of the sponsor
 /// @param poolID - ID of the pool to query
-/// @return Dictionary with deposits, savingsEarned (totalEarnedPrizes always 0 for sponsors)
+/// @return Dictionary with totalBalance and totalEarnedPrizes (always 0 for sponsors)
 access(all) fun main(sponsorAddress: Address, poolID: UInt64): {String: UFix64} {
     let account = getAccount(sponsorAddress)
     
@@ -13,16 +13,13 @@ access(all) fun main(sponsorAddress: Address, poolID: UInt64): {String: UFix64} 
     ) {
         let balance = collection.getPoolBalance(poolID: poolID)
         return {
-            "deposits": balance.deposits,
-            "totalEarnedPrizes": balance.totalEarnedPrizes,
-            "savingsEarned": balance.savingsEarned
+            "totalBalance": balance.totalBalance,
+            "totalEarnedPrizes": balance.totalEarnedPrizes
         }
     }
     
     return {
-        "deposits": 0.0,
-        "totalEarnedPrizes": 0.0,
-        "savingsEarned": 0.0
+        "totalBalance": 0.0,
+        "totalEarnedPrizes": 0.0
     }
 }
-

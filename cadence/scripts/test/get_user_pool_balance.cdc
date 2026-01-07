@@ -11,9 +11,7 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: UFix64} {
     let balance = collectionRef.getPoolBalance(poolID: poolID)
     
     return {
-        "deposits": balance.deposits,
-        "totalEarnedPrizes": balance.totalEarnedPrizes,
-        "savingsEarned": balance.savingsEarned
+        "totalBalance": balance.totalBalance,
+        "totalEarnedPrizes": balance.totalEarnedPrizes
     }
 }
-

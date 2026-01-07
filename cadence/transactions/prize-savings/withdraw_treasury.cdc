@@ -2,44 +2,39 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 import FungibleToken from "FungibleToken"
 import FlowToken from "FlowToken"
 
-/// Withdraw Treasury transaction - Withdraws funds from the pool treasury (Admin only)
-/// Treasury funds come from the treasury percentage of yield distribution
+/// Withdraw Treasury transaction - Withdraws unclaimed treasury funds from pool (Admin only)
+/// Treasury funds come from the treasury percentage of yield distribution when no recipient is set.
 ///
 /// Parameters:
 /// - poolID: The ID of the pool to withdraw treasury from
 /// - amount: The amount to withdraw
-/// - purpose: A description of why the funds are being withdrawn
+/// - purpose: A description of why the funds are being withdrawn (for logging)
 transaction(poolID: UInt64, amount: UFix64, purpose: String) {
     
     let adminRef: auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin
-    let receiverRef: &{FungibleToken.Receiver}
+    let receiverCap: Capability<&{FungibleToken.Receiver}>
     
-    prepare(signer: auth(Storage, BorrowValue) &Account) {
+    prepare(signer: auth(Storage, BorrowValue, Capabilities) &Account) {
         // Borrow the Admin resource
         self.adminRef = signer.storage.borrow<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>(
             from: PrizeSavings.AdminStoragePath
         ) ?? panic("Admin resource not found")
         
-        // Borrow the receiver vault
-        self.receiverRef = signer.storage.borrow<&{FungibleToken.Receiver}>(
-            from: /storage/flowTokenVault
-        ) ?? panic("Could not borrow FlowToken receiver")
+        // Get or create a receiver capability
+        self.receiverCap = signer.capabilities.get<&{FungibleToken.Receiver}>(/public/flowTokenReceiver)
+        if !self.receiverCap.check() {
+            panic("FlowToken receiver capability not found or invalid")
+        }
     }
     
     execute {
-        // Withdraw from treasury
-        let withdrawn <- self.adminRef.withdrawPoolTreasury(
+        // Withdraw from treasury - function deposits directly via capability
+        let withdrawnAmount = self.adminRef.withdrawUnclaimedTreasury(
             poolID: poolID,
             amount: amount,
-            purpose: purpose
+            recipient: self.receiverCap
         )
         
-        let withdrawnAmount = withdrawn.balance
-        
-        // Deposit to admin's vault
-        self.receiverRef.deposit(from: <-withdrawn)
-        
-        log("Withdrew ".concat(withdrawnAmount.toString()).concat(" from pool ").concat(poolID.toString()).concat(" treasury"))
+        log("Withdrew ".concat(withdrawnAmount.toString()).concat(" from pool ").concat(poolID.toString()).concat(" treasury for: ").concat(purpose))
     }
 }
-

@@ -54,7 +54,6 @@ access(all) fun testSponsorDepositIncreasesPoolTotals() {
     ensurePoolExists()
     
     let initialTotals = getPoolTotals(poolID)
-    let initialDeposited = initialTotals["totalDeposited"]!
     let initialStaked = initialTotals["allocatedSavings"]!
     
     // Setup sponsor and deposit
@@ -64,7 +63,6 @@ access(all) fun testSponsorDepositIncreasesPoolTotals() {
     
     // Verify pool totals increased
     let finalTotals = getPoolTotals(poolID)
-    Test.assertEqual(initialDeposited + depositAmount, finalTotals["totalDeposited"]!)
     Test.assertEqual(initialStaked + depositAmount, finalTotals["allocatedSavings"]!)
 }
 
@@ -80,7 +78,7 @@ access(all) fun testSponsorDepositUpdatesSponsorBalance() {
     
     // Verify sponsor's balance
     let sponsorBalance = getSponsorBalance(sponsor.address, poolID)
-    Test.assertEqual(depositAmount, sponsorBalance["deposits"]!)
+    Test.assertEqual(depositAmount, sponsorBalance["totalBalance"]!)
     Test.assertEqual(0.0, sponsorBalance["totalEarnedPrizes"]!)  // Sponsors can't win
 }
 
@@ -153,7 +151,7 @@ access(all) fun testSponsorCanWithdraw() {
     
     // Verify remaining balance
     let sponsorBalance = getSponsorBalance(sponsor.address, poolID)
-    Test.assertEqual(depositAmount - withdrawAmount, sponsorBalance["deposits"]!)
+    Test.assertEqual(depositAmount - withdrawAmount, sponsorBalance["totalBalance"]!)
 }
 
 access(all) fun testSponsorFullWithdrawalCleanup() {
@@ -224,8 +222,8 @@ access(all) fun testSameAccountCanBeBothRegularAndSponsor() {
     let regularBalance = getUserPoolBalance(dualUser.address, poolID)
     let sponsorBalance = getSponsorBalance(dualUser.address, poolID)
     
-    Test.assertEqual(regularAmount, regularBalance["deposits"]!)
-    Test.assertEqual(sponsorAmount, sponsorBalance["deposits"]!)
+    Test.assertEqual(regularAmount, regularBalance["totalBalance"]!)
+    Test.assertEqual(sponsorAmount, sponsorBalance["totalBalance"]!)
 }
 
 // ============================================================================
@@ -251,7 +249,7 @@ access(all) fun testSponsorEarnsSavingsYield() {
     let sponsorBalance = getSponsorBalance(sponsor.address, poolID)
     // The savingsEarned may be > 0 depending on distribution strategy
     // At minimum, deposits should still equal the deposit amount
-    Test.assertEqual(depositAmount, sponsorBalance["deposits"]!)
+    Test.assertEqual(depositAmount, sponsorBalance["totalBalance"]!)
 }
 
 access(all) fun testSponsorAndRegularUserBothEarnYield() {
@@ -279,8 +277,8 @@ access(all) fun testSponsorAndRegularUserBothEarnYield() {
     let sponsorBalance = getSponsorBalance(sponsor.address, poolID)
     let regularBalance = getUserPoolBalance(regularUser.address, poolID)
     
-    Test.assertEqual(depositAmount, sponsorBalance["deposits"]!)
-    Test.assertEqual(depositAmount, regularBalance["deposits"]!)
+    Test.assertEqual(depositAmount, sponsorBalance["totalBalance"]!)
+    Test.assertEqual(depositAmount, regularBalance["totalBalance"]!)
     
     // But only regular user has lottery entries
     let regularEntries = getUserEntries(regularUser.address, poolID)

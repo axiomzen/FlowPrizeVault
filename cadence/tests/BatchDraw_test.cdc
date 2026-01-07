@@ -171,7 +171,7 @@ access(all) fun testUserCanDepositDuringBatchProcessing() {
     
     // Should succeed - new user is depositing into the new (active) round
     let newUserBalance = getUserPoolBalance(newUser.address, poolID)
-    Test.assert(newUserBalance["deposits"]! > 0.0, message: "New user should have balance after depositing during batch processing")
+    Test.assert(newUserBalance["totalBalance"]! > 0.0, message: "New user should have balance after depositing during batch processing")
 }
 
 access(all) fun testUserCanWithdrawDuringBatchProcessing() {
@@ -190,14 +190,14 @@ access(all) fun testUserCanWithdrawDuringBatchProcessing() {
     startDraw(user, poolID: poolID)
     
     // Get balance before withdrawal
-    let balanceBefore = getUserPoolBalance(user.address, poolID)["deposits"]!
+    let balanceBefore = getUserPoolBalance(user.address, poolID)["totalBalance"]!
     
     // User withdraws during batch processing phase
     let withdrawAmount = DEFAULT_DEPOSIT_AMOUNT / 2.0
     withdrawFromPool(user, poolID: poolID, amount: withdrawAmount)
     
     // Should succeed
-    let balanceAfter = getUserPoolBalance(user.address, poolID)["deposits"]!
+    let balanceAfter = getUserPoolBalance(user.address, poolID)["totalBalance"]!
     Test.assert(balanceAfter < balanceBefore, message: "Balance should decrease after withdrawal during batch processing")
 }
 

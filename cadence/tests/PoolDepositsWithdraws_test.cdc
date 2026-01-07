@@ -28,7 +28,6 @@ access(all) fun testUserDepositIncreasesPoolTotals() {
     ensurePoolExists()
     
     let initialTotals = getPoolTotals(poolID)
-    let initialDeposited = initialTotals["totalDeposited"]!
     let initialStaked = initialTotals["allocatedSavings"]!
     
     // Setup user and deposit
@@ -37,7 +36,6 @@ access(all) fun testUserDepositIncreasesPoolTotals() {
     
     // Verify pool totals increased
     let finalTotals = getPoolTotals(poolID)
-    Test.assertEqual(initialDeposited + depositAmount, finalTotals["totalDeposited"]!)
     Test.assertEqual(initialStaked + depositAmount, finalTotals["allocatedSavings"]!)
 }
 
@@ -54,9 +52,8 @@ access(all) fun testUserDepositUpdatesUserBalance() {
     
     // Verify user's balance
     let userBalance = getUserPoolBalance(newUser.address, poolID)
-    Test.assertEqual(depositAmount, userBalance["deposits"]!)
+    Test.assertEqual(depositAmount, userBalance["totalBalance"]!)
     Test.assertEqual(0.0, userBalance["totalEarnedPrizes"]!)
-    Test.assertEqual(0.0, userBalance["savingsEarned"]!)
 }
 
 access(all) fun testMultipleDepositsAccumulate() {
@@ -76,7 +73,7 @@ access(all) fun testMultipleDepositsAccumulate() {
     
     // Verify accumulated balance
     let userBalance = getUserPoolBalance(newUser.address, poolID)
-    Test.assertEqual(firstDeposit + secondDeposit, userBalance["deposits"]!)
+    Test.assertEqual(firstDeposit + secondDeposit, userBalance["totalBalance"]!)
 }
 
 access(all) fun testMultipleUsersCanDeposit() {
@@ -86,7 +83,7 @@ access(all) fun testMultipleUsersCanDeposit() {
     ensurePoolExists()
     
     let initialTotals = getPoolTotals(poolID)
-    let initialDeposited = initialTotals["totalDeposited"]!
+    let initialStaked = initialTotals["allocatedSavings"]!
     
     // Create multiple users
     let user1 = Test.createAccount()
@@ -100,13 +97,13 @@ access(all) fun testMultipleUsersCanDeposit() {
     
     // Verify pool totals include both deposits
     let finalTotals = getPoolTotals(poolID)
-    Test.assertEqual(initialDeposited + (depositAmount * 2.0), finalTotals["totalDeposited"]!)
+    Test.assertEqual(initialStaked + (depositAmount * 2.0), finalTotals["allocatedSavings"]!)
     
     // Verify each user has correct balance
     let user1Balance = getUserPoolBalance(user1.address, poolID)
     let user2Balance = getUserPoolBalance(user2.address, poolID)
-    Test.assertEqual(depositAmount, user1Balance["deposits"]!)
-    Test.assertEqual(depositAmount, user2Balance["deposits"]!)
+    Test.assertEqual(depositAmount, user1Balance["totalBalance"]!)
+    Test.assertEqual(depositAmount, user2Balance["totalBalance"]!)
 }
 
 // ============================================================================

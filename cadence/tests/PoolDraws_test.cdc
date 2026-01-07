@@ -129,7 +129,7 @@ access(all) fun testPrizeIsReinvestedIntoDeposits() {
     // Verify prize was reinvested
     let finalPrizes = getUserPrizes(participant.address, poolID)
     let expectedDeposits = depositAmount + prizeAmount
-    Test.assertEqual(expectedDeposits, finalPrizes["deposits"]!)
+    Test.assertEqual(expectedDeposits, finalPrizes["totalBalance"]!)
 }
 
 // ============================================================================

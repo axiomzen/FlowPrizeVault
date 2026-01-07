@@ -267,6 +267,22 @@ access(all) contract PrizeSavings {
     /// @param adminUUID - UUID of the Admin resource that created the pool (audit trail)
     access(all) event PoolCreatedByAdmin(poolID: UInt64, assetType: String, strategy: String, adminUUID: UInt64)
     
+    /// Emitted when admin performs storage cleanup on a pool.
+    /// @param poolID - ID of the pool being cleaned
+    /// @param ghostReceiversCleaned - Number of 0-share receivers unregistered
+    /// @param userSharesCleaned - Number of 0-value userShares entries removed
+    /// @param pendingNFTClaimsCleaned - Number of empty pendingNFTClaims arrays removed
+    /// @param adminUUID - UUID of the Admin resource performing cleanup (audit trail)
+    access(all) event PoolStorageCleanedUp(
+        poolID: UInt64,
+        ghostReceiversCleaned: Int,
+        userSharesCleaned: Int,
+        pendingNFTClaimsCleaned: Int,
+        nextIndex: Int,
+        totalReceivers: Int,
+        adminUUID: UInt64
+    )
+    
     // ============================================================
     // EVENTS - Pool State Changes
     // ============================================================
@@ -1084,6 +1100,49 @@ access(all) contract PrizeSavings {
             return actualAmount
         }
 
+        /// Cleans up stale dictionary entries and ghost receivers to manage storage growth.
+        /// 
+        /// This function should be called periodically (e.g., after each draw or weekly) to:
+        /// 1. Remove "ghost" receivers (0-share users still in registeredReceiverList)
+        /// 2. Clean up userShares entries with 0.0 value
+        /// 3. Remove empty pendingNFTClaims arrays
+        /// 
+        /// GAS OPTIMIZATION:
+        /// - Uses forEachKey instead of .keys (avoids O(n) memory copy)
+        /// - All cleanups have limits for gas management
+        /// 
+        /// Uses cursor-based batching to avoid gas limits - call multiple times with
+        /// increasing startIndex until nextIndex >= totalReceivers in the result.
+        /// 
+        /// @param poolID - ID of the pool to clean up
+        /// @param startIndex - Index in registeredReceiverList to start iterating from (0 for first call)
+        /// @param limit - Max receivers to process per call (for gas management)
+        /// @return CleanupResult with counts and nextIndex for continuation
+        access(ConfigOps) fun cleanupPoolStaleEntries(
+            poolID: UInt64,
+            startIndex: Int,
+            limit: Int
+        ): {String: Int} {
+            pre {
+                startIndex >= 0: "Start index must be non-negative"
+                limit > 0: "Limit must be positive"
+            }
+            let poolRef = PrizeSavings.getPoolInternal(poolID)
+            let result = poolRef.cleanupStaleEntries(startIndex: startIndex, limit: limit)
+            
+            emit PoolStorageCleanedUp(
+                poolID: poolID,
+                ghostReceiversCleaned: result["ghostReceivers"] ?? 0,
+                userSharesCleaned: result["userShares"] ?? 0,
+                pendingNFTClaimsCleaned: result["pendingNFTClaims"] ?? 0,
+                nextIndex: result["nextIndex"] ?? 0,
+                totalReceivers: result["totalReceivers"] ?? 0,
+                adminUUID: self.uuid
+            )
+            
+            return result
+        }
+
     }
     
     /// Storage path for the Admin resource.
@@ -1171,13 +1230,19 @@ access(all) contract PrizeSavings {
         }
         
         /// Calculates distribution by multiplying total by each percentage.
+        /// Treasury receives the remainder to ensure sum == totalAmount (handles UFix64 rounding).
         /// @param totalAmount - Total yield to distribute
         /// @return DistributionPlan with proportional amounts
         access(all) fun calculateDistribution(totalAmount: UFix64): DistributionPlan {
+            let savings = totalAmount * self.savingsPercent
+            let lottery = totalAmount * self.lotteryPercent
+            // Treasury gets the remainder to ensure sum == totalAmount
+            let treasury = totalAmount - savings - lottery
+            
             return DistributionPlan(
-                savings: totalAmount * self.savingsPercent,
-                lottery: totalAmount * self.lotteryPercent,
-                treasury: totalAmount * self.treasuryPercent
+                savings: savings,
+                lottery: lottery,
+                treasury: treasury
             )
         }
         
@@ -1749,6 +1814,42 @@ access(all) contract PrizeSavings {
         access(all) view fun getUserShares(receiverID: UInt64): UFix64 {
             return self.userShares[receiverID] ?? 0.0
         }
+        
+        /// Removes a user's share entry from the dictionary.
+        /// Used by admin cleanup to remove stale 0-value entries.
+        /// @param receiverID - User's receiver ID to remove
+        access(contract) fun removeUserShares(receiverID: UInt64) {
+            let _ = self.userShares.remove(key: receiverID)
+        }
+        
+        /// Cleans up zero-share entries using forEachKey (avoids .keys memory copy).
+        /// @param limit - Maximum entries to process (for gas management)
+        /// @return Number of entries cleaned
+        access(contract) fun cleanupZeroShareEntries(limit: Int): Int {
+            // Collect keys to check (can't access self inside closure)
+            var keysToCheck: [UInt64] = []
+            var count = 0
+            
+            self.userShares.forEachKey(fun (key: UInt64): Bool {
+                if count >= limit {
+                    return false  // Early exit for gas management
+                }
+                keysToCheck.append(key)
+                count = count + 1
+                return true
+            })
+            
+            // Check and remove zero entries
+            var cleaned = 0
+            for key in keysToCheck {
+                if self.userShares[key] == 0.0 {
+                    let _ = self.userShares.remove(key: key)
+                    cleaned = cleaned + 1
+                }
+            }
+            
+            return cleaned
+        }
     }
     
     // ============================================================
@@ -1949,6 +2050,46 @@ access(all) contract PrizeSavings {
                 return <- nftsRef.remove(at: nftIndex)
             }
             panic("Failed to access pending NFT claims. receiverID: ".concat(receiverID.toString()).concat(", nftIndex: ").concat(nftIndex.toString()))
+        }
+        
+        /// Removes a receiver's pending NFT claims entry from the dictionary.
+        /// Used by admin cleanup to remove empty arrays.
+        /// @param receiverID - Receiver ID to remove
+        access(contract) fun removePendingNFTClaims(receiverID: UInt64) {
+            if let emptyArray <- self.pendingNFTClaims.remove(key: receiverID) {
+                destroy emptyArray
+            }
+        }
+        
+        /// Cleans up empty pendingNFTClaims entries using forEachKey (avoids .keys memory copy).
+        /// @param limit - Maximum entries to process (for gas management)
+        /// @return Number of entries cleaned
+        access(contract) fun cleanupEmptyNFTClaimEntries(limit: Int): Int {
+            // Collect keys to check (can't access self inside closure)
+            var keysToCheck: [UInt64] = []
+            var count = 0
+            
+            self.pendingNFTClaims.forEachKey(fun (key: UInt64): Bool {
+                if count >= limit {
+                    return false  // Early exit for gas management
+                }
+                keysToCheck.append(key)
+                count = count + 1
+                return true
+            })
+            
+            // Check and remove empty entries
+            var cleaned = 0
+            for key in keysToCheck {
+                if self.pendingNFTClaims[key]?.length == 0 {
+                    if let emptyArray <- self.pendingNFTClaims.remove(key: key) {
+                        destroy emptyArray
+                    }
+                    cleaned = cleaned + 1
+                }
+            }
+            
+            return cleaned
         }
     }
     
@@ -2764,10 +2905,6 @@ access(all) contract PrizeSavings {
         // USER TRACKING STATE
         // ============================================================
         
-        /// Mapping of receiverID to their "principal" (deposits + prizes, excludes interest).
-        /// This is the "no-loss guarantee" - minimum users can withdraw.
-        access(self) let receiverDeposits: {UInt64: UFix64}
-        
         /// Mapping of receiverID to their lifetime lottery winnings (cumulative).
         access(self) let receiverTotalEarnedPrizes: {UInt64: UFix64}
         
@@ -2795,7 +2932,7 @@ access(all) contract PrizeSavings {
         // 
         // KEY RELATIONSHIPS:
         // 
-        // totalDeposited: Sum of user deposits + auto-compounded lottery prizes
+        // allocatedSavings: Sum of user deposits + auto-compounded lottery prizes
         //   - Excludes savings interest (interest is tracked in share price)
         //   - Updated on: deposit (+), prize awarded (+), withdraw (-)
         //   - This is the "no-loss guarantee" amount
@@ -2822,11 +2959,7 @@ access(all) contract PrizeSavings {
         //   - Transferred to recipient or unclaimed vault at draw time
         // 
         // ============================================================
-        
-        /// Sum of user deposits + auto-compounded lottery prizes.
-        /// This is the "no-loss guarantee"
-        access(all) var totalDeposited: UFix64
-        
+
         /// Timestamp of the last completed lottery draw.
         access(all) var lastDrawTimestamp: UFix64
         
@@ -2915,7 +3048,6 @@ access(all) contract PrizeSavings {
             self.consecutiveWithdrawFailures = 0
             
             // Initialize user tracking
-            self.receiverDeposits = {}
             self.receiverTotalEarnedPrizes = {}
             self.registeredReceivers = {}
             self.registeredReceiverList = []
@@ -2923,7 +3055,6 @@ access(all) contract PrizeSavings {
             self.sponsorReceivers = {}
             
             // Initialize accounting
-            self.totalDeposited = 0.0
             self.allocatedSavings = 0.0
             self.lastDrawTimestamp = 0.0
             self.allocatedLotteryYield = 0.0
@@ -2995,9 +3126,77 @@ access(all) contract PrizeSavings {
             }
             
             // Remove last element (O(1))
-            self.registeredReceiverList.removeLast()
+            let _removedReceiver = self.registeredReceiverList.removeLast()
             // Remove from dictionary
-            self.registeredReceivers.remove(key: receiverID)
+            let _removedIndex = self.registeredReceivers.remove(key: receiverID)
+        }
+        
+        /// Cleans up stale dictionary entries and ghost receivers to manage storage growth.
+        /// 
+        /// Handles:
+        /// 1. Ghost receivers - users with 0 shares still in registeredReceiverList
+        /// 2. userShares entries with 0.0 value
+        /// 3. Empty pendingNFTClaims arrays
+        /// 
+        /// IMPORTANT: Cannot be called during active draw processing (would corrupt indices).
+        /// Should be called periodically (e.g., after draws, weekly) by admin.
+        /// Uses limit to avoid gas limits - call multiple times if needed.
+        /// 
+        /// GAS OPTIMIZATION:
+        /// - Uses forEachKey instead of .keys (avoids O(n) memory copy)
+        /// - All cleanups have limits for gas management
+        /// 
+        /// @param limit - Max entries to process per cleanup type
+        /// @return Dictionary with cleanup counts
+        /// Cleans up stale entries with cursor-based iteration.
+        /// 
+        /// @param startIndex - Index to start iterating from in registeredReceiverList
+        /// @param limit - Max receivers to process in this call
+        /// @return Dictionary with cleanup counts and nextIndex for continuation
+        access(contract) fun cleanupStaleEntries(startIndex: Int, limit: Int): {String: Int} {
+            pre {
+                self.pendingSelectionData == nil: "Cannot cleanup during active draw - would corrupt batch indices"
+            }
+            
+            var ghostReceiversCleaned = 0
+            var userSharesCleaned = 0
+            var pendingNFTClaimsCleaned = 0
+            
+            let totalReceivers = self.registeredReceiverList.length
+            
+            // 1. Clean ghost receivers (0-share users still in registeredReceiverList)
+            // Use cursor-based iteration with swap-and-pop awareness
+            var i = startIndex < totalReceivers ? startIndex : totalReceivers
+            var processed = 0
+            
+            while i < self.registeredReceiverList.length && processed < limit {
+                let receiverID = self.registeredReceiverList[i]
+                let shares = self.shareTracker.getUserShares(receiverID: receiverID)
+                
+                if shares == 0.0 {
+                    // This receiver is a ghost - unregister them
+                    self.unregisterReceiver(receiverID: receiverID)
+                    ghostReceiversCleaned = ghostReceiversCleaned + 1
+                    // Don't increment i - swap-and-pop moved a new element here
+                } else {
+                    i = i + 1
+                }
+                processed = processed + 1
+            }
+            
+            // 2. Clean userShares with 0 values (forEachKey avoids .keys memory copy)
+            userSharesCleaned = self.shareTracker.cleanupZeroShareEntries(limit: limit)
+            
+            // 3. Clean empty pendingNFTClaims arrays (forEachKey avoids .keys memory copy)
+            pendingNFTClaimsCleaned = self.lotteryDistributor.cleanupEmptyNFTClaimEntries(limit: limit)
+            
+            return {
+                "ghostReceivers": ghostReceiversCleaned,
+                "userShares": userSharesCleaned,
+                "pendingNFTClaims": pendingNFTClaimsCleaned,
+                "nextIndex": i,
+                "totalReceivers": self.registeredReceiverList.length
+            }
         }
 
         // ============================================================
@@ -3271,7 +3470,7 @@ access(all) contract PrizeSavings {
         /// 2. Process any pending yield rewards
         /// 3. Mint shares proportional to deposit
         /// 4. Update TWAB in active round (or mark as gap interactor if round ended)
-        /// 5. Update accounting (receiverDeposits, totalDeposited, allocatedSavings)
+        /// 5. Update accounting (allocatedSavings)
         /// 6. Deposit to yield source
         /// 
         /// TWAB HANDLING:
@@ -3345,12 +3544,7 @@ access(all) contract PrizeSavings {
                 )
             }
             
-            // Update receiver's principal (deposits + prizes)
-            let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
-            self.receiverDeposits[receiverID] = currentPrincipal + amount
-            
-            // Update pool totals
-            self.totalDeposited = self.totalDeposited + amount
+            // Update pool total
             self.allocatedSavings = self.allocatedSavings + amount
             
             // Deposit to yield source to start earning
@@ -3414,12 +3608,7 @@ access(all) contract PrizeSavings {
             // Mark as sponsor (lottery-ineligible)
             self.sponsorReceivers[receiverID] = true
             
-            // Update receiver's principal (deposits + prizes)
-            let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
-            self.receiverDeposits[receiverID] = currentPrincipal + amount
-            
-            // Update pool totals
-            self.totalDeposited = self.totalDeposited + amount
+            // Update pool total
             self.allocatedSavings = self.allocatedSavings + amount
             
             // Deposit to yield source to start earning
@@ -3443,7 +3632,7 @@ access(all) contract PrizeSavings {
         /// 4. Withdraw from yield source
         /// 5. Burn shares proportional to withdrawal
         /// 6. Update TWAB in active round (or mark as gap interactor if round ended)
-        /// 7. Update accounting (receiverDeposits, totalDeposited, allocatedSavings)
+        /// 7. Update accounting (allocatedSavings)
         /// 
         /// TWAB HANDLING:
         /// - If in active round: recordShareChange() accumulates TWAB up to now
@@ -3568,30 +3757,18 @@ access(all) contract PrizeSavings {
                 )
             }
             
-            // Calculate how much of withdrawal is principal vs interest
-            // Interest is withdrawn first (reduces less from receiverDeposits)
-            let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
-            let interestEarned: UFix64 = totalBalance > currentPrincipal ? totalBalance - currentPrincipal : 0.0
-            let principalWithdrawn: UFix64 = actualWithdrawn > interestEarned ? actualWithdrawn - interestEarned : 0.0
-            
-            // Update receiver's principal tracking
-            if principalWithdrawn > 0.0 {
-                self.receiverDeposits[receiverID] = currentPrincipal - principalWithdrawn
-                self.totalDeposited = self.totalDeposited - principalWithdrawn
-            }
-            
-            // Update pool total (includes both principal and interest)
+            // Update pool total
             self.allocatedSavings = self.allocatedSavings - actualWithdrawn
             
             // If user has withdrawn to 0 shares, unregister them
             // BUT NOT if a draw is in progress - unregistering during batch processing
             // would corrupt indices (swap-and-pop). Ghost users with 0 shares get 0 weight.
-            // They'll be cleaned up after the draw completes.
+            // They can be cleaned up via admin cleanupStaleEntries() after the draw.
             if newShares == 0.0 && self.pendingSelectionData == nil {
                 // Handle sponsors vs regular receivers differently
                 if self.sponsorReceivers[receiverID] == true {
                     // Clean up sponsor mapping
-                    self.sponsorReceivers.remove(key: receiverID)
+                    let _ = self.sponsorReceivers.remove(key: receiverID)
                 } else {
                     // Unregister regular receiver from lottery
                     self.unregisterReceiver(receiverID: receiverID)
@@ -3923,10 +4100,6 @@ access(all) contract PrizeSavings {
             
             // Get the actual end time set by startDraw() - this is when we finalized the round
             let roundEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
-            let roundStartTime = pendingRound.getStartTime()
-            
-            // Calculate actual duration (may differ from configured if round was extended/shortened)
-            let actualDuration = roundEndTime > roundStartTime ? roundEndTime - roundStartTime : 0.0
             
             // Use snapshot count - only process users who existed at startDraw time
             let snapshotCount = selectionData.getSnapshotReceiverCount()
@@ -4191,12 +4364,7 @@ access(all) contract PrizeSavings {
                     atTime: now
                 )
                 
-                // Update winner's principal (prizes count as deposits for no-loss guarantee)
-                let currentPrincipal = self.receiverDeposits[winnerID] ?? 0.0
-                self.receiverDeposits[winnerID] = currentPrincipal + prizeAmount
-                
-                // Update pool totals
-                self.totalDeposited = self.totalDeposited + prizeAmount
+                // Update pool total
                 self.allocatedSavings = self.allocatedSavings + prizeAmount
                 
                 // Re-deposit prize to yield source (continues earning)
@@ -4483,13 +4651,8 @@ access(all) contract PrizeSavings {
             return self.activeRound.hasEnded()
         }
         
-        /// Returns the "no-loss guarantee" amount: user deposits + auto-compounded lottery prizes
-        /// This is the minimum amount users can always withdraw (excludes savings interest)
-        access(all) view fun getReceiverDeposit(receiverID: UInt64): UFix64 {
-            return self.receiverDeposits[receiverID] ?? 0.0
-        }
-        
-        /// Returns total withdrawable balance (principal + interest)
+        /// Returns total withdrawable balance for a receiver.
+        /// This is the receiver's shares × current share price.
         access(all) view fun getReceiverTotalBalance(receiverID: UInt64): UFix64 {
             return self.shareTracker.getUserAssetValue(receiverID: receiverID)
         }
@@ -4498,17 +4661,6 @@ access(all) contract PrizeSavings {
         /// This is a cumulative counter that increases when prizes are won.
         access(all) view fun getReceiverTotalEarnedPrizes(receiverID: UInt64): UFix64 {
             return self.receiverTotalEarnedPrizes[receiverID] ?? 0.0
-        }
-        
-        /// Returns current pending savings interest (not yet withdrawn).
-        /// This is NOT lifetime total - it's the current accrued interest that
-        /// will be included in the next withdrawal.
-        /// Formula: totalBalance - (deposits + prizes)
-        /// Note: "principal" here includes both user deposits AND auto-compounded lottery prizes
-        access(all) view fun getPendingSavingsInterest(receiverID: UInt64): UFix64 {
-            let principal = self.receiverDeposits[receiverID] ?? 0.0  // deposits + prizes
-            let totalBalance = self.shareTracker.getUserAssetValue(receiverID: receiverID)
-            return totalBalance > principal ? totalBalance - principal : 0.0
         }
         
         access(all) view fun getUserSavingsShares(receiverID: UInt64): UFix64 {
@@ -4677,13 +4829,6 @@ access(all) contract PrizeSavings {
         
         access(all) view fun getTotalSavingsDistributed(): UFix64 {
             return self.shareTracker.getTotalDistributed()
-        }
-        
-        access(all) view fun getCurrentReinvestedSavings(): UFix64 {
-            if self.allocatedSavings > self.totalDeposited {
-                return self.allocatedSavings - self.totalDeposited
-            }
-            return 0.0
         }
         
         access(all) fun getAvailableYieldRewards(): UFix64 {
@@ -4864,37 +5009,23 @@ access(all) contract PrizeSavings {
     // POOL BALANCE STRUCT
     // ============================================================
     
-    /// Represents a user's balance breakdown in a pool.
-    /// Provides clear separation of deposit principal, earned prizes, and interest.
+    /// Represents a user's balance in a pool.
+    /// Note: Deposit history is tracked off-chain via events.
     access(all) struct PoolBalance {
-        /// User deposits + auto-compounded lottery prizes.
-        /// This is the "no-loss guarantee" amount - minimum user can withdraw.
-        /// Decreases only on withdrawal.
-        access(all) let deposits: UFix64
-        
-        /// Lifetime total of lottery prizes won (cumulative counter).
-        /// This never decreases - useful for leaderboards and statistics.
-        /// Note: Prizes are included in 'deposits' since they auto-compound.
-        access(all) let totalEarnedPrizes: UFix64
-        
-        /// Current pending savings interest (yield earned but not yet withdrawn).
-        /// This is NOT lifetime interest - it's current accrued interest.
-        /// Included in next withdrawal.
-        access(all) let savingsEarned: UFix64
-        
-        /// Total withdrawable balance: deposits + savingsEarned.
+        /// Total withdrawable balance (shares × sharePrice).
         /// This is what the user can actually withdraw right now.
         access(all) let totalBalance: UFix64
         
+        /// Lifetime total of lottery prizes won (cumulative counter).
+        /// This never decreases - useful for leaderboards and statistics.
+        access(all) let totalEarnedPrizes: UFix64
+        
         /// Creates a PoolBalance summary.
-        /// @param deposits - Principal amount (deposits + prizes)
+        /// @param totalBalance - Current withdrawable balance
         /// @param totalEarnedPrizes - Lifetime prize winnings
-        /// @param savingsEarned - Current pending interest
-        init(deposits: UFix64, totalEarnedPrizes: UFix64, savingsEarned: UFix64) {
-            self.deposits = deposits
+        init(totalBalance: UFix64, totalEarnedPrizes: UFix64) {
+            self.totalBalance = totalBalance
             self.totalEarnedPrizes = totalEarnedPrizes
-            self.savingsEarned = savingsEarned
-            self.totalBalance = deposits + savingsEarned
         }
     }
     
@@ -5036,34 +5167,22 @@ access(all) contract PrizeSavings {
             return self.uuid
         }
         
-        /// Returns pending savings interest for this user in a pool.
-        /// This is yield earned but not yet withdrawn.
-        /// @param poolID - Pool ID to check
-        access(all) view fun getPendingSavingsInterest(poolID: UInt64): UFix64 {
-            if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
-                return poolRef.getPendingSavingsInterest(receiverID: self.uuid)
-            }
-            return 0.0
-        }
-        
         /// Returns a complete balance breakdown for this user in a pool.
-        /// Includes deposits, lifetime prizes, and pending interest.
         /// @param poolID - Pool ID to check
-        /// @return PoolBalance struct with all balance components
+        /// @return PoolBalance struct with balance and lifetime prizes
         access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
             // Return zero balance if not registered
             if self.registeredPools[poolID] == nil {
-                return PoolBalance(deposits: 0.0, totalEarnedPrizes: 0.0, savingsEarned: 0.0)
+                return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
             }
             
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
                 return PoolBalance(
-                    deposits: poolRef.getReceiverDeposit(receiverID: self.uuid),
-                    totalEarnedPrizes: poolRef.getReceiverTotalEarnedPrizes(receiverID: self.uuid),
-                    savingsEarned: poolRef.getPendingSavingsInterest(receiverID: self.uuid)
+                    totalBalance: poolRef.getReceiverTotalBalance(receiverID: self.uuid),
+                    totalEarnedPrizes: poolRef.getReceiverTotalEarnedPrizes(receiverID: self.uuid)
                 )
             }
-            return PoolBalance(deposits: 0.0, totalEarnedPrizes: 0.0, savingsEarned: 0.0)
+            return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
         }
         
         /// Returns the user's projected entry count for the current draw.
@@ -5204,17 +5323,16 @@ access(all) contract PrizeSavings {
         access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
             // Return zero balance if not registered
             if self.registeredPools[poolID] == nil {
-                return PoolBalance(deposits: 0.0, totalEarnedPrizes: 0.0, savingsEarned: 0.0)
+                return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
             }
             
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
                 return PoolBalance(
-                    deposits: poolRef.getReceiverDeposit(receiverID: self.uuid),
-                    totalEarnedPrizes: 0.0,  // Sponsors cannot win prizes
-                    savingsEarned: poolRef.getPendingSavingsInterest(receiverID: self.uuid)
+                    totalBalance: poolRef.getReceiverTotalBalance(receiverID: self.uuid),
+                    totalEarnedPrizes: 0.0  // Sponsors cannot win prizes
                 )
             }
-            return PoolBalance(deposits: 0.0, totalEarnedPrizes: 0.0, savingsEarned: 0.0)
+            return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
         }
     }
     
