@@ -2,15 +2,6 @@ import "PrizeSavings"
 
 /// Debug script to get all entry-related values for a user
 access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} {
-    let account = getAccount(userAddress)
-    
-    // Get the user's receiver ID from their collection
-    let collectionRef = account.capabilities.borrow<&PrizeSavings.PoolPositionCollection>(
-        PrizeSavings.PoolPositionCollectionPublicPath
-    ) ?? panic("No PoolPositionCollection found at address")
-    
-    let receiverID = collectionRef.getReceiverID()
-    
     // Borrow the pool
     let poolRef = PrizeSavings.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
@@ -19,10 +10,10 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} 
     let config = poolRef.getConfig()
     let roundDuration = poolRef.getRoundDuration()
     
-    // Get TWAB and balance info
-    let userTimeWeightedShares = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
-    let userSavingsValue = poolRef.getUserSavingsValue(receiverID: receiverID)
-    let userTotalBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
+    // Get TWAB and balance info using user address directly
+    let userTimeWeightedShares = poolRef.getUserTimeWeightedShares(userAddress: userAddress)
+    let userSavingsValue = poolRef.getUserSavingsValue(userAddress: userAddress)
+    let userTotalBalance = poolRef.getUserTotalBalance(userAddress: userAddress)
     
     // Get round info
     let roundStartTime = poolRef.getRoundStartTime()
@@ -32,14 +23,14 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} 
     let isRoundEnded = poolRef.isRoundEnded()
     
     // Get entries (projected)
-    let entries = poolRef.getUserEntries(receiverID: receiverID)
+    let entries = poolRef.getUserEntries(userAddress: userAddress)
     
     // Get draw progress
     let drawProgress = poolRef.getDrawProgressPercent()
     let timeUntilDraw = poolRef.getTimeUntilNextDraw()
     
     return {
-        "receiverID": receiverID,
+        "userAddress": userAddress,
         "roundDuration": roundDuration,
         "userTimeWeightedShares": userTimeWeightedShares,
         "userSavingsValue": userSavingsValue,

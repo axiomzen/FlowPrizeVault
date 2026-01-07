@@ -90,7 +90,7 @@ access(all) fun main(poolID: UInt64): PoolStats {
         sharePrice: poolRef.getSavingsSharePrice(),
         totalShares: poolRef.getTotalSavingsShares(),
         totalAssets: poolRef.getTotalSavingsAssets(),
-        registeredUserCount: poolRef.getRegisteredReceiverIDs().length,
+        registeredUserCount: poolRef.getRegisteredUsers().length,
         isDrawInProgress: poolRef.isDrawInProgress(),
         canDrawNow: poolRef.canDrawNow(),
         lastDrawTimestamp: poolRef.lastDrawTimestamp,

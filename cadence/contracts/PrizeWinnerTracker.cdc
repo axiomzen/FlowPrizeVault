@@ -27,7 +27,7 @@ access(all) contract PrizeWinnerTracker {
     access(all) event WinnerRecorded(
         poolID: UInt64,
         round: UInt64,
-        winnerReceiverID: UInt64,
+        winner: Address,
         amount: UFix64,
         nftIDs: [UInt64],
         timestamp: UFix64,
@@ -41,7 +41,7 @@ access(all) contract PrizeWinnerTracker {
     access(all) struct WinnerRecord {
         access(all) let poolID: UInt64
         access(all) let round: UInt64
-        access(all) let winnerReceiverID: UInt64
+        access(all) let winner: Address
         access(all) let amount: UFix64
         access(all) let nftIDs: [UInt64]
         access(all) let timestamp: UFix64
@@ -50,7 +50,7 @@ access(all) contract PrizeWinnerTracker {
         init(
             poolID: UInt64,
             round: UInt64,
-            winnerReceiverID: UInt64,
+            winner: Address,
             amount: UFix64,
             nftIDs: [UInt64],
             timestamp: UFix64,
@@ -58,7 +58,7 @@ access(all) contract PrizeWinnerTracker {
         ) {
             self.poolID = poolID
             self.round = round
-            self.winnerReceiverID = winnerReceiverID
+            self.winner = winner
             self.amount = amount
             self.nftIDs = nftIDs
             self.timestamp = timestamp
@@ -75,7 +75,7 @@ access(all) contract PrizeWinnerTracker {
         access(all) fun recordWinner(
             poolID: UInt64,
             round: UInt64,
-            winnerReceiverID: UInt64,
+            winner: Address,
             amount: UFix64,
             nftIDs: [UInt64]
         )
@@ -112,14 +112,14 @@ access(all) contract PrizeWinnerTracker {
         access(all) fun recordWinner(
             poolID: UInt64,
             round: UInt64,
-            winnerReceiverID: UInt64,
+            winner: Address,
             amount: UFix64,
             nftIDs: [UInt64]
         ) {
             let record = WinnerRecord(
                 poolID: poolID,
                 round: round,
-                winnerReceiverID: winnerReceiverID,
+                winner: winner,
                 amount: amount,
                 nftIDs: nftIDs,
                 timestamp: getCurrentBlock().timestamp,
@@ -154,7 +154,7 @@ access(all) contract PrizeWinnerTracker {
             emit WinnerRecorded(
                 poolID: poolID,
                 round: round,
-                winnerReceiverID: winnerReceiverID,
+                winner: winner,
                 amount: amount,
                 nftIDs: nftIDs,
                 timestamp: record.timestamp,

@@ -293,8 +293,8 @@ fun getSponsorEntries(_ sponsorAddress: Address, _ poolID: UInt64): UFix64 {
 }
 
 access(all)
-fun isSponsor(_ poolID: UInt64, _ receiverID: UInt64): Bool {
-    let scriptResult = _executeScript("../scripts/test/is_sponsor.cdc", [poolID, receiverID])
+fun isSponsor(_ poolID: UInt64, _ userAddress: Address): Bool {
+    let scriptResult = _executeScript("../scripts/test/is_sponsor.cdc", [poolID, userAddress])
     Test.expect(scriptResult, Test.beSucceeded())
     return scriptResult.returnValue! as! Bool
 }

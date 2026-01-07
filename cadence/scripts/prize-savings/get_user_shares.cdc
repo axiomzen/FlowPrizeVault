@@ -2,7 +2,7 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 
 /// User shares information structure
 access(all) struct UserSharesInfo {
-    access(all) let receiverID: UInt64
+    access(all) let userAddress: Address
     access(all) let shares: UFix64
     access(all) let shareValue: UFix64
     access(all) let timeWeightedStake: UFix64
@@ -11,7 +11,7 @@ access(all) struct UserSharesInfo {
     access(all) let bonusWeight: UFix64
     
     init(
-        receiverID: UInt64,
+        userAddress: Address,
         shares: UFix64,
         shareValue: UFix64,
         timeWeightedStake: UFix64,
@@ -19,7 +19,7 @@ access(all) struct UserSharesInfo {
         totalBalance: UFix64,
         bonusWeight: UFix64
     ) {
-        self.receiverID = receiverID
+        self.userAddress = userAddress
         self.shares = shares
         self.shareValue = shareValue
         self.timeWeightedStake = timeWeightedStake
@@ -37,35 +37,14 @@ access(all) struct UserSharesInfo {
 ///
 /// Returns: UserSharesInfo struct with detailed share information
 access(all) fun main(address: Address, poolID: UInt64): UserSharesInfo {
-    // Get the user's collection to find their receiverID
-    let collectionRef = getAccount(address)
-        .capabilities.borrow<&PrizeSavings.PoolPositionCollection>(
-            PrizeSavings.PoolPositionCollectionPublicPath
-        ) ?? panic("No collection found at address")
-    
     let poolRef = PrizeSavings.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
     
-    // Get the balance info
-    let balance = collectionRef.getPoolBalance(poolID: poolID)
-    
-    // Get receiverID from the collection
-    let receiverID = collectionRef.getReceiverID()
-    
     // Check if user is registered in pool
-    let registeredIDs = poolRef.getRegisteredReceiverIDs()
-    var isRegistered = false
-    for id in registeredIDs {
-        if id == receiverID {
-            isRegistered = true
-            break
-        }
-    }
-    
-    if !isRegistered {
+    if !poolRef.isUserRegistered(userAddress: address) {
         // User not found in pool
         return UserSharesInfo(
-            receiverID: 0,
+            userAddress: address,
             shares: 0.0,
             shareValue: 0.0,
             timeWeightedStake: 0.0,
@@ -76,12 +55,12 @@ access(all) fun main(address: Address, poolID: UInt64): UserSharesInfo {
     }
     
     return UserSharesInfo(
-        receiverID: receiverID,
-        shares: poolRef.getUserSavingsShares(receiverID: receiverID),
-        shareValue: poolRef.getUserSavingsValue(receiverID: receiverID),
-        timeWeightedStake: poolRef.getUserTimeWeightedShares(receiverID: receiverID),
-        totalEarnedPrizes: poolRef.getReceiverTotalEarnedPrizes(receiverID: receiverID),
-        totalBalance: poolRef.getReceiverTotalBalance(receiverID: receiverID),
-        bonusWeight: poolRef.getBonusWeight(receiverID: receiverID)
+        userAddress: address,
+        shares: poolRef.getUserSavingsShares(userAddress: address),
+        shareValue: poolRef.getUserSavingsValue(userAddress: address),
+        timeWeightedStake: poolRef.getUserTimeWeightedShares(userAddress: address),
+        totalEarnedPrizes: poolRef.getUserTotalEarnedPrizes(userAddress: address),
+        totalBalance: poolRef.getUserTotalBalance(userAddress: address),
+        bonusWeight: poolRef.getBonusWeight(userAddress: address)
     )
 }

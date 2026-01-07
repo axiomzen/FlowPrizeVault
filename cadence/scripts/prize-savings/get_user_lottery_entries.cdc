@@ -3,7 +3,7 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 /// Lottery entries (normalized TWAB weight) information for a user.
 /// With normalized TWAB, entries ≈ average shares held over the round.
 access(all) struct UserLotteryEntries {
-    access(all) let receiverID: UInt64
+    access(all) let userAddress: Address
     access(all) let currentBalance: UFix64
     access(all) let projectedEntries: UFix64
     /// Bonus weight assigned by admin (still fully functional)
@@ -20,7 +20,7 @@ access(all) struct UserLotteryEntries {
     access(all) let isRoundEnded: Bool
     
     init(
-        receiverID: UInt64,
+        userAddress: Address,
         currentBalance: UFix64,
         projectedEntries: UFix64,
         bonusWeight: UFix64,
@@ -33,7 +33,7 @@ access(all) struct UserLotteryEntries {
         roundEndTime: UFix64,
         isRoundEnded: Bool
     ) {
-        self.receiverID = receiverID
+        self.userAddress = userAddress
         self.currentBalance = currentBalance
         self.projectedEntries = projectedEntries
         self.bonusWeight = bonusWeight
@@ -56,31 +56,13 @@ access(all) struct UserLotteryEntries {
 ///
 /// Returns: UserLotteryEntries struct with current and projected lottery weight
 access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
-    // Get the user's collection
-    let collectionRef = getAccount(address)
-        .capabilities.borrow<&PrizeSavings.PoolPositionCollection>(
-            PrizeSavings.PoolPositionCollectionPublicPath
-        ) ?? panic("No collection found at address")
-    
     let poolRef = PrizeSavings.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
     
-    // Get receiverID from the collection
-    let receiverID = collectionRef.getReceiverID()
-    
     // Check if user is registered in pool
-    let registeredIDs = poolRef.getRegisteredReceiverIDs()
-    var isRegistered = false
-    for id in registeredIDs {
-        if id == receiverID {
-            isRegistered = true
-            break
-        }
-    }
-    
-    if !isRegistered {
+    if !poolRef.isUserRegistered(userAddress: address) {
         return UserLotteryEntries(
-            receiverID: 0,
+            userAddress: address,
             currentBalance: 0.0,
             projectedEntries: 0.0,
             bonusWeight: 0.0,
@@ -101,23 +83,23 @@ access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
     let secondsUntilDraw = poolRef.getTimeUntilNextDraw()
     
     // Current lottery entries (normalized TWAB = average shares)
-    let currentBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
+    let currentBalance = poolRef.getUserTotalBalance(userAddress: address)
     
     // Current entries (normalized TWAB projected to round end)
-    let projectedEntries = poolRef.getUserEntries(receiverID: receiverID)
+    let projectedEntries = poolRef.getUserEntries(userAddress: address)
     
     // Get normalized TWAB (already in "average shares" units)
-    let projectedNormalizedWeight = poolRef.getUserTimeWeightedShares(receiverID: receiverID)
+    let projectedNormalizedWeight = poolRef.getUserTimeWeightedShares(userAddress: address)
     
     // Bonus weight info - with normalized TWAB, bonus is NOT scaled by duration
-    let bonusWeight = poolRef.getBonusWeight(receiverID: receiverID)
+    let bonusWeight = poolRef.getBonusWeight(userAddress: address)
     // Keep scaledBonusAtDraw for backwards compatibility, but with normalized TWAB
     // it equals bonusWeight (no scaling needed)
     let scaledBonusAtDraw = bonusWeight
     let totalWeightAtDraw = projectedNormalizedWeight + bonusWeight
     
     return UserLotteryEntries(
-        receiverID: receiverID,
+        userAddress: address,
         currentBalance: currentBalance,
         projectedEntries: projectedEntries,
         bonusWeight: bonusWeight,

@@ -1,14 +1,13 @@
 import "PrizeSavings"
 
-/// Checks if a receiver is a sponsor in a pool.
+/// Checks if a user is a sponsor in a pool.
 /// 
 /// @param poolID - ID of the pool to check
-/// @param receiverID - UUID of the receiver to check
-/// @return true if the receiver is a sponsor, false otherwise
-access(all) fun main(poolID: UInt64, receiverID: UInt64): Bool {
+/// @param userAddress - Address of the user to check
+/// @return true if the user is a sponsor, false otherwise
+access(all) fun main(poolID: UInt64, userAddress: Address): Bool {
     if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
-        return poolRef.isSponsor(receiverID: receiverID)
+        return poolRef.isSponsor(userAddress: userAddress)
     }
     return false
 }
-

@@ -12,22 +12,13 @@ import "PrizeSavings"
 ///   - "shares": Number of shares held
 ///   - "sharePrice": Current share price
 access(all) fun main(userAddress: Address, poolID: UInt64): {String: UFix64} {
-    let account = getAccount(userAddress)
-    
-    let collectionRef = account.capabilities.borrow<&PrizeSavings.PoolPositionCollection>(
-        PrizeSavings.PoolPositionCollectionPublicPath
-    ) ?? panic("No PoolPositionCollection found at address")
-    
     // Get the pool reference
     let poolRef = PrizeSavings.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
     
-    // The collection's UUID is the receiverID
-    let receiverID = collectionRef.uuid
-    
-    // Get actual balance from the pool
-    let actualBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
-    let shares = poolRef.getUserSavingsShares(receiverID: receiverID)
+    // Get actual balance from the pool using address
+    let actualBalance = poolRef.getUserTotalBalance(userAddress: userAddress)
+    let shares = poolRef.getUserSavingsShares(userAddress: userAddress)
     let sharePrice = poolRef.getSavingsSharePrice()
     
     return {

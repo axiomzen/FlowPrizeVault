@@ -44,7 +44,7 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
         "effectiveShares": totalShares + virtualShares,
         "virtualAssets": virtualAssets,
         "virtualShares": virtualShares,
-        "totalStaked": poolRef.totalStaked,
+        "totalStaked": poolRef.allocatedSavings,
         "totalDistributed": poolRef.getTotalSavingsDistributed()
     }
 }

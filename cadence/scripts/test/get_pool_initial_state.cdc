@@ -23,6 +23,6 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
         "totalSavingsShares": poolRef.getTotalSavingsShares(),
         "totalSavingsAssets": poolRef.getTotalSavingsAssets(),
         "totalSavingsDistributed": poolRef.getTotalSavingsDistributed(),
-        "registeredReceiverCount": poolRef.getRegisteredReceiverIDs().length
+        "registeredReceiverCount": poolRef.getRegisteredUsers().length
     }
 }

@@ -121,24 +121,24 @@ access(all) contract PrizeSavings {
     
     /// Emitted when a user deposits funds into a pool.
     /// @param poolID - Pool receiving the deposit
-    /// @param receiverID - UUID of the user's PoolPositionCollection
+    /// @param depositor - Address of the user depositing
     /// @param amount - Amount deposited
-    access(all) event Deposited(poolID: UInt64, receiverID: UInt64, amount: UFix64)
+    access(all) event Deposited(poolID: UInt64, depositor: Address, amount: UFix64)
     
     /// Emitted when a sponsor deposits funds (lottery-ineligible).
     /// Sponsors earn savings yield but cannot win lottery prizes.
     /// @param poolID - Pool receiving the deposit
-    /// @param receiverID - UUID of the sponsor's SponsorPositionCollection
+    /// @param sponsor - Address of the sponsor depositing
     /// @param amount - Amount deposited
     /// @param shares - Number of shares minted
-    access(all) event SponsorDeposited(poolID: UInt64, receiverID: UInt64, amount: UFix64, shares: UFix64)
+    access(all) event SponsorDeposited(poolID: UInt64, sponsor: Address, amount: UFix64, shares: UFix64)
     
     /// Emitted when a user withdraws funds from a pool.
     /// @param poolID - Pool being withdrawn from
-    /// @param receiverID - UUID of the user's PoolPositionCollection
+    /// @param withdrawer - Address of the user withdrawing
     /// @param requestedAmount - Amount the user requested to withdraw
     /// @param actualAmount - Amount actually withdrawn (may be less if yield source has insufficient liquidity)
-    access(all) event Withdrawn(poolID: UInt64, receiverID: UInt64, requestedAmount: UFix64, actualAmount: UFix64)
+    access(all) event Withdrawn(poolID: UInt64, withdrawer: Address, requestedAmount: UFix64, actualAmount: UFix64)
     
     // ============================================================
     // EVENTS - Reward Processing
@@ -181,10 +181,10 @@ access(all) contract PrizeSavings {
     
     /// Emitted when prizes are awarded to winners.
     /// @param poolID - Pool awarding prizes
-    /// @param winners - Array of winner receiverIDs
+    /// @param winners - Array of winner addresses
     /// @param amounts - Array of prize amounts (parallel to winners)
     /// @param round - Draw round number
-    access(all) event PrizesAwarded(poolID: UInt64, winners: [UInt64], amounts: [UFix64], round: UInt64)
+    access(all) event PrizesAwarded(poolID: UInt64, winners: [Address], amounts: [UFix64], round: UInt64)
     
     /// Emitted when the lottery prize pool receives funding.
     /// @param poolID - Pool receiving funds
@@ -324,30 +324,30 @@ access(all) contract PrizeSavings {
     /// Emitted when a user's bonus lottery weight is set (replaces existing).
     /// Bonus weights increase lottery odds for promotional purposes.
     /// @param poolID - Pool where bonus is being set
-    /// @param receiverID - UUID of the user's PoolPositionCollection receiving the bonus
+    /// @param user - Address of the user receiving the bonus
     /// @param bonusWeight - New bonus weight value (replaces any existing bonus)
     /// @param reason - Human-readable explanation for the bonus (e.g., "referral", "promotion")
     /// @param adminUUID - UUID of the Admin resource setting the bonus (audit trail)
     /// @param timestamp - Block timestamp when the bonus was set
-    access(all) event BonusLotteryWeightSet(poolID: UInt64, receiverID: UInt64, bonusWeight: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64)
+    access(all) event BonusLotteryWeightSet(poolID: UInt64, userAddress: Address, bonusWeight: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64)
     
     /// Emitted when additional bonus weight is added to a user's existing bonus.
     /// @param poolID - Pool where bonus is being added
-    /// @param receiverID - UUID of the user's PoolPositionCollection receiving additional bonus
+    /// @param user - Address of the user receiving additional bonus
     /// @param additionalWeight - Amount of weight being added
     /// @param newTotalBonus - User's new total bonus weight after addition
     /// @param reason - Human-readable explanation for the bonus addition
     /// @param adminUUID - UUID of the Admin resource adding the bonus (audit trail)
     /// @param timestamp - Block timestamp when the bonus was added
-    access(all) event BonusLotteryWeightAdded(poolID: UInt64, receiverID: UInt64, additionalWeight: UFix64, newTotalBonus: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64)
+    access(all) event BonusLotteryWeightAdded(poolID: UInt64, userAddress: Address, additionalWeight: UFix64, newTotalBonus: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64)
     
     /// Emitted when a user's bonus lottery weight is completely removed.
     /// @param poolID - Pool where bonus is being removed
-    /// @param receiverID - UUID of the user's PoolPositionCollection losing the bonus
+    /// @param user - Address of the user losing the bonus
     /// @param previousBonus - Bonus weight that was removed
     /// @param adminUUID - UUID of the Admin resource removing the bonus (audit trail)
     /// @param timestamp - Block timestamp when the bonus was removed
-    access(all) event BonusLotteryWeightRemoved(poolID: UInt64, receiverID: UInt64, previousBonus: UFix64, adminUUID: UInt64, timestamp: UFix64)
+    access(all) event BonusLotteryWeightRemoved(poolID: UInt64, userAddress: Address, previousBonus: UFix64, adminUUID: UInt64, timestamp: UFix64)
     
     // ============================================================
     // EVENTS - NFT Prize Management
@@ -362,27 +362,27 @@ access(all) contract PrizeSavings {
     
     /// Emitted when an NFT prize is awarded to a winner.
     /// @param poolID - Pool awarding the NFT
-    /// @param receiverID - UUID of the winner's PoolPositionCollection
+    /// @param winner - Address of the lottery winner
     /// @param nftID - UUID of the awarded NFT
     /// @param nftType - Type identifier of the NFT
     /// @param round - Draw round number when the NFT was awarded
-    access(all) event NFTPrizeAwarded(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String, round: UInt64)
+    access(all) event NFTPrizeAwarded(poolID: UInt64, winner: Address, nftID: UInt64, nftType: String, round: UInt64)
     
     /// Emitted when an NFT is stored in pending claims for a winner.
     /// NFTs are stored rather than directly transferred since we don't have winner's collection reference.
     /// @param poolID - Pool storing the pending NFT
-    /// @param receiverID - UUID of the winner's PoolPositionCollection
+    /// @param winner - Address of the lottery winner
     /// @param nftID - UUID of the stored NFT
     /// @param nftType - Type identifier of the NFT
     /// @param reason - Explanation for why NFT is pending (e.g., "lottery_win")
-    access(all) event NFTPrizeStored(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String, reason: String)
+    access(all) event NFTPrizeStored(poolID: UInt64, winner: Address, nftID: UInt64, nftType: String, reason: String)
     
     /// Emitted when a winner claims their pending NFT prize.
     /// @param poolID - Pool from which NFT is claimed
-    /// @param receiverID - UUID of the claimant's PoolPositionCollection
+    /// @param claimer - Address of the user claiming the NFT
     /// @param nftID - UUID of the claimed NFT
     /// @param nftType - Type identifier of the NFT
-    access(all) event NFTPrizeClaimed(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String)
+    access(all) event NFTPrizeClaimed(poolID: UInt64, claimer: Address, nftID: UInt64, nftType: String)
     
     /// Emitted when an admin withdraws an NFT prize (before it's awarded).
     /// @param poolID - Pool from which NFT is withdrawn
@@ -454,11 +454,11 @@ access(all) contract PrizeSavings {
     /// Emitted when a withdrawal fails (usually due to yield source liquidity issues).
     /// Multiple consecutive failures may trigger emergency mode.
     /// @param poolID - Pool where withdrawal failed
-    /// @param receiverID - UUID of the user's PoolPositionCollection attempting withdrawal
+    /// @param withdrawer - Address of the user attempting withdrawal
     /// @param amount - Amount the user attempted to withdraw
     /// @param consecutiveFailures - Running count of consecutive withdrawal failures
     /// @param yieldAvailable - Amount currently available in yield source
-    access(all) event WithdrawalFailure(poolID: UInt64, receiverID: UInt64, amount: UFix64, consecutiveFailures: Int, yieldAvailable: UFix64)
+    access(all) event WithdrawalFailure(poolID: UInt64, withdrawer: Address, amount: UFix64, consecutiveFailures: Int, yieldAvailable: UFix64)
     
     // ============================================================
     // EVENTS - Direct Funding
@@ -912,55 +912,55 @@ access(all) contract PrizeSavings {
         /// Bonus weight is added to their TWAB-based weight during draw selection.
         /// Use for promotional campaigns or loyalty rewards.
         /// @param poolID - ID of the pool
-        /// @param receiverID - UUID of the user's PoolPositionCollection
+        /// @param user - Address of the user
         /// @param bonusWeight - Weight to assign (replaces any existing bonus)
         /// @param reason - Human-readable reason for the bonus (audit trail)
         access(ConfigOps) fun setBonusLotteryWeight(
             poolID: UInt64,
-            receiverID: UInt64,
+            userAddress: Address,
             bonusWeight: UFix64,
             reason: String
         ) {
             pre {
-                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString()).concat(", Receiver ID: ").concat(receiverID.toString())
+                reason.length > 0: "Reason cannot be empty. Pool ID: \(poolID), User: \(userAddress)"
             }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            poolRef.setBonusWeight(receiverID: receiverID, bonusWeight: bonusWeight, reason: reason, adminUUID: self.uuid)
+            poolRef.setBonusWeight(userAddress: userAddress, bonusWeight: bonusWeight, reason: reason, adminUUID: self.uuid)
         }
         
         /// Adds additional bonus weight to a user's existing bonus.
         /// Cumulative with any previous bonus weight assigned.
         /// @param poolID - ID of the pool
-        /// @param receiverID - UUID of the user's PoolPositionCollection
+        /// @param user - Address of the user
         /// @param additionalWeight - Weight to add (must be > 0)
         /// @param reason - Human-readable reason for the addition
         access(ConfigOps) fun addBonusLotteryWeight(
             poolID: UInt64,
-            receiverID: UInt64,
+            userAddress: Address,
             additionalWeight: UFix64,
             reason: String
         ) {
             pre {
-                additionalWeight > 0.0: "Additional weight must be positive (greater than 0). Pool ID: ".concat(poolID.toString()).concat(", Receiver ID: ").concat(receiverID.toString()).concat(", Received weight: ").concat(additionalWeight.toString())
-                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString()).concat(", Receiver ID: ").concat(receiverID.toString())
+                additionalWeight > 0.0: "Additional weight must be positive. Pool ID: \(poolID), User: \(userAddress), Weight: \(additionalWeight)"
+                reason.length > 0: "Reason cannot be empty. Pool ID: \(poolID), User: \(userAddress)"
             }
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            poolRef.addBonusWeight(receiverID: receiverID, additionalWeight: additionalWeight, reason: reason, adminUUID: self.uuid)
+            poolRef.addBonusWeight(userAddress: userAddress, additionalWeight: additionalWeight, reason: reason, adminUUID: self.uuid)
         }
         
         /// Removes all bonus lottery weight from a user.
         /// User returns to pure TWAB-based lottery odds.
         /// @param poolID - ID of the pool
-        /// @param receiverID - UUID of the user's PoolPositionCollection
+        /// @param user - Address of the user
         access(ConfigOps) fun removeBonusLotteryWeight(
             poolID: UInt64,
-            receiverID: UInt64
+            userAddress: Address
         ) {
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            poolRef.removeBonusWeight(receiverID: receiverID, adminUUID: self.uuid)
+            poolRef.removeBonusWeight(userAddress: userAddress, adminUUID: self.uuid)
         }
         
         /// Deposits an NFT to be awarded as a prize in future draws.
@@ -1322,17 +1322,17 @@ access(all) contract PrizeSavings {
         access(self) var actualEndTime: UFix64?
         
         /// Accumulated NORMALIZED weight from round start to lastUpdateTime.
-        /// Key: receiverID, Value: accumulated normalized weight (≈ average shares).
+        /// Key: user address, Value: accumulated normalized weight (≈ average shares).
         /// Normalization: shares × (elapsed / duration) instead of shares × elapsed
-        access(self) var userAccumulatedTWAB: {UInt64: UFix64}
+        access(self) var userAccumulatedTWAB: {Address: UFix64}
         
         /// Timestamp of last TWAB update for each user.
-        /// Key: receiverID, Value: timestamp of last update.
-        access(self) var userLastUpdateTime: {UInt64: UFix64}
+        /// Key: user address, Value: timestamp of last update.
+        access(self) var userLastUpdateTime: {Address: UFix64}
         
         /// User's shares at last update (for calculating pending accumulation).
-        /// Key: receiverID, Value: shares balance at last update.
-        access(self) var userSharesAtLastUpdate: {UInt64: UFix64}
+        /// Key: user address, Value: shares balance at last update.
+        access(self) var userSharesAtLastUpdate: {Address: UFix64}
         
         /// Creates a new Round.
         /// @param roundID - Unique round identifier
@@ -1354,22 +1354,22 @@ access(all) contract PrizeSavings {
         /// 1. Accumulate pending share-seconds for old balance
         /// 2. Update shares snapshot and timestamp for future accumulation
         /// 
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param oldShares - Shares BEFORE the operation
         /// @param newShares - Shares AFTER the operation
         /// @param atTime - Current timestamp
         access(contract) fun recordShareChange(
-            receiverID: UInt64,
+            userAddress: Address,
             oldShares: UFix64,
             newShares: UFix64,
             atTime: UFix64
         ) {
             // First, accumulate any pending share-seconds for old balance
-            self.accumulatePendingTWAB(receiverID: receiverID, upToTime: atTime, withShares: oldShares)
+            self.accumulatePendingTWAB(userAddress: userAddress, upToTime: atTime, withShares: oldShares)
             
             // Update shares snapshot for future accumulation
-            self.userSharesAtLastUpdate[receiverID] = newShares
-            self.userLastUpdateTime[receiverID] = atTime
+            self.userSharesAtLastUpdate[userAddress] = newShares
+            self.userLastUpdateTime[userAddress] = atTime
         }
         
         /// Accumulates NORMALIZED pending weight from lastUpdateTime to upToTime.
@@ -1382,15 +1382,15 @@ access(all) contract PrizeSavings {
         /// Elapsed time is clamped to the round end, so weight never
         /// exceeds shares during gap periods.
         /// 
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param upToTime - Time to accumulate up to
         /// @param withShares - Shares to use for accumulation
         access(self) fun accumulatePendingTWAB(
-            receiverID: UInt64,
+            userAddress: Address,
             upToTime: UFix64,
             withShares: UFix64
         ) {
-            let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
+            let lastUpdate = self.userLastUpdateTime[userAddress] ?? self.startTime
             
             // Only accumulate if time has passed and we have a valid duration
             if upToTime > lastUpdate && self.duration > 0.0 {
@@ -1412,9 +1412,9 @@ access(all) contract PrizeSavings {
                 
                 let pending = withShares * elapsedFraction
                 
-                let current = self.userAccumulatedTWAB[receiverID] ?? 0.0
-                self.userAccumulatedTWAB[receiverID] = current + pending
-                self.userLastUpdateTime[receiverID] = upToTime
+                let current = self.userAccumulatedTWAB[userAddress] ?? 0.0
+                self.userAccumulatedTWAB[userAddress] = current + pending
+                self.userLastUpdateTime[userAddress] = upToTime
             }
         }
         
@@ -1426,18 +1426,18 @@ access(all) contract PrizeSavings {
         /// 
         /// Clamps to <= 1.0 to prevent weight inflation during gap periods.
         /// 
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param currentShares - User's current share balance
         /// @param endTime - The effective end time for this round
         access(contract) fun finalizeUserForGap(
-            receiverID: UInt64,
+            userAddress: Address,
             currentShares: UFix64,
             endTime: UFix64
         ) {
             // If user already has data, accumulate up to end time (clamped internally)
-            if self.userLastUpdateTime[receiverID] != nil {
-                let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
-                self.accumulatePendingTWAB(receiverID: receiverID, upToTime: endTime, withShares: shares)
+            if self.userLastUpdateTime[userAddress] != nil {
+                let shares = self.userSharesAtLastUpdate[userAddress] ?? currentShares
+                self.accumulatePendingTWAB(userAddress: userAddress, upToTime: endTime, withShares: shares)
             } else {
                 // First interaction during gap: they had currentShares for full round
                 if self.duration > 0.0 {
@@ -1449,13 +1449,13 @@ access(all) contract PrizeSavings {
                         durationFraction = 1.0
                     }
                     
-                    self.userAccumulatedTWAB[receiverID] = currentShares * durationFraction
+                    self.userAccumulatedTWAB[userAddress] = currentShares * durationFraction
                 } else {
                     // Fallback: if somehow duration is 0, use shares directly
-                    self.userAccumulatedTWAB[receiverID] = currentShares
+                    self.userAccumulatedTWAB[userAddress] = currentShares
                 }
-                self.userLastUpdateTime[receiverID] = endTime
-                self.userSharesAtLastUpdate[receiverID] = currentShares
+                self.userLastUpdateTime[userAddress] = endTime
+                self.userSharesAtLastUpdate[userAddress] = currentShares
             }
         }
         
@@ -1468,19 +1468,19 @@ access(all) contract PrizeSavings {
         /// 
         /// Clamps to round end to prevent weight inflation during gap periods.
         /// 
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param currentShares - User's current share balance (for lazy users)
         /// @param roundEndTime - The actual end time of the round
         /// @return Normalized weight for this user (≈ average shares held, capped at shares)
         access(all) view fun finalizeTWAB(
-            receiverID: UInt64,
+            userAddress: Address,
             currentShares: UFix64,
             roundEndTime: UFix64
         ): UFix64 {
             // Get accumulated normalized weight so far
-            let accumulated = self.userAccumulatedTWAB[receiverID] ?? 0.0
-            let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
-            let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
+            let accumulated = self.userAccumulatedTWAB[userAddress] ?? 0.0
+            let lastUpdate = self.userLastUpdateTime[userAddress] ?? self.startTime
+            let shares = self.userSharesAtLastUpdate[userAddress] ?? currentShares
             
             // Calculate remaining accumulation from last update to round end (NORMALIZED)
             var pending: UFix64 = 0.0
@@ -1506,18 +1506,18 @@ access(all) contract PrizeSavings {
         /// Returns "average shares" (normalized), NOT share-seconds.
         /// Values are clamped to round end to prevent inflation.
         /// 
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param currentShares - User's current share balance
         /// @param atTime - Time to calculate TWAB up to
         /// @return Current normalized weight (≈ average shares held so far, capped)
         access(all) view fun getCurrentTWAB(
-            receiverID: UInt64,
+            userAddress: Address,
             currentShares: UFix64,
             atTime: UFix64
         ): UFix64 {
-            let accumulated = self.userAccumulatedTWAB[receiverID] ?? 0.0
-            let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
-            let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
+            let accumulated = self.userAccumulatedTWAB[userAddress] ?? 0.0
+            let lastUpdate = self.userLastUpdateTime[userAddress] ?? self.startTime
+            let shares = self.userSharesAtLastUpdate[userAddress] ?? currentShares
             
             // Calculate pending from last update to now (NORMALIZED)
             var pending: UFix64 = 0.0
@@ -1583,8 +1583,8 @@ access(all) contract PrizeSavings {
         }
         
         /// Returns whether a user has been initialized in this round.
-        access(all) view fun isUserInitialized(receiverID: UInt64): Bool {
-            return self.userLastUpdateTime[receiverID] != nil
+        access(all) view fun isUserInitialized(userAddress: Address): Bool {
+            return self.userLastUpdateTime[userAddress] != nil
         }
         
         /// Returns the number of users with TWAB data.
@@ -1624,8 +1624,11 @@ access(all) contract PrizeSavings {
         /// This determines share price: price = (totalAssets + VIRTUAL) / (totalShares + VIRTUAL)
         access(self) var totalAssets: UFix64
         
-        /// Mapping of receiverID to their share balance.
-        access(self) let userShares: {UInt64: UFix64}
+        /// Mapping of user address to their share balance (lottery-eligible).
+        access(self) let userShares: {Address: UFix64}
+        
+        /// Mapping of sponsor address to their share balance (lottery-ineligible).
+        access(self) let sponsorShares: {Address: UFix64}
         
         /// Cumulative yield distributed since pool creation (for statistics).
         access(all) var totalDistributed: UFix64
@@ -1639,6 +1642,7 @@ access(all) contract PrizeSavings {
             self.totalShares = 0.0
             self.totalAssets = 0.0
             self.userShares = {}
+            self.sponsorShares = {}
             self.totalDistributed = 0.0
             self.vaultType = vaultType
         }
@@ -1697,18 +1701,18 @@ access(all) contract PrizeSavings {
         }
         
         /// Records a deposit by minting shares proportional to the deposit amount.
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param amount - Amount being deposited
         /// @return The number of shares minted
-        access(contract) fun deposit(receiverID: UInt64, amount: UFix64): UFix64 {
+        access(contract) fun deposit(userAddress: Address, amount: UFix64): UFix64 {
             if amount == 0.0 {
                 return 0.0
             }
             
             // Mint shares proportional to deposit at current share price
             let sharesToMint = self.convertToShares(amount)
-            let currentShares = self.userShares[receiverID] ?? 0.0
-            self.userShares[receiverID] = currentShares + sharesToMint
+            let currentShares = self.userShares[userAddress] ?? 0.0
+            self.userShares[userAddress] = currentShares + sharesToMint
             self.totalShares = self.totalShares + sharesToMint
             self.totalAssets = self.totalAssets + amount
             
@@ -1716,20 +1720,20 @@ access(all) contract PrizeSavings {
         }
         
         /// Records a withdrawal by burning shares proportional to the withdrawal amount.
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param amount - Amount to withdraw
         /// @return The actual amount withdrawn
-        access(contract) fun withdraw(receiverID: UInt64, amount: UFix64): UFix64 {
+        access(contract) fun withdraw(userAddress: Address, amount: UFix64): UFix64 {
             if amount == 0.0 {
                 return 0.0
             }
             
             // Validate user has sufficient shares
-            let userShareBalance = self.userShares[receiverID] ?? 0.0
+            let userShareBalance = self.userShares[userAddress] ?? 0.0
             assert(
                 userShareBalance > 0.0,
-                message: "ShareTracker.withdraw: No shares to withdraw for receiver "
-                    .concat(receiverID.toString())
+                message: "ShareTracker.withdraw: No shares to withdraw for user "
+                    .concat(userAddress.toString())
             )
             assert(
                 self.totalShares > 0.0 && self.totalAssets > 0.0,
@@ -1744,14 +1748,77 @@ access(all) contract PrizeSavings {
                 amount <= currentAssetValue,
                 message: "ShareTracker.withdraw: Insufficient balance - requested "
                     .concat(amount.toString())
-                    .concat(" but receiver ").concat(receiverID.toString())
+                    .concat(" but user ").concat(userAddress.toString())
                     .concat(" only has ").concat(currentAssetValue.toString())
             )
             
             // Burn shares proportional to withdrawal at current share price
             let sharesToBurn = self.convertToShares(amount)
             
-            self.userShares[receiverID] = userShareBalance - sharesToBurn
+            self.userShares[userAddress] = userShareBalance - sharesToBurn
+            self.totalShares = self.totalShares - sharesToBurn
+            self.totalAssets = self.totalAssets - amount
+            
+            return amount
+        }
+        
+        /// Records a sponsor deposit by minting shares (lottery-ineligible).
+        /// Sponsors share the same share price as regular users but are tracked separately.
+        /// @param sponsor - Sponsor's address
+        /// @param amount - Amount being deposited
+        /// @return The number of shares minted
+        access(contract) fun sponsorDeposit(sponsor: Address, amount: UFix64): UFix64 {
+            if amount == 0.0 {
+                return 0.0
+            }
+            
+            // Mint shares proportional to deposit at current share price
+            let sharesToMint = self.convertToShares(amount)
+            let currentShares = self.sponsorShares[sponsor] ?? 0.0
+            self.sponsorShares[sponsor] = currentShares + sharesToMint
+            self.totalShares = self.totalShares + sharesToMint
+            self.totalAssets = self.totalAssets + amount
+            
+            return sharesToMint
+        }
+        
+        /// Records a sponsor withdrawal by burning shares.
+        /// @param sponsor - Sponsor's address
+        /// @param amount - Amount to withdraw
+        /// @return The actual amount withdrawn
+        access(contract) fun sponsorWithdraw(sponsor: Address, amount: UFix64): UFix64 {
+            if amount == 0.0 {
+                return 0.0
+            }
+            
+            // Validate sponsor has sufficient shares
+            let sponsorShareBalance = self.sponsorShares[sponsor] ?? 0.0
+            assert(
+                sponsorShareBalance > 0.0,
+                message: "ShareTracker.sponsorWithdraw: No shares to withdraw for sponsor "
+                    .concat(sponsor.toString())
+            )
+            assert(
+                self.totalShares > 0.0 && self.totalAssets > 0.0,
+                message: "ShareTracker.sponsorWithdraw: Invalid tracker state - totalShares: "
+                    .concat(self.totalShares.toString())
+                    .concat(", totalAssets: ").concat(self.totalAssets.toString())
+            )
+            
+            // Validate sponsor has sufficient balance
+            let currentAssetValue = self.convertToAssets(sponsorShareBalance)
+            assert(
+                amount <= currentAssetValue,
+                message: "ShareTracker.sponsorWithdraw: Insufficient balance - requested "
+                    .concat(amount.toString())
+                    .concat(" but sponsor ").concat(sponsor.toString())
+                    .concat(" only has ").concat(currentAssetValue.toString())
+            )
+            
+            // Burn shares proportional to withdrawal at current share price
+            let sharesToBurn = self.convertToShares(amount)
+            
+            self.sponsorShares[sponsor] = sponsorShareBalance - sharesToBurn
             self.totalShares = self.totalShares - sharesToBurn
             self.totalAssets = self.totalAssets - amount
             
@@ -1787,10 +1854,10 @@ access(all) contract PrizeSavings {
         }
         
         /// Returns the total asset value of a user's shares.
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @return User's total withdrawable balance
-        access(all) view fun getUserAssetValue(receiverID: UInt64): UFix64 {
-            let userShareBalance = self.userShares[receiverID] ?? 0.0
+        access(all) view fun getUserAssetValue(userAddress: Address): UFix64 {
+            let userShareBalance = self.userShares[userAddress] ?? 0.0
             return self.convertToAssets(userShareBalance)
         }
         
@@ -1810,16 +1877,37 @@ access(all) contract PrizeSavings {
         }
         
         /// Returns a user's share balance.
-        /// @param receiverID - User's receiver ID
-        access(all) view fun getUserShares(receiverID: UInt64): UFix64 {
-            return self.userShares[receiverID] ?? 0.0
+        /// @param user - User's address
+        access(all) view fun getUserShares(userAddress: Address): UFix64 {
+            return self.userShares[userAddress] ?? 0.0
+        }
+        
+        /// Returns a sponsor's share balance.
+        /// @param sponsor - Sponsor's address
+        access(all) view fun getSponsorShares(sponsor: Address): UFix64 {
+            return self.sponsorShares[sponsor] ?? 0.0
+        }
+        
+        /// Returns the total asset value of a sponsor's shares.
+        /// @param sponsor - Sponsor's address
+        /// @return Sponsor's total withdrawable balance
+        access(all) view fun getSponsorAssetValue(sponsor: Address): UFix64 {
+            let sponsorShareBalance = self.sponsorShares[sponsor] ?? 0.0
+            return self.convertToAssets(sponsorShareBalance)
         }
         
         /// Removes a user's share entry from the dictionary.
         /// Used by admin cleanup to remove stale 0-value entries.
-        /// @param receiverID - User's receiver ID to remove
-        access(contract) fun removeUserShares(receiverID: UInt64) {
-            let _ = self.userShares.remove(key: receiverID)
+        /// @param user - User's address to remove
+        access(contract) fun removeUserShares(userAddress: Address) {
+            let _ = self.userShares.remove(key: userAddress)
+        }
+        
+        /// Removes a sponsor's share entry from the dictionary.
+        /// Used by admin cleanup to remove stale 0-value entries.
+        /// @param sponsor - Sponsor's address to remove
+        access(contract) fun removeSponsorShares(sponsor: Address) {
+            let _ = self.sponsorShares.remove(key: sponsor)
         }
         
         /// Cleans up zero-share entries using forEachKey (avoids .keys memory copy).
@@ -1827,10 +1915,10 @@ access(all) contract PrizeSavings {
         /// @return Number of entries cleaned
         access(contract) fun cleanupZeroShareEntries(limit: Int): Int {
             // Collect keys to check (can't access self inside closure)
-            var keysToCheck: [UInt64] = []
+            var keysToCheck: [Address] = []
             var count = 0
             
-            self.userShares.forEachKey(fun (key: UInt64): Bool {
+            self.userShares.forEachKey(fun (key: Address): Bool {
                 if count >= limit {
                     return false  // Early exit for gas management
                 }
@@ -1880,9 +1968,9 @@ access(all) contract PrizeSavings {
         access(self) var nftPrizeSavings: @{UInt64: {NonFungibleToken.NFT}}
         
         /// NFTs awarded to winners but not yet claimed.
-        /// Keyed by receiverID → array of NFTs.
+        /// Keyed by winner address → array of NFTs.
         /// Winners must explicitly claim via claimPendingNFT().
-        access(self) var pendingNFTClaims: @{UInt64: [{NonFungibleToken.NFT}]}
+        access(self) var pendingNFTClaims: @{Address: [{NonFungibleToken.NFT}]}
         
         /// Current draw round number (increments each completed draw).
         access(self) var _prizeRound: UInt64
@@ -1984,37 +2072,37 @@ access(all) contract PrizeSavings {
         /// Stores an NFT for a winner to claim later.
         /// Used when awarding NFT prizes - we can't directly transfer to winner's
         /// collection without their active participation.
-        /// @param receiverID - Winner's receiver ID
+        /// @param winner - Winner's address
         /// @param nft - NFT to store for claiming
-        access(contract) fun storePendingNFT(receiverID: UInt64, nft: @{NonFungibleToken.NFT}) {
+        access(contract) fun storePendingNFT(winner: Address, nft: @{NonFungibleToken.NFT}) {
             let nftID = nft.uuid
             
-            // Initialize array if first NFT for this receiver
-            if self.pendingNFTClaims[receiverID] == nil {
-                self.pendingNFTClaims[receiverID] <-! []
+            // Initialize array if first NFT for this winner
+            if self.pendingNFTClaims[winner] == nil {
+                self.pendingNFTClaims[winner] <-! []
             }
             
-            // Append NFT to receiver's pending claims
-            if let arrayRef = &self.pendingNFTClaims[receiverID] as auth(Mutate) &[{NonFungibleToken.NFT}]? {
+            // Append NFT to winner's pending claims
+            if let arrayRef = &self.pendingNFTClaims[winner] as auth(Mutate) &[{NonFungibleToken.NFT}]? {
                 arrayRef.append(<- nft)
             } else {
                 // This shouldn't happen, but handle gracefully
                 destroy nft
-                panic("Failed to store NFT in pending claims. NFTID: ".concat(nftID.toString()).concat(", receiverID: ").concat(receiverID.toString()))
+                panic("Failed to store NFT in pending claims. NFTID: ".concat(nftID.toString()).concat(", winner: ").concat(winner.toString()))
             }
         }
         
-        /// Returns the number of pending NFT claims for a receiver.
-        /// @param receiverID - Receiver ID to check
-        access(all) view fun getPendingNFTCount(receiverID: UInt64): Int {
-            return self.pendingNFTClaims[receiverID]?.length ?? 0
+        /// Returns the number of pending NFT claims for a user.
+        /// @param user - User's address to check
+        access(all) view fun getPendingNFTCount(userAddress: Address): Int {
+            return self.pendingNFTClaims[userAddress]?.length ?? 0
         }
         
-        /// Returns the UUIDs of all pending NFT claims for a receiver.
-        /// @param receiverID - Receiver ID to check
+        /// Returns the UUIDs of all pending NFT claims for a user.
+        /// @param user - User's address to check
         /// @return Array of NFT UUIDs
-        access(all) fun getPendingNFTIDs(receiverID: UInt64): [UInt64] {
-            if let nfts = &self.pendingNFTClaims[receiverID] as &[{NonFungibleToken.NFT}]? {
+        access(all) fun getPendingNFTIDs(userAddress: Address): [UInt64] {
+            if let nfts = &self.pendingNFTClaims[userAddress] as &[{NonFungibleToken.NFT}]? {
                 var ids: [UInt64] = []
                 for nft in nfts {
                     ids.append(nft.uuid)
@@ -2038,25 +2126,25 @@ access(all) contract PrizeSavings {
 
         /// Claims a pending NFT and returns it to the caller.
         /// Called when a winner picks up their NFT prize.
-        /// @param receiverID - Winner's receiver ID
+        /// @param claimer - Claimer's address
         /// @param nftIndex - Index in the pending claims array (0-based)
         /// @return The claimed NFT resource
-        access(contract) fun claimPendingNFT(receiverID: UInt64, nftIndex: Int): @{NonFungibleToken.NFT} {
+        access(contract) fun claimPendingNFT(claimer: Address, nftIndex: Int): @{NonFungibleToken.NFT} {
             pre {
-                self.pendingNFTClaims[receiverID] != nil: "No pending NFTs for this receiver"
-                nftIndex < (self.pendingNFTClaims[receiverID]?.length ?? 0): "Invalid NFT index"
+                self.pendingNFTClaims[claimer] != nil: "No pending NFTs for this user"
+                nftIndex < (self.pendingNFTClaims[claimer]?.length ?? 0): "Invalid NFT index"
             }
-            if let nftsRef = &self.pendingNFTClaims[receiverID] as auth(Remove) &[{NonFungibleToken.NFT}]? {
+            if let nftsRef = &self.pendingNFTClaims[claimer] as auth(Remove) &[{NonFungibleToken.NFT}]? {
                 return <- nftsRef.remove(at: nftIndex)
             }
-            panic("Failed to access pending NFT claims. receiverID: ".concat(receiverID.toString()).concat(", nftIndex: ").concat(nftIndex.toString()))
+            panic("Failed to access pending NFT claims. claimer: ".concat(claimer.toString()).concat(", nftIndex: ").concat(nftIndex.toString()))
         }
         
-        /// Removes a receiver's pending NFT claims entry from the dictionary.
+        /// Removes a user's pending NFT claims entry from the dictionary.
         /// Used by admin cleanup to remove empty arrays.
-        /// @param receiverID - Receiver ID to remove
-        access(contract) fun removePendingNFTClaims(receiverID: UInt64) {
-            if let emptyArray <- self.pendingNFTClaims.remove(key: receiverID) {
+        /// @param user - User's address to remove
+        access(contract) fun removePendingNFTClaims(userAddress: Address) {
+            if let emptyArray <- self.pendingNFTClaims.remove(key: userAddress) {
                 destroy emptyArray
             }
         }
@@ -2066,10 +2154,10 @@ access(all) contract PrizeSavings {
         /// @return Number of entries cleaned
         access(contract) fun cleanupEmptyNFTClaimEntries(limit: Int): Int {
             // Collect keys to check (can't access self inside closure)
-            var keysToCheck: [UInt64] = []
+            var keysToCheck: [Address] = []
             var count = 0
             
-            self.pendingNFTClaims.forEachKey(fun (key: UInt64): Bool {
+            self.pendingNFTClaims.forEachKey(fun (key: Address): Bool {
                 if count >= limit {
                     return false  // Early exit for gas management
                 }
@@ -2151,8 +2239,8 @@ access(all) contract PrizeSavings {
     /// Result of a winner selection operation.
     /// Contains parallel arrays of winners, their prize amounts, and NFT assignments.
     access(all) struct WinnerSelectionResult {
-        /// Array of winner receiverIDs.
-        access(all) let winners: [UInt64]
+        /// Array of winner addresses.
+        access(all) let winners: [Address]
         
         /// Array of prize amounts (parallel to winners array).
         access(all) let amounts: [UFix64]
@@ -2163,10 +2251,10 @@ access(all) contract PrizeSavings {
         
         /// Creates a WinnerSelectionResult.
         /// All arrays must have the same length.
-        /// @param winners - Array of winner receiverIDs
+        /// @param winners - Array of winner addresses
         /// @param amounts - Array of prize amounts per winner
         /// @param nftIDs - Array of NFT ID arrays per winner
-        init(winners: [UInt64], amounts: [UFix64], nftIDs: [[UInt64]]) {
+        init(winners: [Address], amounts: [UFix64], nftIDs: [[UInt64]]) {
             pre {
                 winners.length == amounts.length: "Winners and amounts must have same length"
                 winners.length == nftIDs.length: "Winners and nftIDs must have same length"
@@ -2193,11 +2281,11 @@ access(all) contract PrizeSavings {
         
         /// Distributes prizes among the selected winners.
         /// 
-        /// @param winners - Array of winner receiverIDs (from BatchSelectionData.selectWinners)
+        /// @param winners - Array of winner addresses (from BatchSelectionData.selectWinners)
         /// @param totalPrizeAmount - Total prize pool available
         /// @return WinnerSelectionResult with amounts and NFTs assigned to each winner
         access(all) fun distributePrizes(
-            winners: [UInt64],
+            winners: [Address],
             totalPrizeAmount: UFix64
         ): WinnerSelectionResult
         
@@ -2225,7 +2313,7 @@ access(all) contract PrizeSavings {
         
         /// Distributes the entire prize to the single winner.
         access(all) fun distributePrizes(
-            winners: [UInt64],
+            winners: [Address],
             totalPrizeAmount: UFix64
         ): WinnerSelectionResult {
             if winners.length == 0 {
@@ -2301,7 +2389,7 @@ access(all) contract PrizeSavings {
         
         /// Distributes prizes by percentage to the winners.
         access(all) fun distributePrizes(
-            winners: [UInt64],
+            winners: [Address],
             totalPrizeAmount: UFix64
         ): WinnerSelectionResult {
             if winners.length == 0 {
@@ -2426,7 +2514,7 @@ access(all) contract PrizeSavings {
         /// Distributes fixed amounts to winners according to tiers.
         /// Winners are assigned to tiers in order.
         access(all) fun distributePrizes(
-            winners: [UInt64],
+            winners: [Address],
             totalPrizeAmount: UFix64
         ): WinnerSelectionResult {
             if winners.length == 0 {
@@ -2444,7 +2532,7 @@ access(all) contract PrizeSavings {
                 return WinnerSelectionResult(winners: [], amounts: [], nftIDs: [])
             }
             
-            var allWinners: [UInt64] = []
+            var allWinners: [Address] = []
             var allPrizes: [UFix64] = []
             var allNFTIDs: [[UInt64]] = []
             var winnerIdx = 0
@@ -2637,30 +2725,30 @@ access(all) contract PrizeSavings {
     /// 4. Destroyed after completeDraw()
     /// 
     access(all) resource BatchSelectionData {
-        /// Receivers with weight > 0, in processing order
-        access(contract) var receiverIDs: [UInt64]
+        /// Users with weight > 0, in processing order
+        access(contract) var userAddresses: [Address]
         
         /// Parallel array: cumulative weight sums for binary search
-        /// cumulativeWeights[i] = sum of weights for receivers 0..i
+        /// cumulativeWeights[i] = sum of weights for users 0..i
         access(contract) var cumulativeWeights: [UFix64]
         
         /// Total weight (cached, equals last element of cumulativeWeights)
         access(contract) var totalWeight: UFix64
         
-        /// Current cursor position in registeredReceiverList
+        /// Current cursor position in userList
         access(contract) var cursor: Int
         
-        /// Snapshot of receiver count at startDraw time.
+        /// Snapshot of user count at startDraw time.
         /// Used to determine batch completion - only process users who existed at draw start.
         /// New deposits during batch processing don't extend the batch.
-        access(contract) let snapshotReceiverCount: Int
+        access(contract) let snapshotUserCount: Int
         
         init(snapshotCount: Int) {
-            self.receiverIDs = []
+            self.userAddresses = []
             self.cumulativeWeights = []
             self.totalWeight = 0.0
             self.cursor = 0
-            self.snapshotReceiverCount = snapshotCount
+            self.snapshotUserCount = snapshotCount
             self.RANDOM_SCALING_FACTOR = 1_000_000_000
             self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
         }
@@ -2669,11 +2757,11 @@ access(all) contract PrizeSavings {
         // BATCH BUILDING METHODS (called by processDrawBatch)
         // ============================================================
         
-        /// Adds a receiver with their weight. Builds cumulative sum on the fly.
+        /// Adds a user with their weight. Builds cumulative sum on the fly.
         /// Only adds if weight > 0.
-        access(contract) fun addEntry(receiverID: UInt64, weight: UFix64) {
+        access(contract) fun addEntry(userAddress: Address, weight: UFix64) {
             if weight > 0.0 {
-                self.receiverIDs.append(receiverID)
+                self.userAddresses.append(userAddress)
                 self.totalWeight = self.totalWeight + weight
                 self.cumulativeWeights.append(self.totalWeight)
             }
@@ -2692,20 +2780,20 @@ access(all) contract PrizeSavings {
             return self.cursor
         }
         
-        access(all) view fun getSnapshotReceiverCount(): Int {
-            return self.snapshotReceiverCount
+        access(all) view fun getSnapshotUserCount(): Int {
+            return self.snapshotUserCount
         }
         
-        access(all) view fun getReceiverCount(): Int {
-            return self.receiverIDs.length
+        access(all) view fun getUserCount(): Int {
+            return self.userAddresses.length
         }
         
         access(all) view fun getTotalWeight(): UFix64 {
             return self.totalWeight
         }
         
-        access(all) view fun getReceiverID(at index: Int): UInt64 {
-            return self.receiverIDs[index]
+        access(all) view fun getUserAddress(at index: Int): Address {
+            return self.userAddresses[index]
         }
         
         access(all) view fun getCumulativeWeight(at index: Int): UFix64 {
@@ -2715,12 +2803,12 @@ access(all) contract PrizeSavings {
         /// Binary search: finds first index where cumulativeWeights[i] > target.
         /// Used for weighted random selection. O(log n) complexity.
         access(all) view fun findWinnerIndex(randomValue: UFix64): Int {
-            if self.receiverIDs.length == 0 {
+            if self.userAddresses.length == 0 {
                 return 0
             }
             
             var low = 0
-            var high = self.receiverIDs.length - 1
+            var high = self.userAddresses.length - 1
             
             while low < high {
                 let mid = (low + high) / 2
@@ -2757,25 +2845,25 @@ access(all) contract PrizeSavings {
         /// 
         /// @param count - Number of winners to select
         /// @param randomNumber - Initial seed for PRNG
-        /// @return Array of winner receiverIDs (may be shorter than count if insufficient participants)
-        access(all) fun selectWinners(count: Int, randomNumber: UInt64): [UInt64] {
-            let receiverCount = self.receiverIDs.length
-            if receiverCount == 0 || count == 0 {
+        /// @return Array of winner addresses (may be shorter than count if insufficient participants)
+        access(all) fun selectWinners(count: Int, randomNumber: UInt64): [Address] {
+            let userCount = self.userAddresses.length
+            if userCount == 0 || count == 0 {
                 return []
             }
             
-            let actualCount = count < receiverCount ? count : receiverCount
+            let actualCount = count < userCount ? count : userCount
             
             // Single participant case
-            if receiverCount == 1 {
-                return [self.receiverIDs[0]]
+            if userCount == 1 {
+                return [self.userAddresses[0]]
             }
             
             // Zero weight fallback: return first N participants
             if self.totalWeight == 0.0 {
-                var winners: [UInt64] = []
+                var winners: [Address] = []
                 for idx in InclusiveRange(0, actualCount - 1) {
-                    winners.append(self.receiverIDs[idx])
+                    winners.append(self.userAddresses[idx])
                 }
                 return winners
             }
@@ -2784,7 +2872,7 @@ access(all) contract PrizeSavings {
             let prg = self.createPRNG(seed: randomNumber)
             
             // Select winners without replacement
-            var winners: [UInt64] = []
+            var winners: [Address] = []
             var selectedIndices: {Int: Bool} = {}
             var remainingWeight = self.totalWeight
             
@@ -2798,7 +2886,7 @@ access(all) contract PrizeSavings {
                 var runningSum: UFix64 = 0.0
                 var selectedIdx = 0
                 
-                for i in InclusiveRange(0, receiverCount - 1) {
+                for i in InclusiveRange(0, userCount - 1) {
                     if selectedIndices[i] != nil {
                         continue
                     }
@@ -2810,7 +2898,7 @@ access(all) contract PrizeSavings {
                     }
                 }
                 
-                winners.append(self.receiverIDs[selectedIdx])
+                winners.append(self.userAddresses[selectedIdx])
                 let selectedWeight = self.getWeight(at: selectedIdx)
                 selectedIndices[selectedIdx] = true
                 remainingWeight = remainingWeight - selectedWeight
@@ -2905,26 +2993,26 @@ access(all) contract PrizeSavings {
         // USER TRACKING STATE
         // ============================================================
         
-        /// Mapping of receiverID to their lifetime lottery winnings (cumulative).
-        access(self) let receiverTotalEarnedPrizes: {UInt64: UFix64}
+        /// Mapping of user address to their lifetime lottery winnings (cumulative).
+        access(self) let userEarnedPrizes: {Address: UFix64}
         
-        /// Maps receiverID to their index in registeredReceiverList.
+        /// Maps user address to their index in userList.
         /// Used for O(1) lookup and O(1) unregistration via swap-and-pop.
-        access(self) var registeredReceivers: {UInt64: Int}
+        access(self) var users: {Address: Int}
         
-        /// Sequential list of registered receiver IDs.
+        /// Sequential list of registered user addresses.
         /// Used for O(n) iteration during batch processing without array allocation.
-        access(self) var registeredReceiverList: [UInt64]
+        access(self) var userList: [Address]
         
-        /// Mapping of receiverID to bonus lottery weight.
+        /// Mapping of user address to bonus lottery weight.
         /// Bonus weight represents equivalent token deposit for the full round duration.
         /// A bonus of 5.0 gives the same lottery weight as holding 5 tokens for the entire round.
-        access(self) let receiverBonusWeights: {UInt64: UFix64}
+        access(self) let userBonusWeights: {Address: UFix64}
         
-        /// Tracks which receivers are sponsors (lottery-ineligible).
+        /// Tracks which users are sponsors (lottery-ineligible).
         /// Sponsors earn savings yield but cannot win lottery prizes.
-        /// Key: receiverID (UUID of SponsorPositionCollection), Value: true if sponsor
-        access(self) let sponsorReceivers: {UInt64: Bool}
+        /// Key: user address (from SponsorPositionCollection.owner), Value: true if sponsor
+        access(self) let sponsors: {Address: Bool}
         
         // ============================================================
         // ACCOUNTING STATE
@@ -3048,11 +3136,11 @@ access(all) contract PrizeSavings {
             self.consecutiveWithdrawFailures = 0
             
             // Initialize user tracking
-            self.receiverTotalEarnedPrizes = {}
-            self.registeredReceivers = {}
-            self.registeredReceiverList = []
-            self.receiverBonusWeights = {}
-            self.sponsorReceivers = {}
+            self.userEarnedPrizes = {}
+            self.users = {}
+            self.userList = []
+            self.userBonusWeights = {}
+            self.sponsors = {}
             
             // Initialize accounting
             self.allocatedSavings = 0.0
@@ -3087,54 +3175,54 @@ access(all) contract PrizeSavings {
         }
         
         // ============================================================
-        // RECEIVER REGISTRATION
+        // USER REGISTRATION
         // ============================================================
 
-        /// Registers a receiver ID with this pool.
+        /// Registers a user with this pool.
         /// Called automatically when a user first deposits.
         /// Adds to both the index dictionary and the sequential list.
-        /// @param receiverID - UUID of the PoolPositionCollection
-        access(contract) fun registerReceiver(receiverID: UInt64) {
+        /// @param user - Address of the user
+        access(contract) fun registerUser(userAddress: Address) {
             pre {
-                self.registeredReceivers[receiverID] == nil: "Receiver already registered"
+                self.users[userAddress] == nil: "User already registered"
             }
             // Store index pointing to the end of the list
-            let index = self.registeredReceiverList.length
-            self.registeredReceivers[receiverID] = index
-            self.registeredReceiverList.append(receiverID)
+            let index = self.userList.length
+            self.users[userAddress] = index
+            self.userList.append(userAddress)
         }
         
-        /// Unregisters a receiver ID from this pool.
+        /// Unregisters a user from this pool.
         /// Called when a user withdraws to 0 shares.
         /// Uses swap-and-pop for O(1) removal from the list.
-        /// @param receiverID - UUID of the PoolPositionCollection
-        access(contract) fun unregisterReceiver(receiverID: UInt64) {
+        /// @param user - Address of the user
+        access(contract) fun unregisterUser(userAddress: Address) {
             pre {
-                self.registeredReceivers[receiverID] != nil: "Receiver not registered"
+                self.users[userAddress] != nil: "User not registered"
             }
             
-            let index = self.registeredReceivers[receiverID]!
-            let lastIndex = self.registeredReceiverList.length - 1
+            let index = self.users[userAddress]!
+            let lastIndex = self.userList.length - 1
             
             // If not the last element, swap with last
             if index != lastIndex {
-                let lastReceiverID = self.registeredReceiverList[lastIndex]
+                let lastUser = self.userList[lastIndex]
                 // Move last element to the removed position
-                self.registeredReceiverList[index] = lastReceiverID
+                self.userList[index] = lastUser
                 // Update the moved element's index in the dictionary
-                self.registeredReceivers[lastReceiverID] = index
+                self.users[lastUser] = index
             }
             
             // Remove last element (O(1))
-            let _removedReceiver = self.registeredReceiverList.removeLast()
+            let _removedUser = self.userList.removeLast()
             // Remove from dictionary
-            let _removedIndex = self.registeredReceivers.remove(key: receiverID)
+            let _removedIndex = self.users.remove(key: userAddress)
         }
         
-        /// Cleans up stale dictionary entries and ghost receivers to manage storage growth.
+        /// Cleans up stale dictionary entries and ghost users to manage storage growth.
         /// 
         /// Handles:
-        /// 1. Ghost receivers - users with 0 shares still in registeredReceiverList
+        /// 1. Ghost users - users with 0 shares still in userList
         /// 2. userShares entries with 0.0 value
         /// 3. Empty pendingNFTClaims arrays
         /// 
@@ -3150,33 +3238,33 @@ access(all) contract PrizeSavings {
         /// @return Dictionary with cleanup counts
         /// Cleans up stale entries with cursor-based iteration.
         /// 
-        /// @param startIndex - Index to start iterating from in registeredReceiverList
-        /// @param limit - Max receivers to process in this call
+        /// @param startIndex - Index to start iterating from in userList
+        /// @param limit - Max users to process in this call
         /// @return Dictionary with cleanup counts and nextIndex for continuation
         access(contract) fun cleanupStaleEntries(startIndex: Int, limit: Int): {String: Int} {
             pre {
                 self.pendingSelectionData == nil: "Cannot cleanup during active draw - would corrupt batch indices"
             }
             
-            var ghostReceiversCleaned = 0
+            var ghostUsersCleaned = 0
             var userSharesCleaned = 0
             var pendingNFTClaimsCleaned = 0
             
-            let totalReceivers = self.registeredReceiverList.length
+            let totalUsers = self.userList.length
             
-            // 1. Clean ghost receivers (0-share users still in registeredReceiverList)
+            // 1. Clean ghost users (0-share users still in userList)
             // Use cursor-based iteration with swap-and-pop awareness
-            var i = startIndex < totalReceivers ? startIndex : totalReceivers
+            var i = startIndex < totalUsers ? startIndex : totalUsers
             var processed = 0
             
-            while i < self.registeredReceiverList.length && processed < limit {
-                let receiverID = self.registeredReceiverList[i]
-                let shares = self.shareTracker.getUserShares(receiverID: receiverID)
+            while i < self.userList.length && processed < limit {
+                let userAddr = self.userList[i]
+                let shares = self.shareTracker.getUserShares(userAddress: userAddr)
                 
                 if shares == 0.0 {
-                    // This receiver is a ghost - unregister them
-                    self.unregisterReceiver(receiverID: receiverID)
-                    ghostReceiversCleaned = ghostReceiversCleaned + 1
+                    // This user is a ghost - unregister them
+                    self.unregisterUser(userAddress: userAddr)
+                    ghostUsersCleaned = ghostUsersCleaned + 1
                     // Don't increment i - swap-and-pop moved a new element here
                 } else {
                     i = i + 1
@@ -3191,11 +3279,11 @@ access(all) contract PrizeSavings {
             pendingNFTClaimsCleaned = self.lotteryDistributor.cleanupEmptyNFTClaimEntries(limit: limit)
             
             return {
-                "ghostReceivers": ghostReceiversCleaned,
+                "ghostUsers": ghostUsersCleaned,
                 "userShares": userSharesCleaned,
                 "pendingNFTClaims": pendingNFTClaimsCleaned,
                 "nextIndex": i,
-                "totalReceivers": self.registeredReceiverList.length
+                "totalUsers": self.userList.length
             }
         }
 
@@ -3480,16 +3568,16 @@ access(all) contract PrizeSavings {
         /// - If pending draw exists: finalize user in that round with actual end time
         /// 
         /// @param from - Vault containing funds to deposit (consumed)
-        /// @param receiverID - UUID of the depositor's PoolPositionCollection
-        access(contract) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64) {
+        /// @param depositor - Address of the depositor
+        access(contract) fun deposit(from: @{FungibleToken.Vault}, depositor: Address) {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive. Amount: ".concat(from.balance.toString())
                 from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
             }
             
             // Auto-register if not registered (handles re-deposits after full withdrawal)
-            if self.registeredReceivers[receiverID] == nil {
-                self.registerReceiver(receiverID: receiverID)
+            if self.users[depositor] == nil {
+                self.registerUser(userAddress: depositor)
             }
 
             // Enforce state-specific deposit rules
@@ -3500,14 +3588,14 @@ access(all) contract PrizeSavings {
                 case PoolEmergencyState.PartialMode:
                     // Partial: enforce deposit limit
                     let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
-                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: ".concat(receiverID.toString()))
+                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. Depositor: ".concat(depositor.toString()))
                     assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: ".concat(depositLimit.toString()).concat(", got: ").concat(from.balance.toString()))
                 case PoolEmergencyState.EmergencyMode:
                     // Emergency: no deposits allowed
-                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+                    panic("Deposits disabled in emergency mode. Withdrawals only. Depositor: ".concat(depositor.toString()).concat(", amount: ").concat(from.balance.toString()))
                 case PoolEmergencyState.Paused:
                     // Paused: nothing allowed
-                    panic("Pool is paused. No operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+                    panic("Pool is paused. No operations allowed. Depositor: ".concat(depositor.toString()).concat(", amount: ").concat(from.balance.toString()))
             }
             
             // Process pending yield/deficit before deposit to ensure fair share price
@@ -3519,26 +3607,26 @@ access(all) contract PrizeSavings {
             let now = getCurrentBlock().timestamp
             
             // Get current shares BEFORE the deposit for TWAB calculation
-            let oldShares = self.shareTracker.getUserShares(receiverID: receiverID)
+            let oldShares = self.shareTracker.getUserShares(userAddress: depositor)
             
             // Record deposit in share tracker (mints shares)
-            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: amount)
+            let newSharesMinted = self.shareTracker.deposit(userAddress: depositor, amount: amount)
             let newShares = oldShares + newSharesMinted
             
             // Update TWAB in the active round
             // Gap period is treated as a natural extension of the round until startDraw() is called
             self.activeRound.recordShareChange(
-                receiverID: receiverID,
+                userAddress: depositor,
                 oldShares: oldShares,
                 newShares: newShares,
                 atTime: now
             )
             
-            // Also finalize in pending draw round if one exists (user interacting after startDraw)
+            // Also finalize in pending draw round if one exists (user interacting after startDraw) p
             if let pendingRound = &self.pendingDrawRound as &Round? {
                 let pendingEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
                 pendingRound.finalizeUserForGap(
-                    receiverID: receiverID,
+                    userAddress: depositor,
                     currentShares: oldShares,
                     endTime: pendingEndTime
                 )
@@ -3549,9 +3637,19 @@ access(all) contract PrizeSavings {
             
             // Deposit to yield source to start earning
             self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
+            
+            // Verify all funds were deposited
+            let leftover = from.balance
+            assert(
+                leftover == 0.0,
+                message: "Deposit failed: yield source has insufficient capacity. Leftover: "
+                    .concat(leftover.toString())
+                    .concat(" of ").concat(amount.toString())
+            )
+            
             destroy from
             
-            emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: amount)
+            emit Deposited(poolID: self.poolID, depositor: depositor, amount: amount)
         }
         
         /// Deposits funds as a sponsor (lottery-ineligible).
@@ -3565,13 +3663,13 @@ access(all) contract PrizeSavings {
         /// - Users who want yield but don't want lottery exposure
         /// 
         /// DIFFERENCES FROM REGULAR DEPOSIT:
-        /// - Not added to registeredReceiverList (no lottery eligibility)
+        /// - Not added to userList (no lottery eligibility)
         /// - No TWAB tracking (no lottery weight needed)
-        /// - Tracked in sponsorReceivers mapping instead
+        /// - Tracked in sponsors mapping instead
         /// 
         /// @param from - Vault containing funds to deposit (consumed)
-        /// @param receiverID - UUID of the sponsor's SponsorPositionCollection
-        access(contract) fun sponsorDeposit(from: @{FungibleToken.Vault}, receiverID: UInt64) {
+        /// @param sponsor - Address of the sponsor
+        access(contract) fun sponsorDeposit(from: @{FungibleToken.Vault}, sponsor: Address) {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive. Amount: ".concat(from.balance.toString())
                 from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
@@ -3585,14 +3683,14 @@ access(all) contract PrizeSavings {
                 case PoolEmergencyState.PartialMode:
                     // Partial: enforce deposit limit
                     let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
-                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: ".concat(receiverID.toString()))
+                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. Sponsor: ".concat(sponsor.toString()))
                     assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: ".concat(depositLimit.toString()).concat(", got: ").concat(from.balance.toString()))
                 case PoolEmergencyState.EmergencyMode:
                     // Emergency: no deposits allowed
-                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+                    panic("Deposits disabled in emergency mode. Withdrawals only. Sponsor: ".concat(sponsor.toString()).concat(", amount: ").concat(from.balance.toString()))
                 case PoolEmergencyState.Paused:
                     // Paused: nothing allowed
-                    panic("Pool is paused. No operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+                    panic("Pool is paused. No operations allowed. Sponsor: ".concat(sponsor.toString()).concat(", amount: ").concat(from.balance.toString()))
             }
             
             // Process pending yield before deposit to ensure fair share price
@@ -3602,26 +3700,36 @@ access(all) contract PrizeSavings {
             
             let amount = from.balance
             
-            // Record deposit in share tracker (mints shares - same as regular deposit)
-            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: amount)
+            // Record deposit in sponsor share tracker (mints shares - separate from regular users)
+            let newSharesMinted = self.shareTracker.sponsorDeposit(sponsor: sponsor, amount: amount)
             
             // Mark as sponsor (lottery-ineligible)
-            self.sponsorReceivers[receiverID] = true
+            self.sponsors[sponsor] = true
             
             // Update pool total
             self.allocatedSavings = self.allocatedSavings + amount
             
             // Deposit to yield source to start earning
             self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
+            
+            // Verify all funds were deposited (prevent accounting mismatch)
+            let leftover = from.balance
+            assert(
+                leftover == 0.0,
+                message: "Sponsor deposit failed: yield source has insufficient capacity. Leftover: "
+                    .concat(leftover.toString())
+                    .concat(" of ").concat(amount.toString())
+            )
+            
             destroy from
             
-            // NOTE: No registeredReceiverList registration - sponsors are NOT lottery-eligible
+            // NOTE: No userList registration - sponsors are NOT lottery-eligible
             // NOTE: No TWAB/Round tracking - no lottery weight needed
             
-            emit SponsorDeposited(poolID: self.poolID, receiverID: receiverID, amount: amount, shares: newSharesMinted)
+            emit SponsorDeposited(poolID: self.poolID, sponsor: sponsor, amount: amount, shares: newSharesMinted)
         }
         
-        /// Withdraws funds for a receiver.
+        /// Withdraws funds for a user.
         /// 
         /// Called internally by PoolPositionCollection.withdraw().
         /// 
@@ -3643,16 +3751,48 @@ access(all) contract PrizeSavings {
         /// and may trigger emergency mode.
         /// 
         /// @param amount - Amount to withdraw (must be > 0)
-        /// @param receiverID - UUID of the withdrawer's PoolPositionCollection
+        /// @param withdrawer - Address of the withdrawer (must be a registered regular user)
         /// @return Vault containing withdrawn funds (may be empty on failure)
-        access(contract) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Vault} {
+        access(contract) fun withdraw(amount: UFix64, withdrawer: Address): @{FungibleToken.Vault} {
             pre {
                 amount > 0.0: "Withdraw amount must be greater than 0"
-                self.registeredReceivers[receiverID] != nil || self.sponsorReceivers[receiverID] == true: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
+                self.users[withdrawer] != nil: "User not registered. Address: ".concat(withdrawer.toString())
             }
             
+            // Delegate to internal implementation
+            return <- self.withdrawInternal(amount: amount, withdrawer: withdrawer, isSponsor: false)
+        }
+        
+        /// Withdraws sponsor funds from the pool (lottery-ineligible).
+        /// 
+        /// Sponsors have separate share tracking from regular users.
+        /// This function handles sponsor-specific withdrawal logic.
+        /// 
+        /// If yield source has insufficient liquidity, returns empty vault
+        /// and may trigger emergency mode.
+        /// 
+        /// @param amount - Amount to withdraw (must be > 0)
+        /// @param sponsor - Address of the sponsor (must be a registered sponsor)
+        /// @return Vault containing withdrawn funds (may be empty on failure)
+        access(contract) fun sponsorWithdraw(amount: UFix64, sponsor: Address): @{FungibleToken.Vault} {
+            pre {
+                amount > 0.0: "Withdraw amount must be greater than 0"
+                self.sponsors[sponsor] == true: "Sponsor not registered. Address: ".concat(sponsor.toString())
+            }
+            
+            // Delegate to internal implementation
+            return <- self.withdrawInternal(amount: amount, withdrawer: sponsor, isSponsor: true)
+        }
+        
+        /// Internal withdrawal implementation shared by both regular users and sponsors.
+        /// 
+        /// @param amount - Amount to withdraw
+        /// @param withdrawer - Address of the withdrawer
+        /// @param isSponsor - True if withdrawing from sponsor shares, false for regular user shares
+        /// @return Vault containing withdrawn funds (may be empty on failure)
+        access(self) fun withdrawInternal(amount: UFix64, withdrawer: Address, isSponsor: Bool): @{FungibleToken.Vault} {
             // Paused pool: nothing allowed
-            assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(amount.toString()))
+            assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. Address: ".concat(withdrawer.toString()).concat(", amount: ").concat(amount.toString()))
             
             // In emergency mode, check if we can auto-recover
             if self.emergencyState == PoolEmergencyState.EmergencyMode {
@@ -3664,8 +3804,10 @@ access(all) contract PrizeSavings {
                 self.syncWithYieldSource()
             }
             
-            // Validate user has sufficient balance
-            let totalBalance = self.shareTracker.getUserAssetValue(receiverID: receiverID)
+            // Validate user has sufficient balance (sponsors and regular users tracked separately)
+            let totalBalance = isSponsor 
+                ? self.shareTracker.getSponsorAssetValue(sponsor: withdrawer)
+                : self.shareTracker.getUserAssetValue(userAddress: withdrawer)
             assert(totalBalance >= amount, message: "Insufficient balance. You have \(totalBalance) but trying to withdraw \(amount)")
             
             // Check if yield source has sufficient liquidity
@@ -3679,7 +3821,7 @@ access(all) contract PrizeSavings {
                 
                 emit WithdrawalFailure(
                     poolID: self.poolID, 
-                    receiverID: receiverID, 
+                    withdrawer: withdrawer, 
                     amount: amount,
                     consecutiveFailures: newFailureCount, 
                     yieldAvailable: yieldAvailable
@@ -3692,7 +3834,7 @@ access(all) contract PrizeSavings {
                 }
                 
                 // Return empty vault - withdrawal failed
-                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0)
+                emit Withdrawn(poolID: self.poolID, withdrawer: withdrawer, requestedAmount: amount, actualAmount: 0.0)
                 return <- DeFiActionsUtils.getEmptyVault(self.config.assetType)
             }
             
@@ -3707,7 +3849,7 @@ access(all) contract PrizeSavings {
                 
                 emit WithdrawalFailure(
                     poolID: self.poolID, 
-                    receiverID: receiverID, 
+                    withdrawer: withdrawer, 
                     amount: amount,
                     consecutiveFailures: newFailureCount, 
                     yieldAvailable: yieldAvailable
@@ -3718,7 +3860,7 @@ access(all) contract PrizeSavings {
                     let _ = self.checkAndAutoTriggerEmergency()
                 }
                 
-                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0)
+                emit Withdrawn(poolID: self.poolID, withdrawer: withdrawer, requestedAmount: amount, actualAmount: 0.0)
                 return <- withdrawn
             }
             
@@ -3729,32 +3871,41 @@ access(all) contract PrizeSavings {
             
             let now = getCurrentBlock().timestamp
             
-            // Get current shares BEFORE the withdrawal for TWAB calculation
-            let oldShares = self.shareTracker.getUserShares(receiverID: receiverID)
+            // Handle sponsors and regular users with their separate share tracking
+            var newShares = 0.0
             
-            // Burn shares proportional to withdrawal
-            let _ = self.shareTracker.withdraw(receiverID: receiverID, amount: actualWithdrawn)
-            
-            // Get new shares AFTER the withdrawal
-            let newShares = self.shareTracker.getUserShares(receiverID: receiverID)
-            
-            // Update TWAB in the active round
-            // Round extends naturally until startDraw() is called - record at actual timestamp
-            self.activeRound.recordShareChange(
-                receiverID: receiverID,
-                oldShares: oldShares,
-                newShares: newShares,
-                atTime: now
-            )
-            
-            // Also finalize in pending draw round if one exists
-            if let pendingRound = &self.pendingDrawRound as &Round? {
-                let pendingEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
-                pendingRound.finalizeUserForGap(
-                    receiverID: receiverID,
-                    currentShares: oldShares,
-                    endTime: pendingEndTime
+            if isSponsor {
+                // Sponsors: use sponsor-specific share tracking, no TWAB
+                let _ = self.shareTracker.sponsorWithdraw(sponsor: withdrawer, amount: actualWithdrawn)
+                newShares = self.shareTracker.getSponsorShares(sponsor: withdrawer)
+            } else {
+                // Regular users: use user share tracking with TWAB updates
+                let oldShares = self.shareTracker.getUserShares(userAddress: withdrawer)
+                
+                // Burn shares proportional to withdrawal
+                let _ = self.shareTracker.withdraw(userAddress: withdrawer, amount: actualWithdrawn)
+                
+                // Get new shares AFTER the withdrawal
+                newShares = self.shareTracker.getUserShares(userAddress: withdrawer)
+                
+                // Update TWAB in the active round
+                // Round extends naturally until startDraw() is called - record at actual timestamp
+                self.activeRound.recordShareChange(
+                    userAddress: withdrawer,
+                    oldShares: oldShares,
+                    newShares: newShares,
+                    atTime: now
                 )
+                
+                // Also finalize in pending draw round if one exists
+                if let pendingRound = &self.pendingDrawRound as &Round? {
+                    let pendingEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
+                    pendingRound.finalizeUserForGap(
+                        userAddress: withdrawer,
+                        currentShares: oldShares,
+                        endTime: pendingEndTime
+                    )
+                }
             }
             
             // Update pool total
@@ -3765,17 +3916,18 @@ access(all) contract PrizeSavings {
             // would corrupt indices (swap-and-pop). Ghost users with 0 shares get 0 weight.
             // They can be cleaned up via admin cleanupStaleEntries() after the draw.
             if newShares == 0.0 && self.pendingSelectionData == nil {
-                // Handle sponsors vs regular receivers differently
-                if self.sponsorReceivers[receiverID] == true {
-                    // Clean up sponsor mapping
-                    let _ = self.sponsorReceivers.remove(key: receiverID)
+                // Handle sponsors vs regular users differently
+                if isSponsor {
+                    // Clean up sponsor mapping and sponsor shares entry
+                    let _ = self.sponsors.remove(key: withdrawer)
+                    self.shareTracker.removeSponsorShares(sponsor: withdrawer)
                 } else {
-                    // Unregister regular receiver from lottery
-                    self.unregisterReceiver(receiverID: receiverID)
+                    // Unregister regular user from lottery
+                    self.unregisterUser(userAddress: withdrawer)
                 }
             }
             
-            emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: actualWithdrawn)
+            emit Withdrawn(poolID: self.poolID, withdrawer: withdrawer, requestedAmount: amount, actualAmount: actualWithdrawn)
             return <- withdrawn
         }
         
@@ -4045,7 +4197,7 @@ access(all) contract PrizeSavings {
             // Snapshot the current receiver count - only these users will be processed
             // New deposits during batch processing won't extend the batch (prevents DoS)
             self.pendingSelectionData <-! create BatchSelectionData(
-                snapshotCount: self.registeredReceiverList.length
+                snapshotCount: self.userList.length
             )
             
             // Emit new round started event
@@ -4064,7 +4216,7 @@ access(all) contract PrizeSavings {
                 poolID: self.poolID,
                 endedRoundID: endedRoundID,
                 newRoundID: newRoundID,
-                totalReceivers: self.registeredReceiverList.length
+                totalReceivers: self.userList.length
             )
         }
         
@@ -4102,34 +4254,34 @@ access(all) contract PrizeSavings {
             let roundEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
             
             // Use snapshot count - only process users who existed at startDraw time
-            let snapshotCount = selectionData.getSnapshotReceiverCount()
-            let endIndex = startCursor + limit > snapshotCount 
+            let snapshotCount = selectionData.getSnapshotUserCount()
+            let endIndex: Int = startCursor + limit > snapshotCount 
                 ? snapshotCount 
                 : startCursor + limit
             
-            // Process batch directly from registeredReceiverList
+            // Process batch directly from userList
             var i = startCursor
             while i < endIndex {
-                let receiverID = self.registeredReceiverList[i]
+                let userAddr = self.userList[i]
                 
                 // Get current shares
-                let shares = self.shareTracker.getUserShares(receiverID: receiverID)
+                let shares = self.shareTracker.getUserShares(userAddress: userAddr)
                 
                 // Finalize TWAB using actual round end time
                 // Returns NORMALIZED weight (≈ average shares), not share-seconds
                 let twabStake = pendingRound.finalizeTWAB(
-                    receiverID: receiverID, 
+                    userAddress: userAddr, 
                     currentShares: shares,
                     roundEndTime: roundEndTime
                 )
                 
-                let bonusWeight = self.getBonusWeight(receiverID: receiverID)
+                let bonusWeight = self.getBonusWeight(userAddress: userAddr)
                 
                 let totalWeight = twabStake + bonusWeight
                 
                 // Add entry directly to resource - builds cumulative sum on the fly
                 // Only adds if weight > 0
-                selectionData.addEntry(receiverID: receiverID, weight: totalWeight)
+                selectionData.addEntry(userAddress: userAddr, weight: totalWeight)
                 
                 i = i + 1
             }
@@ -4337,7 +4489,7 @@ access(all) contract PrizeSavings {
             
             // Process each winner
             for i in InclusiveRange(0, distributedWinners.length - 1) {
-                let winnerID = distributedWinners[i]
+                let winner = distributedWinners[i]
                 let prizeAmount = prizeAmounts[i]
                 let nftIDsForWinner = nftIDsPerWinner[i]
                 
@@ -4348,17 +4500,17 @@ access(all) contract PrizeSavings {
                 )
                 
                 // Get current shares BEFORE the prize deposit for TWAB calculation
-                let oldShares = self.shareTracker.getUserShares(receiverID: winnerID)
+                let oldShares = self.shareTracker.getUserShares(userAddress: winner)
                 
                 // AUTO-COMPOUND: Add prize to winner's deposit (mints shares)
-                let newSharesMinted = self.shareTracker.deposit(receiverID: winnerID, amount: prizeAmount)
+                let newSharesMinted = self.shareTracker.deposit(userAddress: winner, amount: prizeAmount)
                 let newShares = oldShares + newSharesMinted
                 
                 // Update TWAB in active round (prize deposits accumulate TWAB like regular deposits)
                 // Note: We're in the new round now (startDraw already transitioned)
                 let now = getCurrentBlock().timestamp
                 self.activeRound.recordShareChange(
-                    receiverID: winnerID,
+                    userAddress: winner,
                     oldShares: oldShares,
                     newShares: newShares,
                     atTime: now
@@ -4372,8 +4524,8 @@ access(all) contract PrizeSavings {
                 destroy prizeVault
                 
                 // Track lifetime prize winnings
-                let totalPrizes = self.receiverTotalEarnedPrizes[winnerID] ?? 0.0
-                self.receiverTotalEarnedPrizes[winnerID] = totalPrizes + prizeAmount
+                let totalPrizes = self.userEarnedPrizes[winner] ?? 0.0
+                self.userEarnedPrizes[winner] = totalPrizes + prizeAmount
                 
                 // Process NFT prizes for this winner
                 for nftID in nftIDsForWinner {
@@ -4395,11 +4547,11 @@ access(all) contract PrizeSavings {
                     // Move NFT to pending claims for winner to pick up
                     let nft <- self.lotteryDistributor.withdrawNFTPrize(nftID: nftID)
                     let nftType = nft.getType().identifier
-                    self.lotteryDistributor.storePendingNFT(receiverID: winnerID, nft: <- nft)
+                    self.lotteryDistributor.storePendingNFT(winner: winner, nft: <- nft)
                     
                     emit NFTPrizeStored(
                         poolID: self.poolID,
-                        receiverID: winnerID,
+                        winner: winner,
                         nftID: nftID,
                         nftType: nftType,
                         reason: "Lottery win - round \(currentRound)"
@@ -4407,7 +4559,7 @@ access(all) contract PrizeSavings {
                     
                     emit NFTPrizeAwarded(
                         poolID: self.poolID,
-                        receiverID: winnerID,
+                        winner: winner,
                         nftID: nftID,
                         nftType: nftType,
                         round: currentRound
@@ -4424,7 +4576,7 @@ access(all) contract PrizeSavings {
                         trackerRef.recordWinner(
                             poolID: self.poolID,
                             round: currentRound,
-                            winnerReceiverID: distributedWinners[idx],
+                            winner: distributedWinners[idx],
                             amount: prizeAmounts[idx],
                             nftIDs: nftIDsPerWinner[idx]
                         )
@@ -4511,17 +4663,17 @@ access(all) contract PrizeSavings {
         // ============================================================
         
         /// Sets or replaces a user's bonus lottery weight.
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param bonusWeight - Weight to assign (replaces existing)
         /// @param reason - Reason for bonus
         /// @param adminUUID - Admin performing the action
-        access(contract) fun setBonusWeight(receiverID: UInt64, bonusWeight: UFix64, reason: String, adminUUID: UInt64) {
+        access(contract) fun setBonusWeight(userAddress: Address, bonusWeight: UFix64, reason: String, adminUUID: UInt64) {
             let timestamp = getCurrentBlock().timestamp
-            self.receiverBonusWeights[receiverID] = bonusWeight
+            self.userBonusWeights[userAddress] = bonusWeight
             
             emit BonusLotteryWeightSet(
                 poolID: self.poolID,
-                receiverID: receiverID,
+                userAddress: userAddress,
                 bonusWeight: bonusWeight,
                 reason: reason,
                 adminUUID: adminUUID,
@@ -4530,20 +4682,20 @@ access(all) contract PrizeSavings {
         }
         
         /// Adds weight to a user's existing bonus.
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param additionalWeight - Weight to add
         /// @param reason - Reason for addition (emitted in event)
         /// @param adminUUID - Admin performing the action
-        access(contract) fun addBonusWeight(receiverID: UInt64, additionalWeight: UFix64, reason: String, adminUUID: UInt64) {
+        access(contract) fun addBonusWeight(userAddress: Address, additionalWeight: UFix64, reason: String, adminUUID: UInt64) {
             let timestamp = getCurrentBlock().timestamp
-            let currentBonus = self.receiverBonusWeights[receiverID] ?? 0.0
+            let currentBonus = self.userBonusWeights[userAddress] ?? 0.0
             let newTotalBonus = currentBonus + additionalWeight
             
-            self.receiverBonusWeights[receiverID] = newTotalBonus
+            self.userBonusWeights[userAddress] = newTotalBonus
             
             emit BonusLotteryWeightAdded(
                 poolID: self.poolID,
-                receiverID: receiverID,
+                userAddress: userAddress,
                 additionalWeight: additionalWeight,
                 newTotalBonus: newTotalBonus,
                 reason: reason,
@@ -4553,17 +4705,17 @@ access(all) contract PrizeSavings {
         }
         
         /// Removes all bonus weight from a user.
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @param adminUUID - Admin performing the action
-        access(contract) fun removeBonusWeight(receiverID: UInt64, adminUUID: UInt64) {
+        access(contract) fun removeBonusWeight(userAddress: Address, adminUUID: UInt64) {
             let timestamp = getCurrentBlock().timestamp
-            let previousBonus = self.receiverBonusWeights[receiverID] ?? 0.0
+            let previousBonus = self.userBonusWeights[userAddress] ?? 0.0
             
-            let _ = self.receiverBonusWeights.remove(key: receiverID)
+            let _ = self.userBonusWeights.remove(key: userAddress)
             
             emit BonusLotteryWeightRemoved(
                 poolID: self.poolID,
-                receiverID: receiverID,
+                userAddress: userAddress,
                 previousBonus: previousBonus,
                 adminUUID: adminUUID,
                 timestamp: timestamp
@@ -4571,14 +4723,14 @@ access(all) contract PrizeSavings {
         }
         
         /// Returns a user's current bonus weight (equivalent token deposit for full round).
-        /// @param receiverID - User's receiver ID
-        access(all) view fun getBonusWeight(receiverID: UInt64): UFix64 {
-            return self.receiverBonusWeights[receiverID] ?? 0.0
+        /// @param user - User's address
+        access(all) view fun getBonusWeight(userAddress: Address): UFix64 {
+            return self.userBonusWeights[userAddress] ?? 0.0
         }
         
-        /// Returns list of all receiver IDs with bonus weights.
-        access(all) view fun getAllBonusWeightReceivers(): [UInt64] {
-            return self.receiverBonusWeights.keys
+        /// Returns list of all user addresses with bonus weights.
+        access(all) view fun getAllBonusWeightUsers(): [Address] {
+            return self.userBonusWeights.keys
         }
         
         // ============================================================
@@ -4611,29 +4763,29 @@ access(all) contract PrizeSavings {
         }
         
         /// Returns count of pending NFT claims for a user.
-        /// @param receiverID - User's receiver ID
-        access(all) view fun getPendingNFTCount(receiverID: UInt64): Int {
-            return self.lotteryDistributor.getPendingNFTCount(receiverID: receiverID)
+        /// @param user - User's address
+        access(all) view fun getPendingNFTCount(userAddress: Address): Int {
+            return self.lotteryDistributor.getPendingNFTCount(userAddress: userAddress)
         }
         
         /// Returns UUIDs of pending NFT claims for a user.
-        /// @param receiverID - User's receiver ID
-        access(all) fun getPendingNFTIDs(receiverID: UInt64): [UInt64] {
-            return self.lotteryDistributor.getPendingNFTIDs(receiverID: receiverID)
+        /// @param user - User's address
+        access(all) fun getPendingNFTIDs(userAddress: Address): [UInt64] {
+            return self.lotteryDistributor.getPendingNFTIDs(userAddress: userAddress)
         }
         
         /// Claims a pending NFT prize for a user.
         /// Called by PoolPositionCollection.
-        /// @param receiverID - User's receiver ID
+        /// @param claimer - User's address
         /// @param nftIndex - Index in pending claims array
         /// @return The claimed NFT
-        access(contract) fun claimPendingNFT(receiverID: UInt64, nftIndex: Int): @{NonFungibleToken.NFT} {
-            let nft <- self.lotteryDistributor.claimPendingNFT(receiverID: receiverID, nftIndex: nftIndex)
+        access(contract) fun claimPendingNFT(claimer: Address, nftIndex: Int): @{NonFungibleToken.NFT} {
+            let nft <- self.lotteryDistributor.claimPendingNFT(claimer: claimer, nftIndex: nftIndex)
             let nftType = nft.getType().identifier
             
             emit NFTPrizeClaimed(
                 poolID: self.poolID,
-                receiverID: receiverID,
+                claimer: claimer,
                 nftID: nft.uuid,
                 nftType: nftType
             )
@@ -4651,20 +4803,34 @@ access(all) contract PrizeSavings {
             return self.activeRound.hasEnded()
         }
         
-        /// Returns total withdrawable balance for a receiver.
-        /// This is the receiver's shares × current share price.
-        access(all) view fun getReceiverTotalBalance(receiverID: UInt64): UFix64 {
-            return self.shareTracker.getUserAssetValue(receiverID: receiverID)
+        /// Returns total withdrawable balance for a user.
+        /// This is the user's shares × current share price.
+        access(all) view fun getUserTotalBalance(userAddress: Address): UFix64 {
+            return self.shareTracker.getUserAssetValue(userAddress: userAddress)
         }
         
-        /// Returns lifetime total lottery prizes earned by this receiver.
+        /// Returns lifetime total lottery prizes earned by this user.
         /// This is a cumulative counter that increases when prizes are won.
-        access(all) view fun getReceiverTotalEarnedPrizes(receiverID: UInt64): UFix64 {
-            return self.receiverTotalEarnedPrizes[receiverID] ?? 0.0
+        access(all) view fun getUserTotalEarnedPrizes(userAddress: Address): UFix64 {
+            return self.userEarnedPrizes[userAddress] ?? 0.0
         }
         
-        access(all) view fun getUserSavingsShares(receiverID: UInt64): UFix64 {
-            return self.shareTracker.getUserShares(receiverID: receiverID)
+        access(all) view fun getUserSavingsShares(userAddress: Address): UFix64 {
+            return self.shareTracker.getUserShares(userAddress: userAddress)
+        }
+        
+        /// Returns the number of shares held by a sponsor (lottery-ineligible).
+        /// @param sponsor - Sponsor's address
+        /// @return Number of shares held
+        access(all) view fun getSponsorShares(sponsor: Address): UFix64 {
+            return self.shareTracker.getSponsorShares(sponsor: sponsor)
+        }
+        
+        /// Returns the total asset value for a sponsor.
+        /// @param sponsor - Sponsor's address
+        /// @return Total withdrawable balance for the sponsor
+        access(all) view fun getSponsorTotalBalance(sponsor: Address): UFix64 {
+            return self.shareTracker.getSponsorAssetValue(sponsor: sponsor)
         }
         
         access(all) view fun getTotalSavingsShares(): UFix64 {
@@ -4680,12 +4846,12 @@ access(all) contract PrizeSavings {
         }
         
         /// Returns the user's current TWAB for the active round.
-        /// @param receiverID - User's receiver ID
+        /// @param user - User's address
         /// @return Current share-seconds (accumulated + pending up to now)
-        access(all) view fun getUserTimeWeightedShares(receiverID: UInt64): UFix64 {
-            let shares = self.shareTracker.getUserShares(receiverID: receiverID)
+        access(all) view fun getUserTimeWeightedShares(userAddress: Address): UFix64 {
+            let shares = self.shareTracker.getUserShares(userAddress: userAddress)
             let now = getCurrentBlock().timestamp
-            return self.activeRound.getCurrentTWAB(receiverID: receiverID, currentShares: shares, atTime: now)
+            return self.activeRound.getCurrentTWAB(userAddress: userAddress, currentShares: shares, atTime: now)
         }
         
         /// Returns the current round ID.
@@ -4734,11 +4900,12 @@ access(all) contract PrizeSavings {
         }
         
         /// Returns whether batch processing is complete (cursor has reached snapshot count).
-        /// Uses snapshotReceiverCount from startDraw() - only processes users who existed then.        /// New deposits during batch processing don't extend the batch (prevents DoS).
+        /// Uses snapshotUserCount from startDraw() - only processes users who existed then.
+        /// New deposits during batch processing don't extend the batch (prevents DoS).
         /// Returns true if no batch in progress (nil state = complete/not started).
         access(all) view fun isBatchComplete(): Bool {
             if let selectionDataRef = &self.pendingSelectionData as &BatchSelectionData? {
-                return selectionDataRef.getCursor() >= selectionDataRef.getSnapshotReceiverCount()
+                return selectionDataRef.getCursor() >= selectionDataRef.getSnapshotUserCount()
             }
             return true  // No batch in progress = considered complete
         }
@@ -4762,7 +4929,7 @@ access(all) contract PrizeSavings {
         /// Returns nil if no batch processing is in progress.
         access(all) view fun getDrawBatchProgress(): {String: AnyStruct}? {
             if let selectionDataRef = &self.pendingSelectionData as &BatchSelectionData? {
-                let total = self.registeredReceiverList.length
+                let total = self.userList.length
                 let processed = selectionDataRef.getCursor()
                 let percentComplete: UFix64 = total > 0 
                     ? UFix64(processed) / UFix64(total) * 100.0 
@@ -4774,7 +4941,7 @@ access(all) contract PrizeSavings {
                     "remaining": total - processed,
                     "percentComplete": percentComplete,
                     "isComplete": self.isBatchComplete(),
-                    "eligibleCount": selectionDataRef.getReceiverCount(),
+                    "eligibleCount": selectionDataRef.getUserCount(),
                     "totalWeight": selectionDataRef.getTotalWeight()
                 }
             }
@@ -4791,32 +4958,32 @@ access(all) contract PrizeSavings {
             return self.shareTracker.convertToAssets(shares)
         }
         
-        access(all) view fun getUserSavingsValue(receiverID: UInt64): UFix64 {
-            return self.shareTracker.getUserAssetValue(receiverID: receiverID)
+        access(all) view fun getUserSavingsValue(userAddress: Address): UFix64 {
+            return self.shareTracker.getUserAssetValue(userAddress: userAddress)
         }
         
-        access(all) view fun isReceiverRegistered(receiverID: UInt64): Bool {
-            return self.registeredReceivers[receiverID] != nil
+        access(all) view fun isUserRegistered(userAddress: Address): Bool {
+            return self.users[userAddress] != nil
         }
         
-        access(all) view fun getRegisteredReceiverIDs(): [UInt64] {
-            return self.registeredReceiverList
+        access(all) view fun getRegisteredUsers(): [Address] {
+            return self.userList
         }
         
-        access(all) view fun getRegisteredReceiverCount(): Int {
-            return self.registeredReceiverList.length
+        access(all) view fun getRegisteredUserCount(): Int {
+            return self.userList.length
         }
         
-        /// Returns whether a receiver is a sponsor (lottery-ineligible).
-        /// @param receiverID - UUID of the receiver to check
-        /// @return true if the receiver is a sponsor, false otherwise
-        access(all) view fun isSponsor(receiverID: UInt64): Bool {
-            return self.sponsorReceivers[receiverID] ?? false
+        /// Returns whether a user is a sponsor (lottery-ineligible).
+        /// @param user - Address of the user to check
+        /// @return true if the user is a sponsor, false otherwise
+        access(all) view fun isSponsor(userAddress: Address): Bool {
+            return self.sponsors[userAddress] ?? false
         }
         
         /// Returns the total number of sponsors in this pool.
         access(all) view fun getSponsorCount(): Int {
-            return self.sponsorReceivers.keys.length
+            return self.sponsors.keys.length
         }
         
         access(all) view fun isDrawInProgress(): Bool {
@@ -4957,19 +5124,19 @@ access(all) contract PrizeSavings {
         /// - 10 shares deposited at round start → 10 entries (immediately)
         /// - 10 shares deposited at halfway point → ~5 entries (prorated)
         /// - 10 shares held for full round → 10 entries
-        access(all) view fun getUserEntries(receiverID: UInt64): UFix64 {
+        access(all) view fun getUserEntries(userAddress: Address): UFix64 {
             let roundDuration = self.activeRound.getDuration()
             if roundDuration == 0.0 {
                 return 0.0
             }
             
             let roundEndTime = self.activeRound.getEndTime()
-            let shares = self.shareTracker.getUserShares(receiverID: receiverID)
+            let shares = self.shareTracker.getUserShares(userAddress: userAddress)
             
             // Project NORMALIZED TWAB forward to round end (assumes current shares held until end)
             // With normalized TWAB, result is already "average shares" - no division needed
             let projectedNormalizedWeight = self.activeRound.getCurrentTWAB(
-                receiverID: receiverID, 
+                userAddress: userAddress, 
                 currentShares: shares, 
                 atTime: roundEndTime
             )
@@ -5065,12 +5232,13 @@ access(all) contract PrizeSavings {
         access(self) fun registerWithPool(poolID: UInt64) {
             pre {
                 self.registeredPools[poolID] == nil: "Already registered"
+                self.owner != nil: "Collection must be stored in an account"
             }
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            // Register our UUID as the receiver ID in the pool
-            poolRef.registerReceiver(receiverID: self.uuid)
+            // Register the owner's address as the user ID in the pool
+            poolRef.registerUser(userAddress: self.owner!.address)
             self.registeredPools[poolID] = true
         }
         
@@ -5093,6 +5261,10 @@ access(all) contract PrizeSavings {
         /// @param poolID - ID of pool to deposit into
         /// @param from - Vault containing funds to deposit (consumed)
         access(PositionOps) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}) {
+            pre {
+                self.owner != nil: "Collection must be stored in an account"
+            }
+            
             // Auto-register on first deposit
             if self.registeredPools[poolID] == nil {
                 self.registerWithPool(poolID: poolID)
@@ -5100,8 +5272,8 @@ access(all) contract PrizeSavings {
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            // Delegate to pool's deposit function
-            poolRef.deposit(from: <- from, receiverID: self.uuid)
+            // Delegate to pool's deposit function using owner's address
+            poolRef.deposit(from: <- from, depositor: self.owner!.address)
         }
         
         /// Withdraws funds from a pool.
@@ -5116,11 +5288,12 @@ access(all) contract PrizeSavings {
             pre {
                 amount > 0.0: "Withdraw amount must be greater than 0"
                 self.registeredPools[poolID] == true: "Not registered with pool"
+                self.owner != nil: "Collection must be stored in an account"
             }
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            return <- poolRef.withdraw(amount: amount, receiverID: self.uuid)
+            return <- poolRef.withdraw(amount: amount, withdrawer: self.owner!.address)
         }
         
         /// Claims a pending NFT prize.
@@ -5134,19 +5307,21 @@ access(all) contract PrizeSavings {
         access(PositionOps) fun claimPendingNFT(poolID: UInt64, nftIndex: Int): @{NonFungibleToken.NFT} {
             pre {
                 self.registeredPools[poolID] == true: "Not registered with pool"
+                self.owner != nil: "Collection must be stored in an account"
             }
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            return <- poolRef.claimPendingNFT(receiverID: self.uuid, nftIndex: nftIndex)
+            return <- poolRef.claimPendingNFT(claimer: self.owner!.address, nftIndex: nftIndex)
         }
         
         /// Returns count of pending NFT claims for this user in a pool.
         /// @param poolID - Pool ID to check
         /// @return Number of NFTs awaiting claim
         access(all) view fun getPendingNFTCount(poolID: UInt64): Int {
+            if self.owner == nil { return 0 }
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
-                return poolRef.getPendingNFTCount(receiverID: self.uuid)
+                return poolRef.getPendingNFTCount(userAddress: self.owner!.address)
             }
             return 0
         }
@@ -5155,31 +5330,32 @@ access(all) contract PrizeSavings {
         /// @param poolID - Pool ID to check
         /// @return Array of NFT UUIDs
         access(all) fun getPendingNFTIDs(poolID: UInt64): [UInt64] {
+            if self.owner == nil { return [] }
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
-                return poolRef.getPendingNFTIDs(receiverID: self.uuid)
+                return poolRef.getPendingNFTIDs(userAddress: self.owner!.address)
             }
             return []
         }
         
-        /// Returns this collection's receiver ID (its UUID).
+        /// Returns this user's address.
         /// This is the key used to identify the user in all pools.
-        access(all) view fun getReceiverID(): UInt64 {
-            return self.uuid
+        access(all) view fun getUserAddress(): Address? {
+            return self.owner?.address
         }
         
         /// Returns a complete balance breakdown for this user in a pool.
         /// @param poolID - Pool ID to check
         /// @return PoolBalance struct with balance and lifetime prizes
         access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
-            // Return zero balance if not registered
-            if self.registeredPools[poolID] == nil {
+            // Return zero balance if not registered or no owner
+            if self.registeredPools[poolID] == nil || self.owner == nil {
                 return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
             }
             
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
                 return PoolBalance(
-                    totalBalance: poolRef.getReceiverTotalBalance(receiverID: self.uuid),
-                    totalEarnedPrizes: poolRef.getReceiverTotalEarnedPrizes(receiverID: self.uuid)
+                    totalBalance: poolRef.getUserTotalBalance(userAddress: self.owner!.address),
+                    totalEarnedPrizes: poolRef.getUserTotalEarnedPrizes(userAddress: self.owner!.address)
                 )
             }
             return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
@@ -5198,8 +5374,9 @@ access(all) contract PrizeSavings {
         /// @param poolID - Pool ID to check
         /// @return Projected entry count
         access(all) view fun getPoolEntries(poolID: UInt64): UFix64 {
+            let userAddress = self.owner?.address ?? panic("PoolPositionCollection must be stored in an account")
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
-                return poolRef.getUserEntries(receiverID: self.uuid)
+                return poolRef.getUserEntries(userAddress: userAddress)
             }
             return 0.0
         }
@@ -5239,10 +5416,10 @@ access(all) contract PrizeSavings {
             self.registeredPools = {}
         }
         
-        /// Returns this collection's receiver ID (UUID).
+        /// Returns this sponsor's address.
         /// Used internally to identify this sponsor's position in pools.
-        access(all) view fun getReceiverID(): UInt64 {
-            return self.uuid
+        access(all) view fun getUserAddress(): Address? {
+            return self.owner?.address
         }
         
         /// Returns list of pool IDs this collection is registered with.
@@ -5264,13 +5441,17 @@ access(all) contract PrizeSavings {
         /// @param poolID - ID of pool to deposit into
         /// @param from - Vault containing funds to deposit (consumed)
         access(PositionOps) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}) {
+            pre {
+                self.owner != nil: "Collection must be stored in an account"
+            }
+            
             // Track registration locally
             if self.registeredPools[poolID] == nil {
                 self.registeredPools[poolID] = true
             }
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
-            poolRef.sponsorDeposit(from: <- from, receiverID: self.uuid)
+            poolRef.sponsorDeposit(from: <- from, sponsor: self.owner!.address)
         }
         
         /// Withdraws funds from a pool.
@@ -5285,17 +5466,21 @@ access(all) contract PrizeSavings {
             pre {
                 amount > 0.0: "Withdraw amount must be greater than 0"
                 self.registeredPools[poolID] == true: "Not registered with pool"
+                self.owner != nil: "Collection must be stored in an account"
             }
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
-            return <- poolRef.withdraw(amount: amount, receiverID: self.uuid)
+            
+            // Use sponsor-specific withdrawal function
+            return <- poolRef.sponsorWithdraw(amount: amount, sponsor: self.owner!.address)
         }
         
         /// Returns the sponsor's share balance in a pool.
         /// @param poolID - Pool ID to check
         access(all) view fun getPoolShares(poolID: UInt64): UFix64 {
+            if self.owner == nil { return 0.0 }
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
-                return poolRef.getUserSavingsShares(receiverID: self.uuid)
+                return poolRef.getSponsorShares(sponsor: self.owner!.address)
             }
             return 0.0
         }
@@ -5303,8 +5488,9 @@ access(all) contract PrizeSavings {
         /// Returns the sponsor's asset balance in a pool (shares converted to assets).
         /// @param poolID - Pool ID to check
         access(all) view fun getPoolAssetBalance(poolID: UInt64): UFix64 {
+            if self.owner == nil { return 0.0 }
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
-                return poolRef.getReceiverTotalBalance(receiverID: self.uuid)
+                return poolRef.getSponsorTotalBalance(sponsor: self.owner!.address)
             }
             return 0.0
         }
@@ -5321,14 +5507,14 @@ access(all) contract PrizeSavings {
         /// @param poolID - Pool ID to check
         /// @return PoolBalance struct with balance components
         access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
-            // Return zero balance if not registered
-            if self.registeredPools[poolID] == nil {
+            // Return zero balance if not registered or no owner
+            if self.registeredPools[poolID] == nil || self.owner == nil {
                 return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
             }
             
             if let poolRef = PrizeSavings.borrowPool(poolID: poolID) {
                 return PoolBalance(
-                    totalBalance: poolRef.getReceiverTotalBalance(receiverID: self.uuid),
+                    totalBalance: poolRef.getSponsorTotalBalance(sponsor: self.owner!.address),
                     totalEarnedPrizes: 0.0  // Sponsors cannot win prizes
                 )
             }
@@ -5442,13 +5628,13 @@ access(all) contract PrizeSavings {
     // ============================================================
     
     /// Returns a user's projected entry count for the current draw.
-    /// Convenience wrapper for scripts that have receiverID but not collection.
+    /// Convenience wrapper for scripts.
     /// @param poolID - Pool ID to check
-    /// @param receiverID - User's receiver ID (PoolPositionCollection UUID)
+    /// @param user - User's address
     /// @return Projected entry count
-    access(all) view fun getUserEntries(poolID: UInt64, receiverID: UInt64): UFix64 {
+    access(all) view fun getUserEntries(poolID: UInt64, userAddress: Address): UFix64 {
         if let poolRef = self.borrowPool(poolID: poolID) {
-            return poolRef.getUserEntries(receiverID: receiverID)
+            return poolRef.getUserEntries(userAddress: userAddress)
         }
         return 0.0
     }

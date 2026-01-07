@@ -8,16 +8,10 @@ import PrizeSavings from "../../contracts/PrizeSavings.cdc"
 ///
 /// Returns: Boolean indicating if the user is registered
 access(all) fun main(address: Address, poolID: UInt64): Bool {
-    let collectionCap = getAccount(address)
-        .capabilities.get<&PrizeSavings.PoolPositionCollection>(
-            PrizeSavings.PoolPositionCollectionPublicPath
-        )
-    
-    if !collectionCap.check() {
+    let poolRef = PrizeSavings.borrowPool(poolID: poolID)
+    if poolRef == nil {
         return false
     }
     
-    let collectionRef = collectionCap.borrow()!
-    return collectionRef.isRegisteredWithPool(poolID: poolID)
+    return poolRef!.isUserRegistered(userAddress: address)
 }
-
