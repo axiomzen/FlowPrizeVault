@@ -3116,9 +3116,7 @@ access(all) contract PrizeSavings {
             self.registeredReceiverList.append(receiverID)
             
             // Store address for address resolution if provided
-            if let addr = ownerAddress {
-                self.receiverAddresses[receiverID] = addr
-            }
+            self.updatereceiverrAddress(receiverID: receiverID, ownerAddress: ownerAddress)
         }
         
         /// Resolves the last known owner address of a receiver.
@@ -3128,6 +3126,18 @@ access(all) contract PrizeSavings {
         /// @return Last known owner address, or nil if unknown
         access(all) view fun getReceiverOwnerAddress(receiverID: UInt64): Address? {
             return self.receiverAddresses[receiverID]
+        }
+        
+        /// Updates the stored owner address for a receiver only if it has changed.
+        /// Saves storage write costs when address remains the same.
+        /// @param receiverID - UUID of the PoolPositionCollection
+        /// @param ownerAddress - Optional new owner address to store
+        access(contract) fun updatereceiverrAddress(receiverID: UInt64, ownerAddress: Address?) {
+            if let addr = ownerAddress {
+                if self.receiverAddresses[receiverID] != addr {
+                    self.receiverAddresses[receiverID] = addr
+                }
+            }
         }
         
         /// Unregisters a receiver ID from this pool.
@@ -3520,9 +3530,9 @@ access(all) contract PrizeSavings {
             // Auto-register if not registered (handles re-deposits after full withdrawal)
             if self.registeredReceivers[receiverID] == nil {
                 self.registerReceiver(receiverID: receiverID, ownerAddress: ownerAddress)
-            } else if let addr = ownerAddress {
+            } else {
                 // Update address if provided (tracks current owner)
-                self.receiverAddresses[receiverID] = addr
+                self.updatereceiverrAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             }
 
             // Enforce state-specific deposit rules
@@ -3690,10 +3700,7 @@ access(all) contract PrizeSavings {
             }
             
             // Update stored address if provided (tracks current owner)
-            if let addr = ownerAddress {
-                self.receiverAddresses[receiverID] = addr
-            }
-
+            self.updatereceiverrAddress(receiverID: receiverID, ownerAddress: ownerAddress)
 
             // Resolve owner address from stored mapping
             let resolvedOwnerAddress = self.getReceiverOwnerAddress(receiverID: receiverID)
