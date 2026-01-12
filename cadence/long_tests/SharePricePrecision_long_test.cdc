@@ -54,13 +54,12 @@ access(all) fun testRoundTripMultipleSmallDeposits() {
     // Verify total balance
     let userDetails = getUserShareDetails(user.address, poolID)
     let assetValue = userDetails["assetValue"]!
-    let deposits = userDetails["deposits"]!
     
-    // Verify deposits were tracked correctly
-    Test.assertEqual(totalDeposit, deposits)
-    
-    // Check accumulated precision loss (may be higher with many operations)
-    let precisionLoss = userDetails["precisionLoss"]!
+    // Calculate precision loss as absolute difference between deposits and asset value
+    // Since there's no yield yet, assetValue should equal totalDeposit
+    let precisionLoss = assetValue > totalDeposit 
+        ? assetValue - totalDeposit 
+        : totalDeposit - assetValue
     let maxAcceptableLoss = ACCEPTABLE_PRECISION_LOSS * UFix64(numDeposits)
     
     Test.assert(

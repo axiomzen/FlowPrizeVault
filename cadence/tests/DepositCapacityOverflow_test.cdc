@@ -87,7 +87,7 @@ access(all) fun testDepositSucceedsWithinCapacity() {
     
     // Verify deposit succeeded by checking pool totals
     let poolTotals = getPoolTotals(poolID)
-    Test.assertEqual(depositAmount, poolTotals["totalStaked"]!)
+    Test.assertEqual(depositAmount, poolTotals["allocatedSavings"]!)
     
     log("Test passed: Deposit succeeded within capacity limit")
 }
@@ -106,7 +106,7 @@ access(all) fun testDepositExactlyAtCapacitySucceeds() {
     
     // Verify deposit succeeded by checking pool totals
     let poolTotals = getPoolTotals(poolID)
-    Test.assertEqual(50.0, poolTotals["totalStaked"]!)
+    Test.assertEqual(50.0, poolTotals["allocatedSavings"]!)
     
     log("Test passed: Deposit exactly at capacity limit succeeded")
 }
@@ -154,26 +154,26 @@ access(all) fun testZeroCapacityRejectsAllDeposits() {
 }
 
 access(all) fun testPartialCapacityRemainsUndeposited() {
-    // This test verifies the error message includes correct amounts
+    // This test verifies the error message includes the available and requested amounts
     let capacityLimit: UFix64 = 30.0
     let poolID = createLimitedCapacityPool(capacityLimit: capacityLimit)
     
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: 100.0)
     
-    // Attempt to deposit 50 tokens, but only 30 can be accepted
+    // Attempt to deposit 50 tokens when only 30 capacity is available
     let result = depositExpectFailure(user: user, poolID: poolID, amount: 50.0)
     
     Test.assertEqual(Test.ResultStatus.failed, result.status)
     
-    // The error should mention leftover amount (50 - 30 = 20)
+    // The error should show available and requested amounts
     let errorMessage = result.error!.message
     Test.assert(
-        errorMessage.contains("leftover") || errorMessage.contains("20"),
-        message: "Error should show leftover amount. Got: ".concat(errorMessage)
+        errorMessage.contains("30") && errorMessage.contains("50"),
+        message: "Error should show available and requested amounts. Got: ".concat(errorMessage)
     )
     
-    log("Test passed: Error message correctly shows leftover amount")
+    log("Test passed: Error message correctly shows available and requested amounts")
 }
 
 

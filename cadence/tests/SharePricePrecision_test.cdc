@@ -538,8 +538,8 @@ access(all) fun testTotalStakedMatchesSumOfUserDeposits() {
     }
     
     let info = getSharePricePrecisionInfo(poolID)
-    let totalStaked = info["totalStaked"]!
+    let totalAllocatedFunds = info["totalAllocatedFunds"]!
     
-    Test.assertEqual(expectedTotal, totalStaked)
+    Test.assertEqual(expectedTotal, totalAllocatedFunds)
 }
 
