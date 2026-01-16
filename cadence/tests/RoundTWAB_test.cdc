@@ -281,24 +281,26 @@ access(all) fun testGapDepositGetsFullNextRoundEntries() {
 access(all) fun testExactlyHalfRoundDepositTWAB() {
     let poolID = createTestPoolWithMediumInterval() // 60 second interval
     let depositAmount: UFix64 = 100.0
-    
+
     // Advance exactly to halfway point
     Test.moveTime(by: 30.0)
-    
+
     // Deposit at exactly 50%
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
+
     // Check entries - should be approximately half
     let entries = getUserEntries(user.address, poolID)
     let expectedEntries = depositAmount / 2.0 // 50 entries
-    
-    let tolerance: UFix64 = 5.0
-    let difference = entries > expectedEntries 
-        ? entries - expectedEntries 
+
+    // Use larger tolerance (10.0) to account for timing variance from test framework
+    // overhead (account creation, transaction execution advance block time)
+    let tolerance: UFix64 = 10.0
+    let difference = entries > expectedEntries
+        ? entries - expectedEntries
         : expectedEntries - entries
-    
+
     Test.assert(
         difference < tolerance,
         message: "Exact half-round deposit should get ~50 entries. Got: ".concat(entries.toString())
