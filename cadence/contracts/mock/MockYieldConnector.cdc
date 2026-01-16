@@ -114,9 +114,9 @@ access(all) contract MockYieldConnector {
             vaultType: vaultType
         )
     }
-    
-    /// LimitedCapacityConnector - A connector with a capacity limit for testing
-    /// Rejects deposits that would exceed the capacity limit
+
+    /// LimitedCapacityConnector - A connector with a maximum capacity limit
+    /// Used for testing deposit capacity overflow protection
     access(all) struct LimitedCapacityConnector: DeFiActions.Sink, DeFiActions.Source {
         /// Capability to withdraw from the underlying vault
         access(self) let providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>
@@ -128,7 +128,6 @@ access(all) contract MockYieldConnector {
         access(self) let capacityLimit: UFix64
         /// UniqueIdentifier for DeFiActions tracing
         access(contract) var uniqueID: DeFiActions.UniqueIdentifier?
-        
         init(
             providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>,
             receiverCap: Capability<&{FungibleToken.Receiver}>,
@@ -141,15 +140,15 @@ access(all) contract MockYieldConnector {
             self.capacityLimit = capacityLimit
             self.uniqueID = nil
         }
-        
+
         // ============ Sink Interface ============
-        
+
         /// Returns the Vault type accepted by this Sink
         access(all) view fun getSinkType(): Type {
             return self.vaultType
         }
-        
-        /// Returns remaining capacity before limit is reached
+
+        /// Returns how much more capacity is available (limited by capacityLimit)
         access(all) fun minimumCapacity(): UFix64 {
             if let provider = self.providerCap.borrow() {
                 let currentBalance = provider.balance
@@ -158,31 +157,26 @@ access(all) contract MockYieldConnector {
                 }
                 return self.capacityLimit - currentBalance
             }
-            return 0.0
+            return self.capacityLimit
         }
-        
-        /// Deposits funds from the provided vault reference
-        /// Panics if deposit would exceed capacity limit
+
+        /// Deposits funds from the provided vault reference (up to capacity limit)
         access(all) fun depositCapacity(from: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}) {
-            let amount = from.balance
-            let available = self.minimumCapacity()
-            
-            assert(amount <= available, message: "Deposit would exceed capacity limit. Available: ".concat(available.toString()).concat(", Requested: ").concat(amount.toString()))
-            
             if let receiver = self.receiverCap.borrow() {
-                if amount > 0.0 {
-                    receiver.deposit(from: <-from.withdraw(amount: amount))
+                let availableCapacity = self.minimumCapacity()
+                let depositAmount = from.balance < availableCapacity ? from.balance : availableCapacity
+                if depositAmount > 0.0 {
+                    receiver.deposit(from: <-from.withdraw(amount: depositAmount))
                 }
             }
         }
-        
+
         // ============ Source Interface ============
-        
+
         /// Returns the Vault type provided by this Source
         access(all) view fun getSourceType(): Type {
             return self.vaultType
         }
-        
         /// Returns the available balance that can be withdrawn
         access(all) fun minimumAvailable(): UFix64 {
             if let provider = self.providerCap.borrow() {
@@ -190,7 +184,6 @@ access(all) contract MockYieldConnector {
             }
             return 0.0
         }
-        
         /// Withdraws up to maxAmount from the underlying vault
         access(FungibleToken.Withdraw) fun withdrawAvailable(maxAmount: UFix64): @{FungibleToken.Vault} {
             if let provider = self.providerCap.borrow() {
@@ -203,9 +196,9 @@ access(all) contract MockYieldConnector {
             // Return an empty vault if we can't withdraw
             return <-DeFiActionsUtils.getEmptyVault(self.vaultType)
         }
-        
+
         // ============ IdentifiableStruct Interface ============
-        
+
         /// Returns component info for DeFiActions tracing
         access(all) fun getComponentInfo(): DeFiActions.ComponentInfo {
             return DeFiActions.ComponentInfo(
@@ -214,19 +207,17 @@ access(all) contract MockYieldConnector {
                 innerComponents: []
             )
         }
-        
         /// Returns a copy of the UniqueIdentifier
         access(contract) view fun copyID(): DeFiActions.UniqueIdentifier? {
             return self.uniqueID
         }
-        
         /// Sets the UniqueIdentifier
         access(contract) fun setID(_ id: DeFiActions.UniqueIdentifier?) {
             self.uniqueID = id
         }
     }
-    
-    /// Creates a new LimitedCapacityConnector with a capacity limit
+
+    /// Creates a new LimitedCapacityConnector with a maximum capacity
     access(all) fun createLimitedCapacityConnector(
         providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>,
         receiverCap: Capability<&{FungibleToken.Receiver}>,

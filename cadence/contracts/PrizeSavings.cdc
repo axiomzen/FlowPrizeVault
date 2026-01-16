@@ -162,9 +162,16 @@ access(all) contract PrizeSavings {
     /// Emitted when a deficit is applied across allocations.
     /// @param poolID - Pool experiencing the deficit
     /// @param totalDeficit - Total deficit amount detected
+    /// @param absorbedByTreasury - Amount absorbed by pending treasury yield
     /// @param absorbedByLottery - Amount absorbed by pending lottery yield
     /// @param absorbedBySavings - Amount absorbed by savings (decreases share price)
-    access(all) event DeficitApplied(poolID: UInt64, totalDeficit: UFix64, absorbedByLottery: UFix64, absorbedBySavings: UFix64)
+    access(all) event DeficitApplied(poolID: UInt64, totalDeficit: UFix64, absorbedByTreasury: UFix64, absorbedByLottery: UFix64, absorbedBySavings: UFix64)
+
+    /// Emitted when a deficit cannot be fully reconciled (pool insolvency).
+    /// This means treasury, lottery, and savings were all exhausted but deficit remains.
+    /// @param poolID - Pool experiencing insolvency
+    /// @param unreconciledAmount - Deficit amount that could not be absorbed
+    access(all) event InsolvencyDetected(poolID: UInt64, unreconciledAmount: UFix64)
     
     /// Emitted when rounding dust from savings distribution is sent to treasury.
     /// This occurs due to virtual shares absorbing a tiny fraction of yield.
@@ -1341,8 +1348,11 @@ access(all) contract PrizeSavings {
         /// Creates a new Round.
         /// @param roundID - Unique round identifier
         /// @param startTime - When the round starts
-        /// @param duration - Round duration (immutable once set)
+        /// @param duration - Round duration (immutable once set, must be > 0)
         init(roundID: UInt64, startTime: UFix64, duration: UFix64) {
+            pre {
+                duration > 0.0: "Round duration must be greater than zero. Got: \(duration)"
+            }
             self.roundID = roundID
             self.startTime = startTime
             self.duration = duration
@@ -1752,8 +1762,15 @@ access(all) contract PrizeSavings {
                     .concat(" only has ").concat(currentAssetValue.toString())
             )
             
-            // Burn shares proportional to withdrawal at current share price
-            let sharesToBurn = self.convertToShares(amount)
+            // Calculate shares to burn at current share price
+            // SAFETY: If withdrawing full balance (or close to it due to rounding),
+            // burn all user's shares to prevent underflow from rounding errors.
+            // UFix64 division/multiplication are not perfect inverses, so
+            // convertToShares(convertToAssets(shares)) may exceed shares slightly.
+            let calculatedSharesToBurn = self.convertToShares(amount)
+            let sharesToBurn = amount >= currentAssetValue || calculatedSharesToBurn > userShareBalance
+                ? userShareBalance
+                : calculatedSharesToBurn
             
             self.userShares[receiverID] = userShareBalance - sharesToBurn
             self.totalShares = self.totalShares - sharesToBurn
@@ -3476,7 +3493,11 @@ access(all) contract PrizeSavings {
                     let amount = from.balance
                     
                     // Deposit to yield source to earn on the funds
+                    // Assert full deposit or revert to prevent fund loss
+                    let beforeBalance = from.balance
                     self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
+                    let deposited = beforeBalance - from.balance
+                    assert(from.balance == 0.0, message: "Yield sink could not accept full deposit. Deposited: ".concat(deposited.toString()).concat(", leftover: ").concat(from.balance.toString()))
                     destroy from
                     
                     // Accrue yield to share price (minus dust to virtual shares)
@@ -3591,7 +3612,11 @@ access(all) contract PrizeSavings {
             self.allocatedSavings = self.allocatedSavings + amount
             
             // Deposit to yield source to start earning
+            // Assert full deposit or revert to prevent fund loss
+            let beforeBalance = from.balance
             self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
+            let deposited = beforeBalance - from.balance
+            assert(from.balance == 0.0, message: "Yield sink could not accept full deposit. Deposited: ".concat(deposited.toString()).concat(", leftover: ").concat(from.balance.toString()))
             destroy from
             
             emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: amount, ownerAddress: ownerAddress)
@@ -3656,7 +3681,11 @@ access(all) contract PrizeSavings {
             self.allocatedSavings = self.allocatedSavings + amount
             
             // Deposit to yield source to start earning
+            // Assert full deposit or revert to prevent fund loss
+            let beforeBalance = from.balance
             self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
+            let deposited = beforeBalance - from.balance
+            assert(from.balance == 0.0, message: "Yield sink could not accept full deposit. Deposited: ".concat(deposited.toString()).concat(", leftover: ").concat(from.balance.toString()))
             destroy from
             
             // NOTE: No registeredReceiverList registration - sponsors are NOT lottery-eligible
@@ -3683,8 +3712,15 @@ access(all) contract PrizeSavings {
         /// - If in gap period: finalize in ended round with actual end time
         /// - If pending draw exists: finalize user in that round with actual end time
         /// 
-        /// If yield source has insufficient liquidity, returns empty vault
-        /// and may trigger emergency mode.
+        /// IMPORTANT - ALL-OR-NOTHING BEHAVIOR:
+        /// If the yield source has insufficient liquidity to fulfill the full requested
+        /// amount, this function returns an EMPTY vault (0 tokens) rather than a partial
+        /// withdrawal. This is intentional:
+        /// - Simplifies accounting (no unexpected partial share burns)
+        /// - Enables clear failure detection via WithdrawalFailure events
+        /// - Triggers emergency mode after consecutive failures
+        /// Users who need partial access should check available liquidity first via
+        /// getYieldSourceBalance() and request only what's available.
         /// 
         /// @param amount - Amount to withdraw (must be > 0)
         /// @param receiverID - UUID of the withdrawer's PoolPositionCollection
@@ -3948,74 +3984,68 @@ access(all) contract PrizeSavings {
         }
         
         /// Applies a deficit (depreciation) from the yield source across the pool.
-        /// 
-        /// Deficit is distributed proportionally according to the distribution strategy.
-        /// 
-        /// Example: If strategy is 50% savings, 30% lottery, 20% treasury:
-        /// - Savings absorbs: 50% of deficit
-        /// - Lottery absorbs: 30% of deficit
-        /// - Treasury absorbs: 20% of deficit
-        /// 
-        /// SHORTFALL HANDLING (priority order - protect user principal):
-        /// 1. Treasury absorbs its share first (capped by allocatedTreasuryYield)
-        /// 2. Lottery absorbs its share + treasury shortfall (capped by allocatedLotteryYield)
-        /// 3. Savings absorbs remainder (share price decrease affects all users)
-        /// 
+        ///
+        /// Uses a deterministic waterfall that protects user funds (savings) by
+        /// exhausting protocol funds (treasury, lottery) first. This is INDEPENDENT
+        /// of the distribution strategy to ensure consistent loss handling even after
+        /// strategy changes.
+        ///
+        /// WATERFALL ORDER (protect user principal):
+        /// 1. Treasury absorbs first (drain completely if needed)
+        /// 2. Lottery absorbs second (drain completely if needed)
+        /// 3. Savings absorbs last (share price decrease affects all users)
+        ///
+        /// If all three are exhausted but deficit remains, an InsolvencyDetected
+        /// event is emitted to alert administrators.
+        ///
         /// @param amount - Total deficit to absorb
         access(self) fun applyDeficit(amount: UFix64) {
             if amount == 0.0 {
                 return
             }
-            
-            // Use distribution strategy to calculate proportions
-            let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
-            
-            // Target losses for each allocation
-            var targetTreasuryLoss = plan.treasuryAmount
-            var targetLotteryLoss = plan.lotteryAmount
-            var targetSavingsLoss = plan.savingsAmount
-            
-            // === STEP 1: Treasury absorbs first (protocol takes loss before users) ===
+
+            var remainingDeficit = amount
+
+            // === STEP 1: Treasury absorbs first (protocol fund) ===
             var absorbedByTreasury: UFix64 = 0.0
-            var treasuryShortfall: UFix64 = 0.0
-            
-            if targetTreasuryLoss > 0.0 {
-                if self.allocatedTreasuryYield >= targetTreasuryLoss {
-                    absorbedByTreasury = targetTreasuryLoss
-                } else {
-                    absorbedByTreasury = self.allocatedTreasuryYield
-                    treasuryShortfall = targetTreasuryLoss - absorbedByTreasury
-                }
+            if remainingDeficit > 0.0 && self.allocatedTreasuryYield > 0.0 {
+                absorbedByTreasury = remainingDeficit > self.allocatedTreasuryYield
+                    ? self.allocatedTreasuryYield
+                    : remainingDeficit
                 self.allocatedTreasuryYield = self.allocatedTreasuryYield - absorbedByTreasury
+                remainingDeficit = remainingDeficit - absorbedByTreasury
             }
-            
-            // === STEP 2: Lottery absorbs its share + treasury shortfall ===
+
+            // === STEP 2: Lottery absorbs second (protocol fund) ===
             var absorbedByLottery: UFix64 = 0.0
-            var lotteryShortfall: UFix64 = 0.0
-            let totalLotteryTarget = targetLotteryLoss + treasuryShortfall
-            
-            if totalLotteryTarget > 0.0 {
-                if self.allocatedLotteryYield >= totalLotteryTarget {
-                    absorbedByLottery = totalLotteryTarget
-                } else {
-                    absorbedByLottery = self.allocatedLotteryYield
-                    lotteryShortfall = totalLotteryTarget - absorbedByLottery
-                }
+            if remainingDeficit > 0.0 && self.allocatedLotteryYield > 0.0 {
+                absorbedByLottery = remainingDeficit > self.allocatedLotteryYield
+                    ? self.allocatedLotteryYield
+                    : remainingDeficit
                 self.allocatedLotteryYield = self.allocatedLotteryYield - absorbedByLottery
+                remainingDeficit = remainingDeficit - absorbedByLottery
             }
-            
-            // === STEP 3: Savings absorbs remainder (share price decrease) ===
-            let totalSavingsLoss = targetSavingsLoss + lotteryShortfall
+
+            // === STEP 3: Savings absorbs last (user funds) ===
             var absorbedBySavings: UFix64 = 0.0
-            
-            if totalSavingsLoss > 0.0 {
-                absorbedBySavings = self.shareTracker.decreaseTotalAssets(amount: totalSavingsLoss)
+            if remainingDeficit > 0.0 {
+                absorbedBySavings = self.shareTracker.decreaseTotalAssets(amount: remainingDeficit)
                 self.allocatedSavings = self.allocatedSavings - absorbedBySavings
+                remainingDeficit = remainingDeficit - absorbedBySavings
             }
-            
+
+            // === Check for insolvency ===
+            if remainingDeficit > 0.0 {
+                emit InsolvencyDetected(
+                    poolID: self.poolID,
+                    unreconciledAmount: remainingDeficit
+                )
+            }
+
             emit DeficitApplied(
                 poolID: self.poolID,
                 totalDeficit: amount,
+                absorbedByTreasury: absorbedByTreasury,
                 absorbedByLottery: absorbedByLottery,
                 absorbedBySavings: absorbedBySavings
             )
@@ -4417,7 +4447,11 @@ access(all) contract PrizeSavings {
                 self.allocatedSavings = self.allocatedSavings + prizeAmount
                 
                 // Re-deposit prize to yield source (continues earning)
+                // Assert full deposit or revert to prevent fund loss
+                let beforeBalance = prizeVault.balance
                 self.config.yieldConnector.depositCapacity(from: &prizeVault as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
+                let deposited = beforeBalance - prizeVault.balance
+                assert(prizeVault.balance == 0.0, message: "Yield sink could not accept full prize deposit. Deposited: ".concat(deposited.toString()).concat(", leftover: ").concat(prizeVault.balance.toString()))
                 destroy prizeVault
                 
                 // Track lifetime prize winnings
@@ -4426,18 +4460,9 @@ access(all) contract PrizeSavings {
                 
                 // Process NFT prizes for this winner
                 for nftID in nftIDsForWinner {
-                    // Verify NFT is still available (might have been withdrawn)
-                    let availableNFTs = self.lotteryDistributor.getAvailableNFTPrizeIDs()
-                    var nftFound = false
-                    for availableID in availableNFTs {
-                        if availableID == nftID {
-                            nftFound = true
-                            break
-                        }
-                    }
-                    
-                    // Skip if NFT not found (shouldn't happen in normal operation)
-                    if !nftFound {
+                    // Verify NFT is still available - O(1) dictionary lookup
+                    // (might have been withdrawn by admin during draw)
+                    if self.lotteryDistributor.borrowNFTPrize(nftID: nftID) == nil {
                         continue
                     }
                     
