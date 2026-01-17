@@ -123,8 +123,9 @@ access(all) contract PrizeSavings {
     /// @param poolID - Pool receiving the deposit
     /// @param receiverID - UUID of the user's PoolPositionCollection
     /// @param amount - Amount deposited
+    /// @param shares - Number of shares minted
     /// @param ownerAddress - Current owner address of the PoolPositionCollection (nil if resource transferred/not stored)
-    access(all) event Deposited(poolID: UInt64, receiverID: UInt64, amount: UFix64, ownerAddress: Address?)
+    access(all) event Deposited(poolID: UInt64, receiverID: UInt64, amount: UFix64, shares: UFix64, ownerAddress: Address?)
     
     /// Emitted when a sponsor deposits funds (lottery-ineligible).
     /// Sponsors earn savings yield but cannot win lottery prizes.
@@ -1732,12 +1733,13 @@ access(all) contract PrizeSavings {
         /// Records a withdrawal by burning shares proportional to the withdrawal amount.
         /// @param receiverID - User's receiver ID
         /// @param amount - Amount to withdraw
+        /// @param dustThreshold - If remaining balance would be below this, burn all shares (prevents dust)
         /// @return The actual amount withdrawn
-        access(contract) fun withdraw(receiverID: UInt64, amount: UFix64): UFix64 {
+        access(contract) fun withdraw(receiverID: UInt64, amount: UFix64, dustThreshold: UFix64): UFix64 {
             if amount == 0.0 {
                 return 0.0
             }
-            
+
             // Validate user has sufficient shares
             let userShareBalance = self.userShares[receiverID] ?? 0.0
             assert(
@@ -1751,7 +1753,7 @@ access(all) contract PrizeSavings {
                     .concat(self.totalShares.toString())
                     .concat(", totalAssets: ").concat(self.totalAssets.toString())
             )
-            
+
             // Validate user has sufficient balance
             let currentAssetValue = self.convertToAssets(userShareBalance)
             assert(
@@ -1761,21 +1763,28 @@ access(all) contract PrizeSavings {
                     .concat(" but receiver ").concat(receiverID.toString())
                     .concat(" only has ").concat(currentAssetValue.toString())
             )
-            
+
             // Calculate shares to burn at current share price
-            // SAFETY: If withdrawing full balance (or close to it due to rounding),
-            // burn all user's shares to prevent underflow from rounding errors.
-            // UFix64 division/multiplication are not perfect inverses, so
-            // convertToShares(convertToAssets(shares)) may exceed shares slightly.
             let calculatedSharesToBurn = self.convertToShares(amount)
-            let sharesToBurn = amount >= currentAssetValue || calculatedSharesToBurn > userShareBalance
-                ? userShareBalance
-                : calculatedSharesToBurn
-            
+
+            // DUST PREVENTION: Determine if we should burn all shares instead of calculated amount.
+            // This happens when:
+            // 1. Withdrawing full balance (amount >= currentAssetValue)
+            // 2. Rounding would cause underflow (calculatedSharesToBurn > userShareBalance)
+            // 3. Remaining balance would be below dust threshold (new!)
+            let remainingValueAfterBurn = currentAssetValue - amount
+            let wouldLeaveDust = remainingValueAfterBurn < dustThreshold && remainingValueAfterBurn > 0.0
+
+            let burnAllShares = amount >= currentAssetValue
+                || calculatedSharesToBurn > userShareBalance
+                || wouldLeaveDust
+
+            let sharesToBurn = burnAllShares ? userShareBalance : calculatedSharesToBurn
+
             self.userShares[receiverID] = userShareBalance - sharesToBurn
             self.totalShares = self.totalShares - sharesToBurn
             self.totalAssets = self.totalAssets - amount
-            
+
             return amount
         }
         
@@ -3491,15 +3500,10 @@ access(all) contract PrizeSavings {
                     )
                     
                     let amount = from.balance
-                    
+
                     // Deposit to yield source to earn on the funds
-                    // Assert full deposit or revert to prevent fund loss
-                    let beforeBalance = from.balance
-                    self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
-                    let deposited = beforeBalance - from.balance
-                    assert(from.balance == 0.0, message: "Yield sink could not accept full deposit. Deposited: ".concat(deposited.toString()).concat(", leftover: ").concat(from.balance.toString()))
-                    destroy from
-                    
+                    self.depositToYieldSourceFull(<- from)
+
                     // Accrue yield to share price (minus dust to virtual shares)
                     let actualSavings = self.shareTracker.accrueYield(amount: amount)
                     let dustAmount = amount - actualSavings
@@ -3612,14 +3616,9 @@ access(all) contract PrizeSavings {
             self.allocatedSavings = self.allocatedSavings + amount
             
             // Deposit to yield source to start earning
-            // Assert full deposit or revert to prevent fund loss
-            let beforeBalance = from.balance
-            self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
-            let deposited = beforeBalance - from.balance
-            assert(from.balance == 0.0, message: "Yield sink could not accept full deposit. Deposited: ".concat(deposited.toString()).concat(", leftover: ").concat(from.balance.toString()))
-            destroy from
-            
-            emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: amount, ownerAddress: ownerAddress)
+            self.depositToYieldSourceFull(<- from)
+
+            emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: amount, shares: newSharesMinted, ownerAddress: ownerAddress)
         }
         
         /// Deposits funds as a sponsor (lottery-ineligible).
@@ -3681,13 +3680,8 @@ access(all) contract PrizeSavings {
             self.allocatedSavings = self.allocatedSavings + amount
             
             // Deposit to yield source to start earning
-            // Assert full deposit or revert to prevent fund loss
-            let beforeBalance = from.balance
-            self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
-            let deposited = beforeBalance - from.balance
-            assert(from.balance == 0.0, message: "Yield sink could not accept full deposit. Deposited: ".concat(deposited.toString()).concat(", leftover: ").concat(from.balance.toString()))
-            destroy from
-            
+            self.depositToYieldSourceFull(<- from)
+
             // NOTE: No registeredReceiverList registration - sponsors are NOT lottery-eligible
             // NOTE: No TWAB/Round tracking - no lottery weight needed
             
@@ -3712,15 +3706,21 @@ access(all) contract PrizeSavings {
         /// - If in gap period: finalize in ended round with actual end time
         /// - If pending draw exists: finalize user in that round with actual end time
         /// 
-        /// IMPORTANT - ALL-OR-NOTHING BEHAVIOR:
-        /// If the yield source has insufficient liquidity to fulfill the full requested
-        /// amount, this function returns an EMPTY vault (0 tokens) rather than a partial
-        /// withdrawal. This is intentional:
+        /// DUST PREVENTION & FULL WITHDRAWAL HANDLING:
+        /// When remaining balance after withdrawal would be below minimumDeposit, this is
+        /// treated as a "full withdrawal" - all shares are burned and the user receives
+        /// whatever is available from the yield source. This prevents dust accumulation
+        /// and handles rounding errors gracefully. Users don't need to calculate exact
+        /// amounts; requesting their approximate full balance will cleanly exit the pool.
+        ///
+        /// LIQUIDITY FAILURE BEHAVIOR:
+        /// If the yield source has insufficient liquidity for a non-full withdrawal,
+        /// this function returns an EMPTY vault (0 tokens). This:
         /// - Simplifies accounting (no unexpected partial share burns)
         /// - Enables clear failure detection via WithdrawalFailure events
         /// - Triggers emergency mode after consecutive failures
-        /// Users who need partial access should check available liquidity first via
-        /// getYieldSourceBalance() and request only what's available.
+        /// For partial withdrawals, users should check available liquidity first via
+        /// getYieldSourceBalance().
         /// 
         /// @param amount - Amount to withdraw (must be > 0)
         /// @param receiverID - UUID of the withdrawer's PoolPositionCollection
@@ -3751,12 +3751,30 @@ access(all) contract PrizeSavings {
             // Validate user has sufficient balance
             let totalBalance = self.shareTracker.getUserAssetValue(receiverID: receiverID)
             assert(totalBalance >= amount, message: "Insufficient balance. You have \(totalBalance) but trying to withdraw \(amount)")
-            
+
+            // DUST PREVENTION: If remaining balance after withdrawal would be below dust threshold,
+            // treat this as a full withdrawal to prevent dust from being left behind.
+            // This also handles rounding errors where user's calculated balance differs slightly
+            // from actual yield source availability.
+            // Using 1/10 of minimumDeposit as threshold to only catch true rounding dust,
+            // not meaningful partial balances.
+            let dustThreshold = self.config.minimumDeposit / 10.0
+            let remainingBalance = totalBalance - amount
+            let isFullWithdrawal = remainingBalance < dustThreshold
+
+            // For full withdrawals, request the full balance (may be adjusted by yield source availability)
+            var withdrawAmount = isFullWithdrawal ? totalBalance : amount
+
             // Check if yield source has sufficient liquidity
             let yieldAvailable = self.config.yieldConnector.minimumAvailable()
-            
+
+            // For full withdrawals with minor rounding mismatch, use available amount
+            if isFullWithdrawal && yieldAvailable < withdrawAmount && yieldAvailable > 0.0 {
+                withdrawAmount = yieldAvailable
+            }
+
             // Handle insufficient liquidity in yield source
-            if yieldAvailable < amount {
+            if yieldAvailable < withdrawAmount {
                 // Track failure (only increment in Normal mode to avoid double-counting)
                 let newFailureCount = self.consecutiveWithdrawFailures
                     + (self.emergencyState == PoolEmergencyState.Normal ? 1 : 0)
@@ -3781,7 +3799,7 @@ access(all) contract PrizeSavings {
             }
             
             // Attempt withdrawal from yield source
-            let withdrawn <- self.config.yieldConnector.withdrawAvailable(maxAmount: amount)
+            let withdrawn <- self.config.yieldConnector.withdrawAvailable(maxAmount: withdrawAmount)
             let actualWithdrawn = withdrawn.balance
             
             // Handle zero withdrawal (yield source returned nothing despite claiming availability)
@@ -3817,7 +3835,11 @@ access(all) contract PrizeSavings {
             let oldShares = self.shareTracker.getUserShares(receiverID: receiverID)
             
             // Burn shares proportional to withdrawal
-            let _ = self.shareTracker.withdraw(receiverID: receiverID, amount: actualWithdrawn)
+            let actualBurned = self.shareTracker.withdraw(
+                receiverID: receiverID,
+                amount: actualWithdrawn,
+                dustThreshold: dustThreshold
+            )
             
             // Get new shares AFTER the withdrawal
             let newShares = self.shareTracker.getUserShares(receiverID: receiverID)
@@ -3923,11 +3945,24 @@ access(all) contract PrizeSavings {
             // === BALANCED: Nothing to do ===
         }
         
+        /// Deposits a vault's full balance to the yield source.
+        /// Asserts the entire amount was accepted; reverts if any funds are left over.
+        /// Destroys the vault after successful deposit.
+        ///
+        /// @param vault - The vault to deposit (will be destroyed)
+        access(self) fun depositToYieldSourceFull(_ vault: @{FungibleToken.Vault}) {
+            let beforeBalance = vault.balance
+            self.config.yieldConnector.depositCapacity(from: &vault as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
+            let deposited = beforeBalance - vault.balance
+            assert(vault.balance == 0.0, message: "Yield sink could not accept full deposit. Deposited: \(deposited), leftover: \(vault.balance)")
+            destroy vault
+        }
+
         /// Applies excess funds (appreciation) according to the distribution strategy.
-        /// 
+        ///
         /// All portions stay in the yield source and are tracked via pending variables.
         /// Actual transfers happen at draw time (lottery → prize pool, treasury → recipient/vault).
-        /// 
+        ///
         /// @param amount - Total excess amount to distribute
         access(self) fun applyExcess(amount: UFix64) {
             if amount == 0.0 {
@@ -4447,13 +4482,8 @@ access(all) contract PrizeSavings {
                 self.allocatedSavings = self.allocatedSavings + prizeAmount
                 
                 // Re-deposit prize to yield source (continues earning)
-                // Assert full deposit or revert to prevent fund loss
-                let beforeBalance = prizeVault.balance
-                self.config.yieldConnector.depositCapacity(from: &prizeVault as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
-                let deposited = beforeBalance - prizeVault.balance
-                assert(prizeVault.balance == 0.0, message: "Yield sink could not accept full prize deposit. Deposited: ".concat(deposited.toString()).concat(", leftover: ").concat(prizeVault.balance.toString()))
-                destroy prizeVault
-                
+                self.depositToYieldSourceFull(<- prizeVault)
+
                 // Track lifetime prize winnings
                 let totalPrizes = self.receiverTotalEarnedPrizes[winnerID] ?? 0.0
                 self.receiverTotalEarnedPrizes[winnerID] = totalPrizes + prizeAmount
