@@ -78,9 +78,9 @@ access(all) fun testYieldBelowThresholdIsNotDistributed() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["pendingLotteryYield"]!
-    let initialPendingTreasury = initialInfo["pendingTreasuryYield"]!
-    let initialTotalStaked = initialInfo["totalStaked"]!
+    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialPendingTreasury = initialInfo["allocatedTreasuryYield"]!
+    let initialTotalStaked = initialInfo["totalAssets"]!
     
     // Simulate very small yield (below threshold)
     let poolIndex = Int(poolID)
@@ -89,22 +89,22 @@ access(all) fun testYieldBelowThresholdIsNotDistributed() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
-    let finalPendingTreasury = finalInfo["pendingTreasuryYield"]!
-    let finalTotalStaked = finalInfo["totalStaked"]!
+    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    let finalPendingTreasury = finalInfo["allocatedTreasuryYield"]!
+    let finalTotalStaked = finalInfo["totalAssets"]!
     
     // Nothing should have been distributed - all values should be unchanged
     Test.assert(
         initialPendingLottery == finalPendingLottery,
-        message: "pendingLotteryYield should be unchanged when yield is below threshold"
+        message: "allocatedLotteryYield should be unchanged when yield is below threshold"
     )
     Test.assert(
         initialPendingTreasury == finalPendingTreasury,
-        message: "pendingTreasuryYield should be unchanged when yield is below threshold"
+        message: "allocatedTreasuryYield should be unchanged when yield is below threshold"
     )
     Test.assert(
         initialTotalStaked == finalTotalStaked,
-        message: "totalStaked should be unchanged when yield is below threshold"
+        message: "totalAssets should be unchanged when yield is below threshold"
     )
 }
 
@@ -123,7 +123,7 @@ access(all) fun testYieldAtThresholdIsDistributed() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["pendingLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
     
     // Simulate yield exactly at threshold
     let poolIndex = Int(poolID)
@@ -132,7 +132,7 @@ access(all) fun testYieldAtThresholdIsDistributed() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
+    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
     
     // Lottery should have received 20% of the yield
     // 0.000001 * 0.2 = 0.0000002
@@ -158,8 +158,8 @@ access(all) fun testYieldAboveThresholdIsDistributed() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["pendingLotteryYield"]!
-    let initialPendingTreasury = initialInfo["pendingTreasuryYield"]!
+    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialPendingTreasury = initialInfo["allocatedTreasuryYield"]!
     
     // Simulate yield well above threshold
     let poolIndex = Int(poolID)
@@ -168,8 +168,8 @@ access(all) fun testYieldAboveThresholdIsDistributed() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
-    let finalPendingTreasury = finalInfo["pendingTreasuryYield"]!
+    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    let finalPendingTreasury = finalInfo["allocatedTreasuryYield"]!
     
     // Lottery should have received 30% of the yield
     // 0.00001 * 0.3 = 0.000003
@@ -210,10 +210,10 @@ access(all) fun testAccumulatedYieldEventuallyDistributed() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["pendingLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
     
     log("=== Initial State ===")
-    log("Initial pendingLotteryYield: ".concat(initialPendingLottery.toString()))
+    log("Initial allocatedLotteryYield: ".concat(initialPendingLottery.toString()))
     log("BELOW_THRESHOLD amount: ".concat(BELOW_THRESHOLD.toString()))
     log("DISTRIBUTION_THRESHOLD: ".concat(DISTRIBUTION_THRESHOLD.toString()))
     
@@ -225,7 +225,7 @@ access(all) fun testAccumulatedYieldEventuallyDistributed() {
     simulateYieldAppreciation(poolIndex: poolIndex, amount: BELOW_THRESHOLD, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
     triggerSyncWithYieldSource(poolID: poolID)
     let info1 = getPoolSavingsInfo(poolID)
-    log("pendingLotteryYield after 1st: ".concat(info1["pendingLotteryYield"]!.toString()))
+    log("allocatedLotteryYield after 1st: ".concat(info1["allocatedLotteryYield"]!.toString()))
     
     log("=== After 2nd small yield ===")
     simulateYieldAppreciation(poolIndex: poolIndex, amount: BELOW_THRESHOLD, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
@@ -233,8 +233,8 @@ access(all) fun testAccumulatedYieldEventuallyDistributed() {
     
     // After 2 syncs, still below threshold (0.000001), nothing distributed
     let midInfo = getPoolSavingsInfo(poolID)
-    let midPendingLottery = midInfo["pendingLotteryYield"]!
-    log("pendingLotteryYield after 2nd: ".concat(midPendingLottery.toString()))
+    let midPendingLottery = midInfo["allocatedLotteryYield"]!
+    log("allocatedLotteryYield after 2nd: ".concat(midPendingLottery.toString()))
     log("Expected (initial): ".concat(initialPendingLottery.toString()))
     log("Are they equal? ".concat(initialPendingLottery == midPendingLottery ? "Yes" : "No"))
     
@@ -252,8 +252,8 @@ access(all) fun testAccumulatedYieldEventuallyDistributed() {
     
     // Now the accumulated yield (0.0000015) should be distributed
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
-    log("pendingLotteryYield after 3rd: ".concat(finalPendingLottery.toString()))
+    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    log("allocatedLotteryYield after 3rd: ".concat(finalPendingLottery.toString()))
     
     Test.assert(
         finalPendingLottery > initialPendingLottery,
@@ -276,9 +276,9 @@ access(all) fun testSumConservationAboveThreshold() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialTotalStaked = initialInfo["totalStaked"]!
-    let initialPendingLottery = initialInfo["pendingLotteryYield"]!
-    let initialPendingTreasury = initialInfo["pendingTreasuryYield"]!
+    let initialTotalStaked = initialInfo["totalAssets"]!
+    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialPendingTreasury = initialInfo["allocatedTreasuryYield"]!
     let initialAllocated = initialTotalStaked + initialPendingLottery + initialPendingTreasury
     
     // Add yield well above threshold
@@ -289,9 +289,9 @@ access(all) fun testSumConservationAboveThreshold() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalTotalStaked = finalInfo["totalStaked"]!
-    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
-    let finalPendingTreasury = finalInfo["pendingTreasuryYield"]!
+    let finalTotalStaked = finalInfo["totalAssets"]!
+    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    let finalPendingTreasury = finalInfo["allocatedTreasuryYield"]!
     let finalAllocated = finalTotalStaked + finalPendingLottery + finalPendingTreasury
     
     // The increase in allocated funds should equal the yield amount
@@ -320,7 +320,7 @@ access(all) fun testThresholdWithThirdsSplit() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["pendingLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
     
     // Add yield at threshold - with thirds, each bucket gets 0.00000033
     let poolIndex = Int(poolID)
@@ -329,7 +329,7 @@ access(all) fun testThresholdWithThirdsSplit() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
+    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
     
     // Lottery should have received 33% of yield
     // 0.000001 * 0.33 = 0.00000033
@@ -355,7 +355,7 @@ access(all) fun testThresholdWithSmallTreasuryPercentage() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingTreasury = initialInfo["pendingTreasuryYield"]!
+    let initialPendingTreasury = initialInfo["allocatedTreasuryYield"]!
     
     // Add yield at threshold - treasury gets 5% = 0.00000005
     // This is above minimum UFix64, so it should work
@@ -365,7 +365,7 @@ access(all) fun testThresholdWithSmallTreasuryPercentage() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingTreasury = finalInfo["pendingTreasuryYield"]!
+    let finalPendingTreasury = finalInfo["allocatedTreasuryYield"]!
     
     // Treasury should have received 5% of yield + dust from savings
     // 0.000001 * 0.05 = 0.00000005 (minimum increase, may have dust added)
@@ -395,19 +395,19 @@ access(all) fun testZeroYieldNotDistributed() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["pendingLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
     
     // Trigger sync without adding any yield
     triggerSyncWithYieldSource(poolID: poolID)
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["pendingLotteryYield"]!
+    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
     
     // Nothing should change
     Test.assert(
         initialPendingLottery == finalPendingLottery,
-        message: "Zero yield should not affect pending lottery"
+        message: "Zero yield should not affect allocated lottery yield"
     )
 }
 
@@ -426,7 +426,7 @@ access(all) fun testDeficitBelowThresholdIsNotApplied() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialTotalStaked = initialInfo["totalStaked"]!
+    let initialTotalStaked = initialInfo["totalAssets"]!
     let initialSharePrice = initialInfo["sharePrice"]!
     
     // Simulate very small deficit (below threshold)
@@ -436,13 +436,13 @@ access(all) fun testDeficitBelowThresholdIsNotApplied() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalTotalStaked = finalInfo["totalStaked"]!
+    let finalTotalStaked = finalInfo["totalAssets"]!
     let finalSharePrice = finalInfo["sharePrice"]!
     
     // Nothing should have changed - deficit below threshold is skipped
     Test.assert(
         initialTotalStaked == finalTotalStaked,
-        message: "totalStaked should be unchanged when deficit is below threshold"
+        message: "totalAssets should be unchanged when deficit is below threshold"
     )
     Test.assert(
         initialSharePrice == finalSharePrice,
@@ -465,7 +465,7 @@ access(all) fun testDeficitAtThresholdIsApplied() {
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialTotalStaked = initialInfo["totalStaked"]!
+    let initialTotalStaked = initialInfo["totalAssets"]!
     
     // Simulate deficit exactly at threshold
     let poolIndex = Int(poolID)
@@ -474,12 +474,12 @@ access(all) fun testDeficitAtThresholdIsApplied() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalTotalStaked = finalInfo["totalStaked"]!
+    let finalTotalStaked = finalInfo["totalAssets"]!
     
     // Deficit at threshold should be applied
     Test.assert(
         finalTotalStaked < initialTotalStaked,
-        message: "totalStaked should decrease when deficit is at threshold. Initial: "
+        message: "totalAssets should decrease when deficit is at threshold. Initial: "
             .concat(initialTotalStaked.toString())
             .concat(", Final: ").concat(finalTotalStaked.toString())
     )
