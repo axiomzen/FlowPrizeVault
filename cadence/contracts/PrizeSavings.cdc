@@ -3766,7 +3766,7 @@ access(all) contract PrizeSavings {
                     let _ = self.checkAndAutoTriggerEmergency()
                 }
                 
-                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0, ownerAddress: resolvedOwnerAddress)
+                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0, ownerAddress: ownerAddress)
                 return <- withdrawn
             }
             
@@ -3823,7 +3823,7 @@ access(all) contract PrizeSavings {
                 }
             }
             
-            emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: actualWithdrawn, ownerAddress: resolvedOwnerAddress)
+            emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: actualWithdrawn, ownerAddress: ownerAddress)
             return <- withdrawn
         }
         
