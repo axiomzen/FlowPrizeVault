@@ -3116,7 +3116,7 @@ access(all) contract PrizeSavings {
             self.registeredReceiverList.append(receiverID)
             
             // Store address for address resolution if provided
-            self.updatereceiverrAddress(receiverID: receiverID, ownerAddress: ownerAddress)
+            self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
         }
         
         /// Resolves the last known owner address of a receiver.
@@ -3132,7 +3132,7 @@ access(all) contract PrizeSavings {
         /// Saves storage write costs when address remains the same.
         /// @param receiverID - UUID of the PoolPositionCollection
         /// @param ownerAddress - Optional new owner address to store
-        access(contract) fun updatereceiverrAddress(receiverID: UInt64, ownerAddress: Address?) {
+        access(contract) fun updatereceiverAddress(receiverID: UInt64, ownerAddress: Address?) {
             if let addr = ownerAddress {
                 if self.receiverAddresses[receiverID] != addr {
                     self.receiverAddresses[receiverID] = addr
@@ -3532,7 +3532,7 @@ access(all) contract PrizeSavings {
                 self.registerReceiver(receiverID: receiverID, ownerAddress: ownerAddress)
             } else {
                 // Update address if provided (tracks current owner)
-                self.updatereceiverrAddress(receiverID: receiverID, ownerAddress: ownerAddress)
+                self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             }
 
             // Enforce state-specific deposit rules
@@ -3593,9 +3593,6 @@ access(all) contract PrizeSavings {
             // Deposit to yield source to start earning
             self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
             destroy from
-            
-            // Resolve owner address from capability
-            let ownerAddress = self.getReceiverOwnerAddress(receiverID: receiverID)
             
             emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: amount, ownerAddress: ownerAddress)
         }
@@ -3700,10 +3697,7 @@ access(all) contract PrizeSavings {
             }
             
             // Update stored address if provided (tracks current owner)
-            self.updatereceiverrAddress(receiverID: receiverID, ownerAddress: ownerAddress)
-
-            // Resolve owner address from stored mapping
-            let resolvedOwnerAddress = self.getReceiverOwnerAddress(receiverID: receiverID)
+            self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             
             // Paused pool: nothing allowed
             assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(amount.toString()))
@@ -3746,7 +3740,7 @@ access(all) contract PrizeSavings {
                 }
                 
                 // Return empty vault - withdrawal failed
-                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0, ownerAddress: resolvedOwnerAddress)
+                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0, ownerAddress: ownerAddress)
                 return <- DeFiActionsUtils.getEmptyVault(self.config.assetType)
             }
             
