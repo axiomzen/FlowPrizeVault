@@ -123,7 +123,8 @@ access(all) contract PrizeSavings {
     /// @param poolID - Pool receiving the deposit
     /// @param receiverID - UUID of the user's PoolPositionCollection
     /// @param amount - Amount deposited
-    access(all) event Deposited(poolID: UInt64, receiverID: UInt64, amount: UFix64)
+    /// @param ownerAddress - Current owner address of the PoolPositionCollection (nil if resource transferred/not stored)
+    access(all) event Deposited(poolID: UInt64, receiverID: UInt64, amount: UFix64, ownerAddress: Address?)
     
     /// Emitted when a sponsor deposits funds (lottery-ineligible).
     /// Sponsors earn savings yield but cannot win lottery prizes.
@@ -131,14 +132,16 @@ access(all) contract PrizeSavings {
     /// @param receiverID - UUID of the sponsor's SponsorPositionCollection
     /// @param amount - Amount deposited
     /// @param shares - Number of shares minted
-    access(all) event SponsorDeposited(poolID: UInt64, receiverID: UInt64, amount: UFix64, shares: UFix64)
+    /// @param ownerAddress - Current owner address of the SponsorPositionCollection (nil if resource transferred/not stored)
+    access(all) event SponsorDeposited(poolID: UInt64, receiverID: UInt64, amount: UFix64, shares: UFix64, ownerAddress: Address?)
     
     /// Emitted when a user withdraws funds from a pool.
     /// @param poolID - Pool being withdrawn from
     /// @param receiverID - UUID of the user's PoolPositionCollection
     /// @param requestedAmount - Amount the user requested to withdraw
     /// @param actualAmount - Amount actually withdrawn (may be less if yield source has insufficient liquidity)
-    access(all) event Withdrawn(poolID: UInt64, receiverID: UInt64, requestedAmount: UFix64, actualAmount: UFix64)
+    /// @param ownerAddress - Current owner address of the PoolPositionCollection (nil if resource transferred/not stored)
+    access(all) event Withdrawn(poolID: UInt64, receiverID: UInt64, requestedAmount: UFix64, actualAmount: UFix64, ownerAddress: Address?)
     
     // ============================================================
     // EVENTS - Reward Processing
@@ -182,9 +185,10 @@ access(all) contract PrizeSavings {
     /// Emitted when prizes are awarded to winners.
     /// @param poolID - Pool awarding prizes
     /// @param winners - Array of winner receiverIDs
+    /// @param winnerAddresses - Array of winner addresses (nil = resource transferred/destroyed, parallel to winners)
     /// @param amounts - Array of prize amounts (parallel to winners)
     /// @param round - Draw round number
-    access(all) event PrizesAwarded(poolID: UInt64, winners: [UInt64], amounts: [UFix64], round: UInt64)
+    access(all) event PrizesAwarded(poolID: UInt64, winners: [UInt64], winnerAddresses: [Address?], amounts: [UFix64], round: UInt64)
     
     /// Emitted when the lottery prize pool receives funding.
     /// @param poolID - Pool receiving funds
@@ -2926,6 +2930,12 @@ access(all) contract PrizeSavings {
         /// Key: receiverID (UUID of SponsorPositionCollection), Value: true if sponsor
         access(self) let sponsorReceivers: {UInt64: Bool}
         
+        /// Maps receiverID to their last known owner address.
+        /// Updated on each deposit/withdraw to track current owner.
+        /// Address may become stale if resource is transferred without interaction.
+        /// WARNING: This is not a source of truth.  Used only for event emission  
+        access(self) let receiverAddresses: {UInt64: Address}
+        
         // ============================================================
         // ACCOUNTING STATE
         // ============================================================
@@ -3053,6 +3063,7 @@ access(all) contract PrizeSavings {
             self.registeredReceiverList = []
             self.receiverBonusWeights = {}
             self.sponsorReceivers = {}
+            self.receiverAddresses = {}
             
             // Initialize accounting
             self.allocatedSavings = 0.0
@@ -3094,7 +3105,8 @@ access(all) contract PrizeSavings {
         /// Called automatically when a user first deposits.
         /// Adds to both the index dictionary and the sequential list.
         /// @param receiverID - UUID of the PoolPositionCollection
-        access(contract) fun registerReceiver(receiverID: UInt64) {
+        /// @param ownerAddress - Optional owner address for address resolution
+        access(contract) fun registerReceiver(receiverID: UInt64, ownerAddress: Address?) {
             pre {
                 self.registeredReceivers[receiverID] == nil: "Receiver already registered"
             }
@@ -3102,6 +3114,30 @@ access(all) contract PrizeSavings {
             let index = self.registeredReceiverList.length
             self.registeredReceivers[receiverID] = index
             self.registeredReceiverList.append(receiverID)
+            
+            // Store address for address resolution if provided
+            self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
+        }
+        
+        /// Resolves the last known owner address of a receiver.
+        /// Returns the address stored during the last deposit/withdraw interaction.
+        /// Address may be stale if resource was transferred without interaction.
+        /// @param receiverID - UUID of the PoolPositionCollection
+        /// @return Last known owner address, or nil if unknown
+        access(all) view fun getReceiverOwnerAddress(receiverID: UInt64): Address? {
+            return self.receiverAddresses[receiverID]
+        }
+        
+        /// Updates the stored owner address for a receiver only if it has changed.
+        /// Saves storage write costs when address remains the same.
+        /// @param receiverID - UUID of the PoolPositionCollection
+        /// @param ownerAddress - Optional new owner address to store
+        access(contract) fun updatereceiverAddress(receiverID: UInt64, ownerAddress: Address?) {
+            if let addr = ownerAddress {
+                if self.receiverAddresses[receiverID] != addr {
+                    self.receiverAddresses[receiverID] = addr
+                }
+            }
         }
         
         /// Unregisters a receiver ID from this pool.
@@ -3129,6 +3165,9 @@ access(all) contract PrizeSavings {
             let _removedReceiver = self.registeredReceiverList.removeLast()
             // Remove from dictionary
             let _removedIndex = self.registeredReceivers.remove(key: receiverID)
+            
+            // Clean up address mapping
+            self.receiverAddresses.remove(key: receiverID)
         }
         
         /// Cleans up stale dictionary entries and ghost receivers to manage storage growth.
@@ -3481,7 +3520,8 @@ access(all) contract PrizeSavings {
         /// 
         /// @param from - Vault containing funds to deposit (consumed)
         /// @param receiverID - UUID of the depositor's PoolPositionCollection
-        access(contract) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64) {
+        /// @param ownerAddress - Optional owner address for address resolution
+        access(contract) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64, ownerAddress: Address?) {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive. Amount: ".concat(from.balance.toString())
                 from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
@@ -3489,7 +3529,10 @@ access(all) contract PrizeSavings {
             
             // Auto-register if not registered (handles re-deposits after full withdrawal)
             if self.registeredReceivers[receiverID] == nil {
-                self.registerReceiver(receiverID: receiverID)
+                self.registerReceiver(receiverID: receiverID, ownerAddress: ownerAddress)
+            } else {
+                // Update address if provided (tracks current owner)
+                self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             }
 
             // Enforce state-specific deposit rules
@@ -3551,7 +3594,7 @@ access(all) contract PrizeSavings {
             self.config.yieldConnector.depositCapacity(from: &from as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
             destroy from
             
-            emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: amount)
+            emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: amount, ownerAddress: ownerAddress)
         }
         
         /// Deposits funds as a sponsor (lottery-ineligible).
@@ -3571,7 +3614,8 @@ access(all) contract PrizeSavings {
         /// 
         /// @param from - Vault containing funds to deposit (consumed)
         /// @param receiverID - UUID of the sponsor's SponsorPositionCollection
-        access(contract) fun sponsorDeposit(from: @{FungibleToken.Vault}, receiverID: UInt64) {
+        /// @param ownerAddress - Owner address of the SponsorPositionCollection (passed directly since sponsors don't use capabilities)
+        access(contract) fun sponsorDeposit(from: @{FungibleToken.Vault}, receiverID: UInt64, ownerAddress: Address?) {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive. Amount: ".concat(from.balance.toString())
                 from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
@@ -3618,7 +3662,7 @@ access(all) contract PrizeSavings {
             // NOTE: No registeredReceiverList registration - sponsors are NOT lottery-eligible
             // NOTE: No TWAB/Round tracking - no lottery weight needed
             
-            emit SponsorDeposited(poolID: self.poolID, receiverID: receiverID, amount: amount, shares: newSharesMinted)
+            emit SponsorDeposited(poolID: self.poolID, receiverID: receiverID, amount: amount, shares: newSharesMinted, ownerAddress: ownerAddress)
         }
         
         /// Withdraws funds for a receiver.
@@ -3644,12 +3688,16 @@ access(all) contract PrizeSavings {
         /// 
         /// @param amount - Amount to withdraw (must be > 0)
         /// @param receiverID - UUID of the withdrawer's PoolPositionCollection
+        /// @param ownerAddress - Optional owner address for tracking current owner
         /// @return Vault containing withdrawn funds (may be empty on failure)
-        access(contract) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Vault} {
+        access(contract) fun withdraw(amount: UFix64, receiverID: UInt64, ownerAddress: Address?): @{FungibleToken.Vault} {
             pre {
                 amount > 0.0: "Withdraw amount must be greater than 0"
                 self.registeredReceivers[receiverID] != nil || self.sponsorReceivers[receiverID] == true: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
             }
+            
+            // Update stored address if provided (tracks current owner)
+            self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             
             // Paused pool: nothing allowed
             assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(amount.toString()))
@@ -3692,7 +3740,7 @@ access(all) contract PrizeSavings {
                 }
                 
                 // Return empty vault - withdrawal failed
-                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0)
+                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0, ownerAddress: ownerAddress)
                 return <- DeFiActionsUtils.getEmptyVault(self.config.assetType)
             }
             
@@ -3718,7 +3766,7 @@ access(all) contract PrizeSavings {
                     let _ = self.checkAndAutoTriggerEmergency()
                 }
                 
-                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0)
+                emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0, ownerAddress: resolvedOwnerAddress)
                 return <- withdrawn
             }
             
@@ -3775,7 +3823,7 @@ access(all) contract PrizeSavings {
                 }
             }
             
-            emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: actualWithdrawn)
+            emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: actualWithdrawn, ownerAddress: resolvedOwnerAddress)
             return <- withdrawn
         }
         
@@ -4317,6 +4365,7 @@ access(all) contract PrizeSavings {
                 emit PrizesAwarded(
                     poolID: self.poolID,
                     winners: [],
+                    winnerAddresses: [],
                     amounts: [],
                     round: self.lotteryDistributor.getPrizeRound()
                 )
@@ -4432,9 +4481,16 @@ access(all) contract PrizeSavings {
                 }
             }
             
+            // Build winner addresses array from capabilities
+            let winnerAddresses: [Address?] = []
+            for winnerID in distributedWinners {
+                winnerAddresses.append(self.getReceiverOwnerAddress(receiverID: winnerID))
+            }
+            
             emit PrizesAwarded(
                 poolID: self.poolID,
                 winners: distributedWinners,
+                winnerAddresses: winnerAddresses,
                 amounts: prizeAmounts,
                 round: currentRound
             )
@@ -5065,12 +5121,13 @@ access(all) contract PrizeSavings {
         access(self) fun registerWithPool(poolID: UInt64) {
             pre {
                 self.registeredPools[poolID] == nil: "Already registered"
+                self.owner != nil: "Collection must be stored in an account"
             }
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            // Register our UUID as the receiver ID in the pool
-            poolRef.registerReceiver(receiverID: self.uuid)
+            // Register our UUID with the owner address for address resolution
+            poolRef.registerReceiver(receiverID: self.uuid, ownerAddress: self.owner!.address)
             self.registeredPools[poolID] = true
         }
         
@@ -5100,8 +5157,8 @@ access(all) contract PrizeSavings {
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            // Delegate to pool's deposit function
-            poolRef.deposit(from: <- from, receiverID: self.uuid)
+            // Delegate to pool's deposit function with owner address for tracking
+            poolRef.deposit(from: <- from, receiverID: self.uuid, ownerAddress: self.owner?.address)
         }
         
         /// Withdraws funds from a pool.
@@ -5120,7 +5177,8 @@ access(all) contract PrizeSavings {
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
             
-            return <- poolRef.withdraw(amount: amount, receiverID: self.uuid)
+            // Pass owner address for tracking current owner
+            return <- poolRef.withdraw(amount: amount, receiverID: self.uuid, ownerAddress: self.owner?.address)
         }
         
         /// Claims a pending NFT prize.
@@ -5270,7 +5328,8 @@ access(all) contract PrizeSavings {
             }
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
-            poolRef.sponsorDeposit(from: <- from, receiverID: self.uuid)
+            // Pass owner address directly (sponsors don't use capability-based lookup)
+            poolRef.sponsorDeposit(from: <- from, receiverID: self.uuid, ownerAddress: self.owner?.address)
         }
         
         /// Withdraws funds from a pool.
@@ -5288,7 +5347,8 @@ access(all) contract PrizeSavings {
             }
             
             let poolRef = PrizeSavings.getPoolInternal(poolID)
-            return <- poolRef.withdraw(amount: amount, receiverID: self.uuid)
+            // Pass owner address directly (sponsors don't use capability-based lookup)
+            return <- poolRef.withdraw(amount: amount, receiverID: self.uuid, ownerAddress: self.owner?.address)
         }
         
         /// Returns the sponsor's share balance in a pool.
