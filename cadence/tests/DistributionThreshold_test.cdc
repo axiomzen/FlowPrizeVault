@@ -96,15 +96,15 @@ access(all) fun testYieldBelowThresholdIsNotDistributed() {
     // Nothing should have been distributed - all values should be unchanged
     Test.assert(
         initialPendingLottery == finalPendingLottery,
-        message: "pendingLotteryYield should be unchanged when yield is below threshold"
+        message: "allocatedLotteryYield should be unchanged when yield is below threshold"
     )
     Test.assert(
         initialPendingTreasury == finalPendingTreasury,
-        message: "pendingTreasuryYield should be unchanged when yield is below threshold"
+        message: "allocatedTreasuryYield should be unchanged when yield is below threshold"
     )
     Test.assert(
         initialTotalStaked == finalTotalStaked,
-        message: "totalStaked should be unchanged when yield is below threshold"
+        message: "totalAssets should be unchanged when yield is below threshold"
     )
 }
 
@@ -213,7 +213,7 @@ access(all) fun testAccumulatedYieldEventuallyDistributed() {
     let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
     
     log("=== Initial State ===")
-    log("Initial pendingLotteryYield: ".concat(initialPendingLottery.toString()))
+    log("Initial allocatedLotteryYield: ".concat(initialPendingLottery.toString()))
     log("BELOW_THRESHOLD amount: ".concat(BELOW_THRESHOLD.toString()))
     log("DISTRIBUTION_THRESHOLD: ".concat(DISTRIBUTION_THRESHOLD.toString()))
     
@@ -407,7 +407,7 @@ access(all) fun testZeroYieldNotDistributed() {
     // Nothing should change
     Test.assert(
         initialPendingLottery == finalPendingLottery,
-        message: "Zero yield should not affect pending lottery"
+        message: "Zero yield should not affect allocated lottery yield"
     )
 }
 
@@ -442,7 +442,7 @@ access(all) fun testDeficitBelowThresholdIsNotApplied() {
     // Nothing should have changed - deficit below threshold is skipped
     Test.assert(
         initialTotalStaked == finalTotalStaked,
-        message: "totalStaked should be unchanged when deficit is below threshold"
+        message: "totalAssets should be unchanged when deficit is below threshold"
     )
     Test.assert(
         initialSharePrice == finalSharePrice,
@@ -479,7 +479,7 @@ access(all) fun testDeficitAtThresholdIsApplied() {
     // Deficit at threshold should be applied
     Test.assert(
         finalTotalStaked < initialTotalStaked,
-        message: "totalStaked should decrease when deficit is at threshold. Initial: "
+        message: "totalAssets should decrease when deficit is at threshold. Initial: "
             .concat(initialTotalStaked.toString())
             .concat(", Final: ").concat(finalTotalStaked.toString())
     )
