@@ -30,7 +30,7 @@ access(all) fun testNewPoolTotalStakedZero() {
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["allocatedSavings"]! as! UFix64)
+    Test.assertEqual(0.0, state["allocatedRewards"]! as! UFix64)
 }
 
 access(all) fun testNewPoolLastDrawTimestampZero() {
@@ -46,7 +46,7 @@ access(all) fun testNewPoolPendingLotteryYieldZero() {
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["allocatedLotteryYield"]! as! UFix64)
+    Test.assertEqual(0.0, state["allocatedPrizeYield"]! as! UFix64)
 }
 
 // ============================================================================
@@ -91,7 +91,7 @@ access(all) fun testNewPoolLotteryBalanceZero() {
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["lotteryPoolBalance"]! as! UFix64)
+    Test.assertEqual(0.0, state["prizePoolBalance"]! as! UFix64)
 }
 
 access(all) fun testNewPoolTreasuryForwardedZero() {

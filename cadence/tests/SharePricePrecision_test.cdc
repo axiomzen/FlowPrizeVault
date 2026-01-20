@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -8,7 +8,7 @@ import "test_helpers.cdc"
 // ============================================================================
 // 
 // This test file verifies precision-related edge cases for share price 
-// calculations in the PrizeSavings contract. UFix64 has 8 decimal places
+// calculations in the PrizeLinkedAccounts contract. UFix64 has 8 decimal places
 // of precision, and these tests ensure the contract handles edge cases
 // properly without accumulating significant rounding errors.
 //

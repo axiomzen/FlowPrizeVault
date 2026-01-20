@@ -6,7 +6,7 @@ import "test_helpers.cdc"
 // ============================================================================
 // 
 // This test file verifies the MINIMUM_DISTRIBUTION_THRESHOLD behavior in the
-// PrizeSavings contract. The threshold (0.000001 = 100x minimum UFix64)
+// PrizeLinkedAccounts contract. The threshold (0.000001 = 100x minimum UFix64)
 // prevents precision loss when distributing tiny yield amounts across
 // percentage buckets.
 //
@@ -49,12 +49,12 @@ access(all) fun setup() {
 
 /// Create a pool with a user deposit to enable yield distribution
 access(all) fun setupPoolWithDeposit(
-    savings: UFix64, 
-    lottery: UFix64, 
+    rewards: UFix64, 
+    prize: UFix64, 
     treasury: UFix64, 
     depositAmount: UFix64
 ): UInt64 {
-    let poolID = createPoolWithDistribution(savings: savings, lottery: lottery, treasury: treasury)
+    let poolID = createPoolWithDistribution(rewards: rewards, prize: prize, treasury: treasury)
     
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
@@ -70,17 +70,17 @@ access(all) fun setupPoolWithDeposit(
 access(all) fun testYieldBelowThresholdIsNotDistributed() {
     // Setup: Create pool with 70/20/10 distribution and initial deposit
     let poolID = setupPoolWithDeposit(
-        savings: 0.7, 
-        lottery: 0.2, 
+        rewards: 0.7, 
+        prize: 0.2, 
         treasury: 0.1, 
         depositAmount: 100.0
     )
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedPrizeYield"]!
     let initialPendingTreasury = initialInfo["allocatedTreasuryYield"]!
-    let initialTotalStaked = initialInfo["allocatedSavings"]!
+    let initialTotalStaked = initialInfo["allocatedRewards"]!
     
     // Simulate very small yield (below threshold)
     let poolIndex = Int(poolID)
@@ -89,14 +89,14 @@ access(all) fun testYieldBelowThresholdIsNotDistributed() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    let finalPendingLottery = finalInfo["allocatedPrizeYield"]!
     let finalPendingTreasury = finalInfo["allocatedTreasuryYield"]!
-    let finalTotalStaked = finalInfo["allocatedSavings"]!
+    let finalTotalStaked = finalInfo["allocatedRewards"]!
     
     // Nothing should have been distributed - all values should be unchanged
     Test.assert(
         initialPendingLottery == finalPendingLottery,
-        message: "allocatedLotteryYield should be unchanged when yield is below threshold"
+        message: "allocatedPrizeYield should be unchanged when yield is below threshold"
     )
     Test.assert(
         initialPendingTreasury == finalPendingTreasury,
@@ -115,15 +115,15 @@ access(all) fun testYieldBelowThresholdIsNotDistributed() {
 access(all) fun testYieldAtThresholdIsDistributed() {
     // Setup: Create pool with 70/20/10 distribution
     let poolID = setupPoolWithDeposit(
-        savings: 0.7, 
-        lottery: 0.2, 
+        rewards: 0.7, 
+        prize: 0.2, 
         treasury: 0.1, 
         depositAmount: 100.0
     )
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedPrizeYield"]!
     
     // Simulate yield exactly at threshold
     let poolIndex = Int(poolID)
@@ -132,7 +132,7 @@ access(all) fun testYieldAtThresholdIsDistributed() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    let finalPendingLottery = finalInfo["allocatedPrizeYield"]!
     
     // Lottery should have received 20% of the yield
     // 0.000001 * 0.2 = 0.0000002
@@ -150,15 +150,15 @@ access(all) fun testYieldAtThresholdIsDistributed() {
 access(all) fun testYieldAboveThresholdIsDistributed() {
     // Setup: Create pool with 50/30/20 distribution for easier math
     let poolID = setupPoolWithDeposit(
-        savings: 0.5, 
-        lottery: 0.3, 
+        rewards: 0.5, 
+        prize: 0.3, 
         treasury: 0.2, 
         depositAmount: 100.0
     )
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedPrizeYield"]!
     let initialPendingTreasury = initialInfo["allocatedTreasuryYield"]!
     
     // Simulate yield well above threshold
@@ -168,7 +168,7 @@ access(all) fun testYieldAboveThresholdIsDistributed() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    let finalPendingLottery = finalInfo["allocatedPrizeYield"]!
     let finalPendingTreasury = finalInfo["allocatedTreasuryYield"]!
     
     // Lottery should have received 30% of the yield
@@ -202,18 +202,18 @@ access(all) fun testYieldAboveThresholdIsDistributed() {
 access(all) fun testAccumulatedYieldEventuallyDistributed() {
     // Setup: Create pool with 70/20/10 distribution
     let poolID = setupPoolWithDeposit(
-        savings: 0.7, 
-        lottery: 0.2, 
+        rewards: 0.7, 
+        prize: 0.2, 
         treasury: 0.1, 
         depositAmount: 100.0
     )
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedPrizeYield"]!
     
     log("=== Initial State ===")
-    log("Initial allocatedLotteryYield: ".concat(initialPendingLottery.toString()))
+    log("Initial allocatedPrizeYield: ".concat(initialPendingLottery.toString()))
     log("BELOW_THRESHOLD amount: ".concat(BELOW_THRESHOLD.toString()))
     log("DISTRIBUTION_THRESHOLD: ".concat(DISTRIBUTION_THRESHOLD.toString()))
     
@@ -225,7 +225,7 @@ access(all) fun testAccumulatedYieldEventuallyDistributed() {
     simulateYieldAppreciation(poolIndex: poolIndex, amount: BELOW_THRESHOLD, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
     triggerSyncWithYieldSource(poolID: poolID)
     let info1 = getPoolSavingsInfo(poolID)
-    log("pendingLotteryYield after 1st: ".concat(info1["allocatedLotteryYield"]!.toString()))
+    log("pendingPrizeYield after 1st: ".concat(info1["allocatedPrizeYield"]!.toString()))
     
     log("=== After 2nd small yield ===")
     simulateYieldAppreciation(poolIndex: poolIndex, amount: BELOW_THRESHOLD, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
@@ -233,8 +233,8 @@ access(all) fun testAccumulatedYieldEventuallyDistributed() {
     
     // After 2 syncs, still below threshold (0.000001), nothing distributed
     let midInfo = getPoolSavingsInfo(poolID)
-    let midPendingLottery = midInfo["allocatedLotteryYield"]!
-    log("pendingLotteryYield after 2nd: ".concat(midPendingLottery.toString()))
+    let midPendingLottery = midInfo["allocatedPrizeYield"]!
+    log("pendingPrizeYield after 2nd: ".concat(midPendingLottery.toString()))
     log("Expected (initial): ".concat(initialPendingLottery.toString()))
     log("Are they equal? ".concat(initialPendingLottery == midPendingLottery ? "Yes" : "No"))
     
@@ -252,8 +252,8 @@ access(all) fun testAccumulatedYieldEventuallyDistributed() {
     
     // Now the accumulated yield (0.0000015) should be distributed
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
-    log("pendingLotteryYield after 3rd: ".concat(finalPendingLottery.toString()))
+    let finalPendingLottery = finalInfo["allocatedPrizeYield"]!
+    log("pendingPrizeYield after 3rd: ".concat(finalPendingLottery.toString()))
     
     Test.assert(
         finalPendingLottery > initialPendingLottery,
@@ -268,16 +268,16 @@ access(all) fun testAccumulatedYieldEventuallyDistributed() {
 access(all) fun testSumConservationAboveThreshold() {
     // Setup: Create pool with 40/40/20 distribution
     let poolID = setupPoolWithDeposit(
-        savings: 0.4, 
-        lottery: 0.4, 
+        rewards: 0.4, 
+        prize: 0.4, 
         treasury: 0.2, 
         depositAmount: 100.0
     )
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialTotalStaked = initialInfo["allocatedSavings"]!
-    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialPendingLottery = initialInfo["allocatedPrizeYield"]!
     let initialPendingTreasury = initialInfo["allocatedTreasuryYield"]!
     let initialAllocated = initialTotalStaked + initialPendingLottery + initialPendingTreasury
     
@@ -289,8 +289,8 @@ access(all) fun testSumConservationAboveThreshold() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedSavings"]!
-    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalPendingLottery = finalInfo["allocatedPrizeYield"]!
     let finalPendingTreasury = finalInfo["allocatedTreasuryYield"]!
     let finalAllocated = finalTotalStaked + finalPendingLottery + finalPendingTreasury
     
@@ -312,15 +312,15 @@ access(all) fun testSumConservationAboveThreshold() {
 access(all) fun testThresholdWithThirdsSplit() {
     // Setup: Create pool with 33/33/34 distribution (approximate thirds)
     let poolID = setupPoolWithDeposit(
-        savings: 0.33, 
-        lottery: 0.33, 
+        rewards: 0.33, 
+        prize: 0.33, 
         treasury: 0.34, 
         depositAmount: 100.0
     )
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedPrizeYield"]!
     
     // Add yield at threshold - with thirds, each bucket gets 0.00000033
     let poolIndex = Int(poolID)
@@ -329,7 +329,7 @@ access(all) fun testThresholdWithThirdsSplit() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    let finalPendingLottery = finalInfo["allocatedPrizeYield"]!
     
     // Lottery should have received 33% of yield
     // 0.000001 * 0.33 = 0.00000033
@@ -347,8 +347,8 @@ access(all) fun testThresholdWithThirdsSplit() {
 access(all) fun testThresholdWithSmallTreasuryPercentage() {
     // Setup: Create pool with 80/15/5 distribution (small treasury %)
     let poolID = setupPoolWithDeposit(
-        savings: 0.8, 
-        lottery: 0.15, 
+        rewards: 0.8, 
+        prize: 0.15, 
         treasury: 0.05, 
         depositAmount: 100.0
     )
@@ -387,22 +387,22 @@ access(all) fun testThresholdWithSmallTreasuryPercentage() {
 access(all) fun testZeroYieldNotDistributed() {
     // Setup: Create pool with standard distribution
     let poolID = setupPoolWithDeposit(
-        savings: 0.7, 
-        lottery: 0.2, 
+        rewards: 0.7, 
+        prize: 0.2, 
         treasury: 0.1, 
         depositAmount: 100.0
     )
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialPendingLottery = initialInfo["allocatedLotteryYield"]!
+    let initialPendingLottery = initialInfo["allocatedPrizeYield"]!
     
     // Trigger sync without adding any yield
     triggerSyncWithYieldSource(poolID: poolID)
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalPendingLottery = finalInfo["allocatedLotteryYield"]!
+    let finalPendingLottery = finalInfo["allocatedPrizeYield"]!
     
     // Nothing should change
     Test.assert(
@@ -418,15 +418,15 @@ access(all) fun testZeroYieldNotDistributed() {
 access(all) fun testDeficitBelowThresholdIsNotApplied() {
     // Setup: Create pool with 100% savings for simpler verification
     let poolID = setupPoolWithDeposit(
-        savings: 1.0, 
-        lottery: 0.0, 
+        rewards: 1.0, 
+        prize: 0.0, 
         treasury: 0.0, 
         depositAmount: 100.0
     )
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialTotalStaked = initialInfo["allocatedSavings"]!
+    let initialTotalStaked = initialInfo["allocatedRewards"]!
     let initialSharePrice = initialInfo["sharePrice"]!
     
     // Simulate very small deficit (below threshold)
@@ -436,7 +436,7 @@ access(all) fun testDeficitBelowThresholdIsNotApplied() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedSavings"]!
+    let finalTotalStaked = finalInfo["allocatedRewards"]!
     let finalSharePrice = finalInfo["sharePrice"]!
     
     // Nothing should have changed - deficit below threshold is skipped
@@ -457,15 +457,15 @@ access(all) fun testDeficitBelowThresholdIsNotApplied() {
 access(all) fun testDeficitAtThresholdIsApplied() {
     // Setup: Create pool with 100% savings for simpler verification
     let poolID = setupPoolWithDeposit(
-        savings: 1.0, 
-        lottery: 0.0, 
+        rewards: 1.0, 
+        prize: 0.0, 
         treasury: 0.0, 
         depositAmount: 100.0
     )
     
     // Get initial state
     let initialInfo = getPoolSavingsInfo(poolID)
-    let initialTotalStaked = initialInfo["allocatedSavings"]!
+    let initialTotalStaked = initialInfo["allocatedRewards"]!
     
     // Simulate deficit exactly at threshold
     let poolIndex = Int(poolID)
@@ -474,7 +474,7 @@ access(all) fun testDeficitAtThresholdIsApplied() {
     
     // Get final state
     let finalInfo = getPoolSavingsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedSavings"]!
+    let finalTotalStaked = finalInfo["allocatedRewards"]!
     
     // Deficit at threshold should be applied
     Test.assert(

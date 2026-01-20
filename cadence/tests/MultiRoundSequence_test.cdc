@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -442,7 +442,7 @@ access(all) fun testRoundWithNoPrize() {
     
     // Check status
     let status = getDrawStatus(poolID)
-    let lotteryBalance = status["lotteryPoolBalance"]! as! UFix64
+    let lotteryBalance = status["prizePoolBalance"]! as! UFix64
     
     // If lottery balance is 0, draw might still work but with 0 prize
     // This test verifies the system doesn't break with 0 prize

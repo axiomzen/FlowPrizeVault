@@ -37,14 +37,14 @@ access(all) fun testAdminCanCreatePool() {
 // ============================================================================
 
 access(all) fun testAdminCanUpdateDistributionStrategy() {
-    let poolID = createPoolWithDistribution(savings: 0.7, lottery: 0.2, treasury: 0.1)
+    let poolID = createPoolWithDistribution(rewards: 0.7, prize: 0.2, treasury: 0.1)
     
     // Update to new distribution
-    updateDistributionStrategy(poolID: poolID, savings: 0.5, lottery: 0.3, treasury: 0.2)
+    updateDistributionStrategy(poolID: poolID, rewards: 0.5, prize: 0.3, treasury: 0.2)
     
     let details = getPoolDistributionDetails(poolID)
-    Test.assertEqual(0.5, details["savingsPercent"]! as! UFix64)
-    Test.assertEqual(0.3, details["lotteryPercent"]! as! UFix64)
+    Test.assertEqual(0.5, details["rewardsPercent"]! as! UFix64)
+    Test.assertEqual(0.3, details["prizePercent"]! as! UFix64)
     Test.assertEqual(0.2, details["treasuryPercent"]! as! UFix64)
 }
 
@@ -542,7 +542,7 @@ access(all) fun testCriticalOpsDelegateCanEnableEmergencyMode() {
 }
 
 access(all) fun testCriticalOpsDelegateCanUpdateDistributionStrategy() {
-    let poolID = createPoolWithDistribution(savings: 0.7, lottery: 0.2, treasury: 0.1)
+    let poolID = createPoolWithDistribution(rewards: 0.7, prize: 0.2, treasury: 0.1)
     
     // Create a delegate account
     let delegate = Test.createAccount()
@@ -552,13 +552,13 @@ access(all) fun testCriticalOpsDelegateCanUpdateDistributionStrategy() {
     setupCriticalOpsDelegate(delegate)
     
     // Delegate should be able to update distribution strategy (CriticalOps function)
-    let success = delegateUpdateDistributionStrategy(delegate, poolID: poolID, savings: 0.5, lottery: 0.3, treasury: 0.2)
+    let success = delegateUpdateDistributionStrategy(delegate, poolID: poolID, rewards: 0.5, prize: 0.3, treasury: 0.2)
     Test.assertEqual(true, success)
     
     // Verify the change was made
     let details = getPoolDistributionDetails(poolID)
-    Test.assertEqual(0.5, details["savingsPercent"]! as! UFix64)
-    Test.assertEqual(0.3, details["lotteryPercent"]! as! UFix64)
+    Test.assertEqual(0.5, details["rewardsPercent"]! as! UFix64)
+    Test.assertEqual(0.3, details["prizePercent"]! as! UFix64)
     Test.assertEqual(0.2, details["treasuryPercent"]! as! UFix64)
 }
 

@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "test_helpers.cdc"
 
 // ============================================================================
@@ -21,7 +21,7 @@ access(all) fun setup() {
 // ============================================================================
 
 access(all) fun testCreateEmptyPoolPositionCollection() {
-    let collection <- PrizeSavings.createPoolPositionCollection()
+    let collection <- PrizeLinkedAccounts.createPoolPositionCollection()
     
     let registeredPools = collection.getRegisteredPoolIDs()
     Test.assertEqual(0, registeredPools.length)

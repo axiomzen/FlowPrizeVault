@@ -2,7 +2,7 @@ import "FungibleToken"
 import "DeFiActions"
 import "DeFiActionsUtils"
 
-/// MockYieldConnector - Simple vault connector for testing PrizeSavings
+/// MockYieldConnector - Simple vault connector for testing PrizeLinkedAccounts
 /// Implements DeFiActions.Sink and DeFiActions.Source interfaces to connect
 /// to a FlowToken vault stored at /storage/testYieldVault
 access(all) contract MockYieldConnector {

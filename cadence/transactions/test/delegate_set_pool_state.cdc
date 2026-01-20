@@ -1,11 +1,11 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Delegate uses CriticalOps capability to set pool state
 transaction(poolID: UInt64, state: UInt8, reason: String) {
     prepare(signer: auth(Storage) &Account) {
         // Get the capability from own storage
-        let cap = signer.storage.borrow<&Capability<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>>(
-            from: /storage/PrizeSavingsAdminCriticalOps
+        let cap = signer.storage.borrow<&Capability<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>>(
+            from: /storage/PrizeLinkedAccountsAdminCriticalOps
         ) ?? panic("No CriticalOps capability found in storage")
         
         let adminRef = cap.borrow()
@@ -13,7 +13,7 @@ transaction(poolID: UInt64, state: UInt8, reason: String) {
         
         adminRef.setPoolState(
             poolID: poolID,
-            state: PrizeSavings.PoolEmergencyState(rawValue: state)!,
+            state: PrizeLinkedAccounts.PoolEmergencyState(rawValue: state)!,
             reason: reason
         )
         

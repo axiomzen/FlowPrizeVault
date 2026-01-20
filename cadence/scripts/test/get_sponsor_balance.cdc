@@ -1,4 +1,4 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Returns the sponsor's balance in a pool.
 /// 
@@ -8,8 +8,8 @@ import "PrizeSavings"
 access(all) fun main(sponsorAddress: Address, poolID: UInt64): {String: UFix64} {
     let account = getAccount(sponsorAddress)
     
-    if let collection = account.capabilities.borrow<&PrizeSavings.SponsorPositionCollection>(
-        PrizeSavings.SponsorPositionCollectionPublicPath
+    if let collection = account.capabilities.borrow<&PrizeLinkedAccounts.SponsorPositionCollection>(
+        PrizeLinkedAccounts.SponsorPositionCollectionPublicPath
     ) {
         let balance = collection.getPoolBalance(poolID: poolID)
         return {

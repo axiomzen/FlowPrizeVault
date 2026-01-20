@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -54,7 +54,7 @@ access(all) fun testSponsorDepositIncreasesPoolTotals() {
     ensurePoolExists()
     
     let initialTotals = getPoolTotals(poolID)
-    let initialStaked = initialTotals["allocatedSavings"]!
+    let initialStaked = initialTotals["allocatedRewards"]!
     
     // Setup sponsor and deposit
     let sponsor = Test.createAccount()
@@ -63,7 +63,7 @@ access(all) fun testSponsorDepositIncreasesPoolTotals() {
     
     // Verify pool totals increased
     let finalTotals = getPoolTotals(poolID)
-    Test.assertEqual(initialStaked + depositAmount, finalTotals["allocatedSavings"]!)
+    Test.assertEqual(initialStaked + depositAmount, finalTotals["allocatedRewards"]!)
 }
 
 access(all) fun testSponsorDepositUpdatesSponsorBalance() {

@@ -1,6 +1,6 @@
 # Accounting & Shares Model
 
-This document provides an in-depth explanation of the accounting system and ERC4626-style shares model used in PrizeSavings.
+This document provides an in-depth explanation of the accounting system and ERC4626-style shares model used in PrizeLinkedAccounts.
 
 ## Table of Contents
 
@@ -26,7 +26,7 @@ This document provides an in-depth explanation of the accounting system and ERC4
 
 ## Overview
 
-PrizeSavings uses a **shares-based accounting model** (similar to ERC4626 vault standard) to track user balances and distribute yield. This approach enables:
+PrizeLinkedAccounts uses a **shares-based accounting model** (similar to ERC4626 vault standard) to track user balances and distribute yield. This approach enables:
 
 1. **O(1) interest distribution** — No loops required to credit each user
 2. **Automatic compounding** — Interest accrues to share value, not per-user balances
@@ -82,7 +82,7 @@ access(all) var totalStaked: UFix64
 
 /// Lottery funds still earning in yield source (not yet withdrawn)
 /// Materialized to prize pool at draw time
-access(all) var pendingLotteryYield: UFix64
+access(all) var pendingPrizeYield: UFix64
 
 /// Treasury funds still earning in yield source (not yet withdrawn)
 /// Materialized and forwarded to recipient (or unclaimed vault) at draw time
@@ -122,7 +122,7 @@ access(self) let receiverTotalEarnedPrizes: {UInt64: UFix64}
 │                    ACCOUNTING RELATIONSHIPS                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  allocatedFunds = totalStaked + pendingLotteryYield             │
+│  allocatedFunds = totalStaked + pendingPrizeYield             │
 │                 + pendingTreasuryYield                          │
 │                                                                 │
 │  allocatedFunds = yieldSource.balance()                         │
@@ -155,8 +155,8 @@ The implementation uses a **virtual offset pattern** to prevent the ERC4626 "inf
 access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
     // Virtual offset: prevents inflation attacks by ensuring share price 
     // starts near 1:1 and can't be manipulated when totalShares is small
-    let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES  // +1.0
-    let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS  // +1.0
+    let effectiveShares = self.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES  // +1.0
+    let effectiveAssets = self.totalAssets + PrizeLinkedAccounts.VIRTUAL_ASSETS  // +1.0
     
     if assets > 0.0 {
         let maxSafeAssets = UFix64.max / effectiveShares
@@ -174,8 +174,8 @@ access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
 ```cadence
 access(all) view fun convertToAssets(_ shares: UFix64): UFix64 {
     // Virtual offset: (shares * (totalAssets + 1)) / (totalShares + 1)
-    let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES  // +1.0
-    let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS  // +1.0
+    let effectiveShares = self.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES  // +1.0
+    let effectiveAssets = self.totalAssets + PrizeLinkedAccounts.VIRTUAL_ASSETS  // +1.0
     
     if shares > 0.0 {
         let maxSafeShares = UFix64.max / effectiveAssets
@@ -340,7 +340,7 @@ The `syncWithYieldSource` function synchronizes internal accounting with the act
 ```cadence
 access(contract) fun syncWithYieldSource() {
     let yieldBalance = self.config.yieldConnector.minimumAvailable()
-    let allocatedFunds = self.totalStaked + self.pendingLotteryYield + self.pendingTreasuryYield
+    let allocatedFunds = self.totalStaked + self.pendingPrizeYield + self.pendingTreasuryYield
     
     if yieldBalance > allocatedFunds {
         // EXCESS: Yield source has more than we've tracked
@@ -365,14 +365,14 @@ access(self) fun applyExcess(amount: UFix64) {
     let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
     
     // 2. Distribute to savings (O(1) - just update totalAssets)
-    if plan.savingsAmount > 0.0 {
-        self.savingsDistributor.accrueYield(amount: plan.savingsAmount)
-        self.totalStaked = self.totalStaked + plan.savingsAmount
+    if plan.rewardsAmount > 0.0 {
+        self.savingsDistributor.accrueYield(amount: plan.rewardsAmount)
+        self.totalStaked = self.totalStaked + plan.rewardsAmount
     }
     
     // 3. Track lottery funds (stay in yield source until draw)
     if plan.lotteryAmount > 0.0 {
-        self.pendingLotteryYield = self.pendingLotteryYield + plan.lotteryAmount
+        self.pendingPrizeYield = self.pendingPrizeYield + plan.lotteryAmount
     }
     
     // 4. Track treasury funds (stay in yield source until draw)
@@ -429,8 +429,8 @@ Yield is split between three destinations:
 
 ```cadence
 struct DistributionPlan {
-    let savingsAmount: UFix64   // Goes to shareholders (increases share price)
-    let lotteryAmount: UFix64   // Funds lottery prize pool
+    let rewardsAmount: UFix64   // Goes to shareholders (increases share price)
+    let lotteryAmount: UFix64   // Funds prize pool
     let treasuryAmount: UFix64  // Protocol fees
 }
 ```
@@ -446,7 +446,7 @@ let strategy = FixedPercentageStrategy(
 
 // With 100 FLOW yield:
 // savings: 50 FLOW → increases share price (tracked in totalStaked)
-// lottery: 30 FLOW → tracked in pendingLotteryYield
+// lottery: 30 FLOW → tracked in pendingPrizeYield
 // treasury: 20 FLOW → tracked in pendingTreasuryYield
 ```
 
@@ -455,7 +455,7 @@ let strategy = FixedPercentageStrategy(
 | Destination | Storage | When Materialized |
 |-------------|---------|-------------------|
 | Savings | Stays in yield source, tracked in `totalStaked` | Immediate (share price increases) |
-| Lottery | Stays in yield source, tracked in `pendingLotteryYield` | At draw time → prize pool |
+| Lottery | Stays in yield source, tracked in `pendingPrizeYield` | At draw time → prize pool |
 | Treasury | Stays in yield source, tracked in `pendingTreasuryYield` | At draw time → recipient or unclaimed vault |
 
 ### Draw-Time Materialization
@@ -465,12 +465,12 @@ At the start of each lottery draw, pending funds are materialized:
 ```cadence
 // In startDraw():
 // 1. Materialize lottery funds
-if self.pendingLotteryYield > 0.0 {
+if self.pendingPrizeYield > 0.0 {
     let lotteryVault <- self.config.yieldConnector.withdrawAvailable(
-        maxAmount: self.pendingLotteryYield
+        maxAmount: self.pendingPrizeYield
     )
-    self.lotteryDistributor.fundPrizePool(vault: <- lotteryVault)
-    self.pendingLotteryYield = 0.0
+    self.prizeDistributor.fundPrizePool(vault: <- lotteryVault)
+    self.pendingPrizeYield = 0.0
 }
 
 // 2. Materialize treasury funds
@@ -503,7 +503,7 @@ A **deficit** occurs when the yield source balance is less than `allocatedFunds`
 - A hack or exploit affects the yield source
 
 ```
-allocatedFunds = totalStaked + pendingLotteryYield + pendingTreasuryYield
+allocatedFunds = totalStaked + pendingPrizeYield + pendingTreasuryYield
 
 DEFICIT occurs when:
 yieldSource.balance() < allocatedFunds
@@ -537,7 +537,7 @@ When an allocation can't fully cover its share, the shortfall cascades in this p
 │                                                                 │
 │  2. LOTTERY (Second)                                            │
 │     → Prize pool absorbs its share + treasury shortfall         │
-│     → Capped by pendingLotteryYield                             │
+│     → Capped by pendingPrizeYield                             │
 │     → Shortfall cascades to savings                             │
 │                                                                 │
 │  3. SAVINGS (Last)                                              │
@@ -567,15 +567,15 @@ access(self) fun applyDeficit(amount: UFix64) {
     // 2. Lottery absorbs its share + treasury shortfall
     let totalLotteryTarget = plan.lotteryAmount + treasuryShortfall
     var lotteryShortfall: UFix64 = 0.0
-    if totalLotteryTarget > self.pendingLotteryYield {
-        lotteryShortfall = totalLotteryTarget - self.pendingLotteryYield
-        self.pendingLotteryYield = 0.0
+    if totalLotteryTarget > self.pendingPrizeYield {
+        lotteryShortfall = totalLotteryTarget - self.pendingPrizeYield
+        self.pendingPrizeYield = 0.0
     } else {
-        self.pendingLotteryYield = self.pendingLotteryYield - totalLotteryTarget
+        self.pendingPrizeYield = self.pendingPrizeYield - totalLotteryTarget
     }
     
     // 3. Savings absorbs remainder (share price decrease)
-    let totalSavingsLoss = plan.savingsAmount + lotteryShortfall
+    let totalSavingsLoss = plan.rewardsAmount + lotteryShortfall
     self.savingsDistributor.decreaseTotalAssets(amount: totalSavingsLoss)
     self.totalStaked = self.totalStaked - totalSavingsLoss
 }
@@ -586,7 +586,7 @@ access(self) fun applyDeficit(amount: UFix64) {
 ```
 Initial State (after yield accumulation):
   totalStaked = 110 (100 deposit + 10 savings yield)
-  pendingLotteryYield = 6
+  pendingPrizeYield = 6
   pendingTreasuryYield = 4
   allocatedFunds = 110 + 6 + 4 = 120
 
@@ -603,7 +603,7 @@ Deficit of 20 FLOW occurs (yield source now has 100):
     treasuryShortfall: 0
 
   Step 2: Lottery absorbs 6 (has 6, exactly covers its share)
-    pendingLotteryYield: 6 → 0
+    pendingPrizeYield: 6 → 0
     lotteryShortfall: 0
 
   Step 3: Savings absorbs 10
@@ -612,7 +612,7 @@ Deficit of 20 FLOW occurs (yield source now has 100):
 
 Final State:
   totalStaked = 100
-  pendingLotteryYield = 0
+  pendingPrizeYield = 0
   pendingTreasuryYield = 0
   allocatedFunds = 100 (matches yield source balance ✓)
 ```
@@ -622,7 +622,7 @@ Final State:
 ```
 State:
   totalStaked = 103
-  pendingLotteryYield = 3
+  pendingPrizeYield = 3
   pendingTreasuryYield = 4
   allocatedFunds = 110
 
@@ -642,7 +642,7 @@ Deficit of 20 FLOW (larger than all pending yield):
   Step 2: Lottery absorbs (has 3, needs 6 + 4 = 10)
     absorbed: 3
     lotteryShortfall: 10 - 3 = 7
-    pendingLotteryYield: 3 → 0
+    pendingPrizeYield: 3 → 0
 
   Step 3: Savings absorbs (its 6 + 7 shortfall = 13)
     totalStaked: 103 → 90
@@ -650,7 +650,7 @@ Deficit of 20 FLOW (larger than all pending yield):
 
 Final State:
   totalStaked = 90
-  pendingLotteryYield = 0
+  pendingPrizeYield = 0
   pendingTreasuryYield = 0
   allocatedFunds = 90 (matches yield source balance ✓)
 ```
@@ -673,7 +673,7 @@ This design philosophy prioritizes user trust and principal protection while all
 
 1. **Allocated Funds = Yield Source Balance** (after every sync)
    ```
-   totalStaked + pendingLotteryYield + pendingTreasuryYield == yieldSource.balance()
+   totalStaked + pendingPrizeYield + pendingTreasuryYield == yieldSource.balance()
    ```
    This is the most important invariant. It ensures no "ghost" funds exist in the yield source that aren't tracked.
 
@@ -699,7 +699,7 @@ This design philosophy prioritizes user trust and principal protection while all
    totalShares >= 0
    totalAssets >= 0
    userShares[id] >= 0
-   pendingLotteryYield >= 0
+   pendingPrizeYield >= 0
    pendingTreasuryYield >= 0
    ```
 
@@ -710,7 +710,7 @@ This design philosophy prioritizes user trust and principal protection while all
 
 ### Tested Invariants
 
-From `PrizeSavings_shares_test.cdc`:
+From `PrizeLinkedAccounts_shares_test.cdc`:
 
 ```cadence
 access(all) fun testInvariantTotalAssets() {
@@ -871,8 +871,8 @@ This ensures:
 
 ```cadence
 access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
-    let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
-    let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS
+    let effectiveShares = self.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES
+    let effectiveAssets = self.totalAssets + PrizeLinkedAccounts.VIRTUAL_ASSETS
     
     if assets > 0.0 {
         let maxSafeAssets = UFix64.max / effectiveShares
@@ -902,8 +902,8 @@ Division by zero is prevented by virtual offset:
 ```cadence
 access(all) view fun convertToAssets(_ shares: UFix64): UFix64 {
     // effectiveShares is always >= 1.0, so division is safe
-    let effectiveShares = self.totalShares + PrizeSavings.VIRTUAL_SHARES
-    let effectiveAssets = self.totalAssets + PrizeSavings.VIRTUAL_ASSETS
+    let effectiveShares = self.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES
+    let effectiveAssets = self.totalAssets + PrizeLinkedAccounts.VIRTUAL_ASSETS
     return (shares * effectiveAssets) / effectiveShares
 }
 ```
@@ -935,7 +935,7 @@ Share calculations may produce small rounding errors. The protocol handles this 
 
 ## Round-Based TWAB Tracking
 
-Time-Weighted Average Balance (TWAB) determines lottery weight. Users who deposit more, for longer, have higher lottery odds. The system uses a **per-round, projection-based** approach with **batched draw processing**.
+Time-Weighted Average Balance (TWAB) determines prize weight. Users who deposit more, for longer, have higher prize odds. The system uses a **per-round, projection-based** approach with **batched draw processing**.
 
 ### Architecture Overview
 
@@ -1112,7 +1112,7 @@ Progress can be monitored via `getDrawBatchProgress()`:
 
 ### Entry Calculation
 
-**Entries** are human-readable lottery weight:
+**Entries** are human-readable prize weight:
 
 ```cadence
 entries = projectedTWAB / roundDuration
@@ -1155,7 +1155,7 @@ The shares model provides:
 
 1. **Shares represent proportional ownership, not absolute balance.** When yield accrues, the pool grows but shares stay constant—everyone's proportional claim on a larger pool automatically increases their value.
 
-2. **All yield stays in the yield source until draw time.** Lottery and treasury portions are tracked via `pendingLotteryYield` and `pendingTreasuryYield`, ensuring `allocatedFunds` always equals the yield source balance.
+2. **All yield stays in the yield source until draw time.** Lottery and treasury portions are tracked via `pendingPrizeYield` and `pendingTreasuryYield`, ensuring `allocatedFunds` always equals the yield source balance.
 
 3. **Deficits are handled with user protection in mind.** The priority order (treasury → lottery → savings) ensures the protocol absorbs losses before users, and lottery pools buffer savings before user principal is affected.
 

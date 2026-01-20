@@ -1,4 +1,4 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Cleans up stale dictionary entries and ghost receivers from a pool.
 /// This is an admin operation that should be called periodically.
@@ -14,11 +14,11 @@ import "PrizeSavings"
 /// @param limit - Maximum receivers to process per call (for gas management)
 
 transaction(poolID: UInt64, startIndex: Int, limit: Int) {
-    let adminRef: auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin
+    let adminRef: auth(PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin
 
     prepare(signer: auth(BorrowValue) &Account) {
-        self.adminRef = signer.storage.borrow<auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin>(
-            from: PrizeSavings.AdminStoragePath
+        self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin>(
+            from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Could not borrow Admin reference")
     }
 

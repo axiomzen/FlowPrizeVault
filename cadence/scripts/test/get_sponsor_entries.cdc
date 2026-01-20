@@ -1,4 +1,4 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Returns the sponsor's lottery entries in a pool.
 /// This should always return 0.0 since sponsors are lottery-ineligible.
@@ -9,8 +9,8 @@ import "PrizeSavings"
 access(all) fun main(sponsorAddress: Address, poolID: UInt64): UFix64 {
     let account = getAccount(sponsorAddress)
     
-    if let collection = account.capabilities.borrow<&PrizeSavings.SponsorPositionCollection>(
-        PrizeSavings.SponsorPositionCollectionPublicPath
+    if let collection = account.capabilities.borrow<&PrizeLinkedAccounts.SponsorPositionCollection>(
+        PrizeLinkedAccounts.SponsorPositionCollectionPublicPath
     ) {
         return collection.getPoolEntries(poolID: poolID)
     }

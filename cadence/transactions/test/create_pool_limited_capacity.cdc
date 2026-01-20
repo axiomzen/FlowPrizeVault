@@ -1,4 +1,4 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FungibleToken"
 import "FlowToken"
 import "DeFiActions"
@@ -9,7 +9,7 @@ import "MockYieldConnector"
 transaction(capacityLimit: UFix64) {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         // Generate unique storage path based on current pool count to avoid collisions
-        let currentPoolCount = PrizeSavings.getAllPoolIDs().length
+        let currentPoolCount = PrizeLinkedAccounts.getAllPoolIDs().length
         let vaultPath = StoragePath(identifier: "testYieldVaultLimited_".concat(currentPoolCount.toString()))!
         
         // Create a test vault to use as yield source
@@ -29,19 +29,19 @@ transaction(capacityLimit: UFix64) {
         )
         
         // Create distribution strategy (70% savings, 20% lottery, 10% treasury)
-        let strategy = PrizeSavings.FixedPercentageStrategy(
-            savings: 0.7,
-            lottery: 0.2,
+        let strategy = PrizeLinkedAccounts.FixedPercentageStrategy(
+            rewards: 0.7,
+            prize: 0.2,
             treasury: 0.1
         )
         
         // Create prize distribution
-        let prizeDistribution = PrizeSavings.SingleWinnerPrize(
+        let prizeDistribution = PrizeLinkedAccounts.SingleWinnerPrize(
             nftIDs: []
-        ) as {PrizeSavings.PrizeDistribution}
+        ) as {PrizeLinkedAccounts.PrizeDistribution}
         
         // Create pool config with limited connector
-        let config = PrizeSavings.PoolConfig(
+        let config = PrizeLinkedAccounts.PoolConfig(
             assetType: Type<@FlowToken.Vault>(),
             yieldConnector: limitedConnector,
             minimumDeposit: 1.0,
@@ -52,8 +52,8 @@ transaction(capacityLimit: UFix64) {
         )
         
         // Borrow admin resource and create pool
-        let admin = signer.storage.borrow<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>(
-            from: PrizeSavings.AdminStoragePath
+        let admin = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
+            from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Could not borrow Admin resource")
         
         let poolID = admin.createPool(

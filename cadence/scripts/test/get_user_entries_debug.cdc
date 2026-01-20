@@ -1,18 +1,18 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Debug script to get all entry-related values for a user
 access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} {
     let account = getAccount(userAddress)
     
     // Get the user's receiver ID from their collection
-    let collectionRef = account.capabilities.borrow<&PrizeSavings.PoolPositionCollection>(
-        PrizeSavings.PoolPositionCollectionPublicPath
+    let collectionRef = account.capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
+        PrizeLinkedAccounts.PoolPositionCollectionPublicPath
     ) ?? panic("No PoolPositionCollection found at address")
     
     let receiverID = collectionRef.getReceiverID()
     
     // Borrow the pool
-    let poolRef = PrizeSavings.borrowPool(poolID: poolID)
+    let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
     
     // Get pool config for draw interval

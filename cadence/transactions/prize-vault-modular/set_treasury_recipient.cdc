@@ -1,4 +1,4 @@
-import PrizeSavings from "../../contracts/PrizeSavings.cdc"
+import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 import FungibleToken from "FungibleToken"
 
 /// Set the treasury recipient for automatic forwarding during syncWithYieldSource.
@@ -19,12 +19,12 @@ import FungibleToken from "FungibleToken"
 /// 2. Every syncWithYieldSource() automatically forwards treasury to recipient
 /// 3. No further action needed - fully automated
 transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath) {
-    let adminRef: auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin
+    let adminRef: auth(PrizeLinkedAccounts.OwnerOnly) &PrizeLinkedAccounts.Admin
     
     prepare(signer: auth(Storage) &Account) {
         // Borrow with OwnerOnly entitlement - only account owner can do this
-        self.adminRef = signer.storage.borrow<auth(PrizeSavings.OwnerOnly) &PrizeSavings.Admin>(
-            from: PrizeSavings.AdminStoragePath
+        self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.OwnerOnly) &PrizeLinkedAccounts.Admin>(
+            from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Admin resource not found. Call setup_admin first.")
     }
     

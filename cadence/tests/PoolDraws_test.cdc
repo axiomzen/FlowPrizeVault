@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -185,14 +185,14 @@ access(all) fun testFundLotteryPoolIncreasesBalance() {
     
     // Get initial lottery balance
     let initialStatus = getDrawStatus(poolID)
-    let initialBalance = initialStatus["lotteryPoolBalance"]! as! UFix64
+    let initialBalance = initialStatus["prizePoolBalance"]! as! UFix64
     
     // Fund lottery
     fundLotteryPool(poolID, amount: fundAmount)
     
     // Verify balance increased
     let finalStatus = getDrawStatus(poolID)
-    let finalBalance = finalStatus["lotteryPoolBalance"]! as! UFix64
+    let finalBalance = finalStatus["prizePoolBalance"]! as! UFix64
     Test.assertEqual(initialBalance + fundAmount, finalBalance)
 }
 

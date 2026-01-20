@@ -1,10 +1,10 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Transaction to process rewards for a pool
 transaction(poolID: UInt64) {
     prepare(signer: auth(Storage) &Account) {
-        let admin = signer.storage.borrow<auth(PrizeSavings.ConfigOps) &PrizeSavings.Admin>(
-            from: PrizeSavings.AdminStoragePath
+        let admin = signer.storage.borrow<auth(PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin>(
+            from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Could not borrow Admin resource")
         
         admin.processPoolRewards(poolID: poolID)

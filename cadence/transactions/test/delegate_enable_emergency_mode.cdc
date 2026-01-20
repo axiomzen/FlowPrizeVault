@@ -1,11 +1,11 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Delegate uses CriticalOps capability to enable emergency mode
 transaction(poolID: UInt64, reason: String) {
     prepare(signer: auth(Storage) &Account) {
         // Get the capability from own storage
-        let cap = signer.storage.borrow<&Capability<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>>(
-            from: /storage/PrizeSavingsAdminCriticalOps
+        let cap = signer.storage.borrow<&Capability<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>>(
+            from: /storage/PrizeLinkedAccountsAdminCriticalOps
         ) ?? panic("No CriticalOps capability found in storage")
         
         let adminRef = cap.borrow()

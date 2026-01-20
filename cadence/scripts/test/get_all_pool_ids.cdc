@@ -1,7 +1,7 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
-/// Returns all pool IDs from the PrizeSavings contract
+/// Returns all pool IDs from the PrizeLinkedAccounts contract
 access(all) fun main(): [UInt64] {
-    return PrizeSavings.getAllPoolIDs()
+    return PrizeLinkedAccounts.getAllPoolIDs()
 }
 
