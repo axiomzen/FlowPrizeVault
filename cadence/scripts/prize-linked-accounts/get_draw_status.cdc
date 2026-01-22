@@ -48,7 +48,9 @@ access(all) struct DrawStatus {
     access(all) let isReadyForCompletion: Bool
     /// Batch progress information (nil if no batch in progress)
     access(all) let batchProgress: BatchProgress?
-    
+    /// True if pool is in intermission (between rounds, activeRound is nil)
+    access(all) let isInIntermission: Bool
+
     init(
         isDrawInProgress: Bool,
         canDrawNow: Bool,
@@ -65,7 +67,8 @@ access(all) struct DrawStatus {
         isBatchInProgress: Bool,
         isBatchComplete: Bool,
         isReadyForCompletion: Bool,
-        batchProgress: BatchProgress?
+        batchProgress: BatchProgress?,
+        isInIntermission: Bool
     ) {
         self.isDrawInProgress = isDrawInProgress
         self.canDrawNow = canDrawNow
@@ -83,6 +86,7 @@ access(all) struct DrawStatus {
         self.isBatchComplete = isBatchComplete
         self.isReadyForCompletion = isReadyForCompletion
         self.batchProgress = batchProgress
+        self.isInIntermission = isInIntermission
     }
 }
 
@@ -124,6 +128,7 @@ access(all) fun main(poolID: UInt64): DrawStatus {
         isBatchInProgress: poolRef.isDrawBatchInProgress(),
         isBatchComplete: poolRef.isDrawBatchComplete(),
         isReadyForCompletion: poolRef.isReadyForDrawCompletion(),
-        batchProgress: batchProgress
+        batchProgress: batchProgress,
+        isInIntermission: poolRef.isInIntermission()
     )
 }

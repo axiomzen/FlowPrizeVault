@@ -175,6 +175,9 @@ access(all) fun testWithdrawDuringPhase1StartDraw() {
     commitBlocksForRandomness()
     completeDraw(user1, poolID: poolID)
     
+    // Start next round to exit intermission
+    startNextRound(user1, poolID: poolID)
+    
     // Draw should complete successfully
     let state = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(2), state["currentRoundID"]! as! UInt64)
@@ -218,6 +221,9 @@ access(all) fun testWithdrawDuringPhase2BatchProcessing() {
     commitBlocksForRandomness()
     completeDraw(users[0], poolID: poolID)
     
+    // Start next round to exit intermission
+    startNextRound(users[0], poolID: poolID)
+    
     // Draw should complete
     let state = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(2), state["currentRoundID"]! as! UInt64)
@@ -252,6 +258,9 @@ access(all) fun testWithdrawDuringPhase3Randomness() {
     // Complete draw
     commitBlocksForRandomness()
     completeDraw(user1, poolID: poolID)
+    
+    // Start next round to exit intermission
+    startNextRound(user1, poolID: poolID)
     
     // Draw should complete successfully
     let state = getPoolInitialState(poolID)
@@ -288,6 +297,9 @@ access(all) fun testNewUserJoinsDuringDraw() {
     requestDrawRandomness(existingUser, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(existingUser, poolID: poolID)
+    
+    // Start next round to exit intermission
+    startNextRound(existingUser, poolID: poolID)
     
     // New user should be in the new round with entries
     let newUserEntries = getUserEntries(newUser.address, poolID)
@@ -331,6 +343,9 @@ access(all) fun testUserLeavesCompletelyDuringDraw() {
     requestDrawRandomness(stayingUser, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(stayingUser, poolID: poolID)
+    
+    // Start next round to exit intermission
+    startNextRound(stayingUser, poolID: poolID)
     
     // Draw should complete
     let state = getPoolInitialState(poolID)
@@ -381,6 +396,9 @@ access(all) fun testUserNotAffectedByOthersDuringDraw() {
     commitBlocksForRandomness()
     completeDraw(user1, poolID: poolID)
     
+    // Start next round to exit intermission
+    startNextRound(user1, poolID: poolID)
+    
     // User1 should still have entries in new round (unaffected by others)
     let user1EntriesAfter = getUserEntries(user1.address, poolID)
     Test.assert(user1EntriesAfter > 0.0, message: "User1 should have entries after draw")
@@ -424,6 +442,9 @@ access(all) fun testDifferentUsersDifferentPhases() {
     // Phase 4: Complete draw
     commitBlocksForRandomness()
     completeDraw(user1, poolID: poolID)
+    
+    // Start next round to exit intermission
+    startNextRound(user1, poolID: poolID)
     
     // Draw should complete successfully
     let state = getPoolInitialState(poolID)

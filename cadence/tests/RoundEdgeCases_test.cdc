@@ -303,12 +303,12 @@ access(all) fun testUserExistsInBothActiveAndPendingRound() {
     // Wait for round to end
     Test.moveTime(by: 61.0)
     
-    // Start draw (creates pendingDrawRound and new activeRound)
+    // Start draw (pool enters intermission while processing pendingDrawRound)
     startDraw(user, poolID: poolID)
     
-    // User should have entries in the new active round
+    // During intermission, entries = share balance (which should be > 0)
     let entries = getUserEntries(user.address, poolID)
-    Test.assert(entries > 0.0, message: "User should have entries in new round after startDraw")
+    Test.assert(entries > 0.0, message: "User should have entries (share balance) during intermission")
     
     // Complete the draw
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
@@ -316,7 +316,10 @@ access(all) fun testUserExistsInBothActiveAndPendingRound() {
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
     
-    // User should still have entries
+    // Start next round to exit intermission
+    startNextRound(user, poolID: poolID)
+    
+    // User should still have entries in the new round
     let entriesAfter = getUserEntries(user.address, poolID)
     Test.assert(entriesAfter > 0.0, message: "User should have entries after draw completed")
 }

@@ -254,6 +254,9 @@ access(all) fun testCleanupDoesNotAffectActiveUsers() {
     commitBlocksForRandomness()
     completeDraw(active1, poolID: poolID)
     
+    // Start next round to exit intermission
+    startNextRound(active1, poolID: poolID)
+    
     // Run cleanup
     cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)
     
@@ -294,6 +297,9 @@ access(all) fun testCleanupAfterUserRedeposits() {
     requestDrawRandomness(participant, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(participant, poolID: poolID)
+    
+    // Start next round to exit intermission
+    startNextRound(participant, poolID: poolID)
     
     // Run cleanup - should NOT remove this user (they have balance now)
     cleanupPoolStaleEntries(poolID, startIndex: 0, receiverLimit: 100)

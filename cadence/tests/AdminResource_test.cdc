@@ -132,8 +132,8 @@ access(all) fun testUpdateDrawIntervalDuringBatchProcessing() {
     Test.moveTime(by: 61.0)
     startDraw(user, poolID: poolID)
     
-    // Now in batch processing phase - update pool config should still work
-    // Note: This only affects future rounds, not the active round that was created at startDraw
+    // Now in batch processing phase (pool is in intermission) - update pool config should still work
+    // Note: This affects the next round when startNextRound is called
     updateDrawInterval(poolID: poolID, newInterval: 300.0)
     
     // Verify pool config update succeeded
@@ -146,10 +146,16 @@ access(all) fun testUpdateDrawIntervalDuringBatchProcessing() {
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
     
-    // Active round was created at startDraw with the OLD 60s duration
-    // (interval updates only affect future rounds)
-    let state = getPoolInitialState(poolID)
-    Test.assertEqual(60.0, state["roundDuration"]! as! UFix64)
+    // After completeDraw, pool is in intermission (no active round)
+    // roundDuration returns 0.0 during intermission
+    let stateIntermission = getPoolInitialState(poolID)
+    Test.assertEqual(0.0, stateIntermission["roundDuration"]! as! UFix64)
+    
+    // Start next round - it will use the NEW 300s interval
+    startNextRound(user, poolID: poolID)
+    
+    let stateAfter = getPoolInitialState(poolID)
+    Test.assertEqual(300.0, stateAfter["roundDuration"]! as! UFix64)
 }
 
 access(all) fun testNewRoundGetsUpdatedIntervalAfterDraw() {
@@ -296,15 +302,15 @@ access(all) fun testFinalizedRoundDurationNotModified() {
     startDraw(user, poolID: poolID)
     
     // At this point:
-    // - activeRound (round 2) was created with 60s (pool config at the time)
+    // - Pool is in intermission (no active round)
     // - pendingDrawRound (round 1) is finalized with actualEndTime set
     
-    // Update interval - only affects future rounds (round 3+), not current or pending
+    // Update interval - only affects the next round created by startNextRound
     updateDrawInterval(poolID: poolID, newInterval: 999.0)
     
-    // Active round (round 2) still has original 60s duration (was created before update)
-    let state = getPoolInitialState(poolID)
-    Test.assertEqual(60.0, state["roundDuration"]! as! UFix64)
+    // During intermission, roundDuration returns 0.0
+    let stateIntermission = getPoolInitialState(poolID)
+    Test.assertEqual(0.0, stateIntermission["roundDuration"]! as! UFix64)
     
     // Pool config has been updated
     let details = getPoolDetails(poolID)
@@ -319,6 +325,11 @@ access(all) fun testFinalizedRoundDurationNotModified() {
     // Prize should be distributed correctly
     let prizes = getUserPrizes(user.address, poolID)
     Test.assertEqual(DEFAULT_PRIZE_AMOUNT, prizes["totalEarnedPrizes"]!)
+    
+    // Start next round - it uses the updated interval
+    startNextRound(user, poolID: poolID)
+    let stateAfterRound = getPoolInitialState(poolID)
+    Test.assertEqual(999.0, stateAfterRound["roundDuration"]! as! UFix64)
 }
 
 // ============================================================================
