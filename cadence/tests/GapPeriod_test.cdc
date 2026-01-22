@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -23,8 +23,8 @@ access(all) fun testGapPeriodDeposit() {
     setupUserWithFundsAndCollection(existingUser, amount: depositAmount + 10.0)
     depositToPool(existingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end (enter gap period)
     Test.moveTime(by: 61.0)
@@ -53,8 +53,8 @@ access(all) fun testGapPeriodWithdrawal() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end (enter gap period)
     Test.moveTime(by: 61.0)
@@ -79,8 +79,8 @@ access(all) fun testGapPeriodDepositThenWithdraw() {
     setupUserWithFundsAndCollection(existingUser, amount: depositAmount + 10.0)
     depositToPool(existingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end (enter gap period)
     Test.moveTime(by: 61.0)
@@ -121,8 +121,8 @@ access(all) fun testGapPeriodWithdrawToZero() {
     depositToPool(stayingUser, poolID: poolID, amount: depositAmount)
     depositToPool(leavingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end (enter gap period)
     Test.moveTime(by: 61.0)
@@ -148,8 +148,8 @@ access(all) fun testMultipleRoundDurationsInGap() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for MULTIPLE round durations (10x the interval = 600s)
     Test.moveTime(by: 600.0)
@@ -181,8 +181,8 @@ access(all) fun testVeryLongGapPeriod() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for a very long time (6000 seconds = 100x round duration)
     Test.moveTime(by: 6000.0)
@@ -208,8 +208,8 @@ access(all) fun testManyUsersJoinDuringGap() {
     setupUserWithFundsAndCollection(existingUser, amount: depositAmount + 10.0)
     depositToPool(existingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end (enter gap period)
     Test.moveTime(by: 61.0)
@@ -248,8 +248,8 @@ access(all) fun testNewUserOnlyInGap() {
     setupUserWithFundsAndCollection(round1User, amount: depositAmount + 10.0)
     depositToPool(round1User, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end
     Test.moveTime(by: 61.0)
@@ -287,8 +287,8 @@ access(all) fun testExistingUserDepositsMoreInGap() {
     setupUserWithFundsAndCollection(user, amount: initialDeposit + additionalDeposit + 20.0)
     depositToPool(user, poolID: poolID, amount: initialDeposit)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end (enter gap period)
     Test.moveTime(by: 61.0)
@@ -326,8 +326,8 @@ access(all) fun testGapDepositFinalizedCorrectly() {
     setupUserWithFundsAndCollection(existingUser, amount: depositAmount + 10.0)
     depositToPool(existingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end
     Test.moveTime(by: 61.0)
@@ -362,8 +362,8 @@ access(all) fun testGapPeriodUserEntriesInEndedRound() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Get entries BEFORE round ends (should be projected for full round)
     let entriesBeforeEnd = getUserEntries(user.address, poolID)
@@ -398,8 +398,8 @@ access(all) fun testGapPeriodDoesNotAffectPriorRoundEntries() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end
     Test.moveTime(by: 61.0)
@@ -434,8 +434,8 @@ access(all) fun testImmediateDrawAfterRoundEnd() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait exactly for round to end (minimal gap - just past 60s)
     Test.moveTime(by: 61.0)
@@ -457,8 +457,8 @@ access(all) fun testMultipleGapDepositsFromSameUser() {
     setupUserWithFundsAndCollection(existingUser, amount: 200.0)
     depositToPool(existingUser, poolID: poolID, amount: depositPerTx)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end
     Test.moveTime(by: 61.0)
@@ -490,8 +490,8 @@ access(all) fun testGapPeriodWithMultipleDepositsAndWithdrawals() {
     setupUserWithFundsAndCollection(user, amount: 300.0)
     depositToPool(user, poolID: poolID, amount: 100.0)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end
     Test.moveTime(by: 61.0)

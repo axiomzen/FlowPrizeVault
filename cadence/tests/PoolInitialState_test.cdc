@@ -30,7 +30,7 @@ access(all) fun testNewPoolTotalStakedZero() {
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["allocatedSavings"]! as! UFix64)
+    Test.assertEqual(0.0, state["allocatedRewards"]! as! UFix64)
 }
 
 access(all) fun testNewPoolLastDrawTimestampZero() {
@@ -41,12 +41,12 @@ access(all) fun testNewPoolLastDrawTimestampZero() {
     Test.assertEqual(0.0, state["lastDrawTimestamp"]! as! UFix64)
 }
 
-access(all) fun testNewPoolPendingLotteryYieldZero() {
+access(all) fun testNewPoolPendingPrizeYieldZero() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["allocatedLotteryYield"]! as! UFix64)
+    Test.assertEqual(0.0, state["allocatedPrizeYield"]! as! UFix64)
 }
 
 // ============================================================================
@@ -86,20 +86,20 @@ access(all) fun testNewPoolCanDrawNowFalse() {
 // TESTS - Pool Balances
 // ============================================================================
 
-access(all) fun testNewPoolLotteryBalanceZero() {
+access(all) fun testNewPoolPrizeBalanceZero() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["lotteryPoolBalance"]! as! UFix64)
+    Test.assertEqual(0.0, state["prizePoolBalance"]! as! UFix64)
 }
 
-access(all) fun testNewPoolTreasuryForwardedZero() {
+access(all) fun testNewPoolProtocolFeeForwardedZero() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["totalTreasuryForwarded"]! as! UFix64)
+    Test.assertEqual(0.0, state["totalProtocolFeeForwarded"]! as! UFix64)
 }
 
 // ============================================================================
@@ -122,27 +122,27 @@ access(all) fun testNewPoolRoundIDOne() {
     Test.assertEqual(UInt64(1), state["currentRoundID"]! as! UInt64)
 }
 
-access(all) fun testNewPoolTotalSavingsSharesZero() {
+access(all) fun testNewPoolTotalRewardsSharesZero() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["totalSavingsShares"]! as! UFix64)
+    Test.assertEqual(0.0, state["totalRewardsShares"]! as! UFix64)
 }
 
-access(all) fun testNewPoolTotalSavingsAssetsZero() {
+access(all) fun testNewPoolTotalRewardsAssetsZero() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["totalSavingsAssets"]! as! UFix64)
+    Test.assertEqual(0.0, state["totalRewardsAssets"]! as! UFix64)
 }
 
-access(all) fun testNewPoolTotalSavingsDistributedZero() {
+access(all) fun testNewPoolTotalRewardsDistributedZero() {
     createTestPool()
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["totalSavingsDistributed"]! as! UFix64)
+    Test.assertEqual(0.0, state["totalRewardsDistributed"]! as! UFix64)
 }
 

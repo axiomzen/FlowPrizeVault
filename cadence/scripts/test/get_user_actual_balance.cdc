@@ -1,4 +1,4 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Get a user's actual withdrawable balance in a pool
 /// This returns the true value of their shares (shares × sharePrice)
@@ -14,12 +14,12 @@ import "PrizeSavings"
 access(all) fun main(userAddress: Address, poolID: UInt64): {String: UFix64} {
     let account = getAccount(userAddress)
     
-    let collectionRef = account.capabilities.borrow<&PrizeSavings.PoolPositionCollection>(
-        PrizeSavings.PoolPositionCollectionPublicPath
+    let collectionRef = account.capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
+        PrizeLinkedAccounts.PoolPositionCollectionPublicPath
     ) ?? panic("No PoolPositionCollection found at address")
     
     // Get the pool reference
-    let poolRef = PrizeSavings.borrowPool(poolID: poolID)
+    let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
     
     // The collection's UUID is the receiverID
@@ -27,8 +27,8 @@ access(all) fun main(userAddress: Address, poolID: UInt64): {String: UFix64} {
     
     // Get actual balance from the pool
     let actualBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
-    let shares = poolRef.getUserSavingsShares(receiverID: receiverID)
-    let sharePrice = poolRef.getSavingsSharePrice()
+    let shares = poolRef.getUserRewardsShares(receiverID: receiverID)
+    let sharePrice = poolRef.getRewardsSharePrice()
     
     return {
         "actualBalance": actualBalance,

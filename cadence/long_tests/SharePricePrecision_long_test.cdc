@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "../tests/test_helpers.cdc"
 
@@ -134,7 +134,7 @@ access(all) fun testExtremeBillionAssetsTinyShares() {
     log("Initial shares: ".concat(initialShares.toString()))
     
     // Simulate large yield - 100 million FLOW
-    // With 70% savings: 70M assets / 1 share = 70M share price
+    // With 70% rewards: 70M assets / 1 share = 70M share price
     // Uses minting to bypass service account balance limitations
     let poolCount = getPoolCount()
     let poolIndex = poolCount - 1
@@ -399,7 +399,7 @@ access(all) fun testSharePriceStabilityUnderRepeatedYield() {
             .concat(", Calculated: ").concat(calculatedPrice.toString())
     )
     
-    // User's value should reflect the yield (70% goes to savings)
+    // User's value should reflect the yield (70% goes to rewards)
     let userDetails = getUserShareDetails(user.address, poolID)
     let userValue = userDetails["assetValue"]!
     let expectedMinValue = 1000.0 + (totalYield * 0.7 * 0.99)  // At least 99% of expected

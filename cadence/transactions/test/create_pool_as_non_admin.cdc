@@ -1,4 +1,4 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FungibleToken"
 import "FlowToken"
 import "DeFiActions"
@@ -7,8 +7,8 @@ import "DeFiActions"
 transaction {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         // Try to borrow admin resource from non-admin account
-        let admin = signer.storage.borrow<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>(
-            from: PrizeSavings.AdminStoragePath
+        let admin = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
+            from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Could not borrow Admin resource - expected failure for non-admin")
         
         // If we get here, it means the non-admin somehow has admin access

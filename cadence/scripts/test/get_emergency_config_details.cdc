@@ -1,8 +1,8 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Get emergency config details for a pool
 access(all) fun main(poolID: UInt64): {String: AnyStruct} {
-    let poolRef = PrizeSavings.borrowPool(poolID: poolID)
+    let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)
         ?? panic("Pool not found")
     
     let config = poolRef.getEmergencyConfig()

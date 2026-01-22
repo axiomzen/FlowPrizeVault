@@ -1,7 +1,7 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
-/// Get the number of pools in the PrizeSavings contract
+/// Get the number of pools in the PrizeLinkedAccounts contract
 access(all) fun main(): Int {
-    return PrizeSavings.getAllPoolIDs().length
+    return PrizeLinkedAccounts.getAllPoolIDs().length
 }
 

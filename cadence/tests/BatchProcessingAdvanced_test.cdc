@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -31,8 +31,8 @@ access(all) fun testBatchStartsAtCursorZero() {
     depositToPool(user2, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     depositToPool(user3, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -65,8 +65,8 @@ access(all) fun testBatchProcessesExactlyLimitUsers() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -108,8 +108,8 @@ access(all) fun testBatchProcessesSingleUserAtEnd() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw and process in batches of 3
@@ -142,8 +142,8 @@ access(all) fun testBatchExactlyDivisibleByLimit() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -177,8 +177,8 @@ access(all) fun testBatchWith10Users() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Execute full draw with batch processing
@@ -208,8 +208,8 @@ access(all) fun testBatchWith20Users() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Execute full draw
@@ -239,8 +239,8 @@ access(all) fun testManySmallBatches() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -376,8 +376,8 @@ access(all) fun testBatchStateAfterStartDraw() {
     setupUserWithFundsAndCollection(user, amount: DEFAULT_DEPOSIT_AMOUNT + 10.0)
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Check state before startDraw
@@ -403,8 +403,8 @@ access(all) fun testBatchStateAfterProcessing() {
     setupUserWithFundsAndCollection(user, amount: DEFAULT_DEPOSIT_AMOUNT + 10.0)
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw and process
@@ -425,8 +425,8 @@ access(all) fun testBatchStateAfterRandomnessRequest() {
     setupUserWithFundsAndCollection(user, amount: DEFAULT_DEPOSIT_AMOUNT + 10.0)
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw, process, and request randomness
@@ -458,8 +458,8 @@ access(all) fun testPartialBatchStateIsValid() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw and process only 2 of 5 users
@@ -493,8 +493,8 @@ access(all) fun testResumeBatchAfterUserDeposit() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw and process 1 of 3 users
@@ -537,8 +537,8 @@ access(all) fun testResumeBatchAfterUserWithdrawal() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw and process 1 of 3 users
@@ -577,8 +577,8 @@ access(all) fun testBatchWithLimitZeroProcessesNothing() {
     setupUserWithFundsAndCollection(user, amount: DEFAULT_DEPOSIT_AMOUNT + 10.0)
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -614,8 +614,8 @@ access(all) fun testBatchReturnsCorrectRemainingCount() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -658,8 +658,8 @@ access(all) fun testBatchProcessingWithMediumInterval() {
     depositToPool(user2, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     depositToPool(user3, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time past 60s
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time past 60s
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Execute full draw with batch processing

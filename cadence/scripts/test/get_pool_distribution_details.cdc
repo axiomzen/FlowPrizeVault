@@ -1,8 +1,8 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Get distribution strategy details for a pool
 access(all) fun main(poolID: UInt64): {String: UFix64} {
-    let poolRef = PrizeSavings.borrowPool(poolID: poolID)
+    let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)
         ?? panic("Pool not found")
     
     let config = poolRef.getConfig()
@@ -11,9 +11,9 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
     let testPlan = config.calculateDistribution(totalAmount: 1.0)
     
     return {
-        "savingsPercent": testPlan.savingsAmount,
-        "lotteryPercent": testPlan.lotteryAmount,
-        "treasuryPercent": testPlan.treasuryAmount
+        "rewardsPercent": testPlan.rewardsAmount,
+        "prizePercent": testPlan.prizeAmount,
+        "protocolFeePercent": testPlan.protocolFeeAmount
     }
 }
 

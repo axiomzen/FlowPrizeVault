@@ -1,4 +1,4 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Get detailed share price and precision info for precision testing
 /// This script provides all the data needed to verify share price stability
@@ -15,19 +15,19 @@ import "PrizeSavings"
 ///   - "effectiveShares": totalShares + VIRTUAL_SHARES
 ///   - "virtualAssets": VIRTUAL_ASSETS constant
 ///   - "virtualShares": VIRTUAL_SHARES constant
-///   - "totalAllocatedFunds": Total allocated funds across all buckets (savings + lottery + treasury)
+///   - "totalAllocatedFunds": Total allocated funds across all buckets (rewards + prize + protocol)
 ///   - "totalDistributed": Cumulative yield distributed
 access(all) fun main(poolID: UInt64): {String: UFix64} {
-    let poolRef = PrizeSavings.borrowPool(poolID: poolID)
+    let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
     
-    let totalAssets = poolRef.getTotalSavingsAssets()
-    let totalShares = poolRef.getTotalSavingsShares()
-    let sharePrice = poolRef.getSavingsSharePrice()
+    let totalAssets = poolRef.getTotalRewardsAssets()
+    let totalShares = poolRef.getTotalRewardsShares()
+    let sharePrice = poolRef.getRewardsSharePrice()
     
     // Virtual offsets from contract constants
-    let virtualAssets = PrizeSavings.VIRTUAL_ASSETS
-    let virtualShares = PrizeSavings.VIRTUAL_SHARES
+    let virtualAssets = PrizeLinkedAccounts.VIRTUAL_ASSETS
+    let virtualShares = PrizeLinkedAccounts.VIRTUAL_SHARES
     
     // Log values for debugging
     log("VIRTUAL_ASSETS: ".concat(virtualAssets.toString()))
@@ -45,7 +45,7 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
         "virtualAssets": virtualAssets,
         "virtualShares": virtualShares,
         "totalAllocatedFunds": poolRef.getTotalAllocatedFunds(),
-        "totalDistributed": poolRef.getTotalSavingsDistributed()
+        "totalDistributed": poolRef.getTotalRewardsDistributed()
     }
 }
 

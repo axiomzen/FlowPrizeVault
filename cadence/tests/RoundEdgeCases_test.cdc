@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -71,8 +71,8 @@ access(all) fun testDepositAfterRoundEnded() {
     // Wait for round to end
     Test.moveTime(by: 61.0)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Deposit after round has ended (gap period)
     let lateUser = Test.createAccount()
@@ -134,8 +134,8 @@ access(all) fun testFullWithdrawalMidRound() {
     depositToPool(stayingUser, poolID: poolID, amount: depositAmount)
     depositToPool(leavingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Advance to 50% of round
     Test.moveTime(by: 30.0)
@@ -273,8 +273,8 @@ access(all) fun testLazyFallbackCalculation() {
     // User1 deposits first
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end and execute draw
     Test.moveTime(by: 61.0)
@@ -297,8 +297,8 @@ access(all) fun testUserExistsInBothActiveAndPendingRound() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end
     Test.moveTime(by: 61.0)

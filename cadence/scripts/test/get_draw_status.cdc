@@ -1,14 +1,14 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 
 /// Get the draw status for a pool (includes batch processing state)
 access(all) fun main(poolID: UInt64): {String: AnyStruct} {
-    let poolRef = PrizeSavings.borrowPool(poolID: poolID)
+    let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)
         ?? panic("Pool not found")
     
     return {
         "canDrawNow": poolRef.canDrawNow(),
         "isDrawInProgress": poolRef.isDrawInProgress(),
-        "lotteryPoolBalance": poolRef.getLotteryPoolBalance(),
+        "prizePoolBalance": poolRef.getPrizePoolBalance(),
         "lastDrawTimestamp": poolRef.lastDrawTimestamp,
         "currentRoundID": poolRef.getCurrentRoundID(),
         "isRoundEnded": poolRef.isRoundEnded(),

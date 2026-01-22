@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -28,7 +28,7 @@ access(all) fun testUserDepositIncreasesPoolTotals() {
     ensurePoolExists()
     
     let initialTotals = getPoolTotals(poolID)
-    let initialStaked = initialTotals["allocatedSavings"]!
+    let initialStaked = initialTotals["allocatedRewards"]!
     
     // Setup user and deposit
     setupUserWithFundsAndCollection(depositUserAccount, amount: depositAmount + 1.0)
@@ -36,7 +36,7 @@ access(all) fun testUserDepositIncreasesPoolTotals() {
     
     // Verify pool totals increased
     let finalTotals = getPoolTotals(poolID)
-    Test.assertEqual(initialStaked + depositAmount, finalTotals["allocatedSavings"]!)
+    Test.assertEqual(initialStaked + depositAmount, finalTotals["allocatedRewards"]!)
 }
 
 access(all) fun testUserDepositUpdatesUserBalance() {
@@ -83,7 +83,7 @@ access(all) fun testMultipleUsersCanDeposit() {
     ensurePoolExists()
     
     let initialTotals = getPoolTotals(poolID)
-    let initialStaked = initialTotals["allocatedSavings"]!
+    let initialStaked = initialTotals["allocatedRewards"]!
     
     // Create multiple users
     let user1 = Test.createAccount()
@@ -97,7 +97,7 @@ access(all) fun testMultipleUsersCanDeposit() {
     
     // Verify pool totals include both deposits
     let finalTotals = getPoolTotals(poolID)
-    Test.assertEqual(initialStaked + (depositAmount * 2.0), finalTotals["allocatedSavings"]!)
+    Test.assertEqual(initialStaked + (depositAmount * 2.0), finalTotals["allocatedRewards"]!)
     
     // Verify each user has correct balance
     let user1Balance = getUserPoolBalance(user1.address, poolID)

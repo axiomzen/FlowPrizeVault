@@ -1,4 +1,4 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FungibleToken"
 import "FlowToken"
 import "DeFiActions"
@@ -7,7 +7,7 @@ import "MockYieldConnector"
 /// Transaction to create a pool with FixedAmountTiers distribution
 transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierNFTIDs: [[UInt64]]) {
     prepare(signer: auth(Storage, Capabilities) &Account) {
-        let currentPoolCount = PrizeSavings.getAllPoolIDs().length
+        let currentPoolCount = PrizeLinkedAccounts.getAllPoolIDs().length
         let vaultPath = StoragePath(identifier: "testYieldVaultFAT_".concat(currentPoolCount.toString()))!
         
         let testVault <- FlowToken.createEmptyVault(vaultType: Type<@FlowToken.Vault>())
@@ -22,17 +22,17 @@ transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierN
             vaultType: Type<@FlowToken.Vault>()
         )
         
-        let distributionStrategy = PrizeSavings.FixedPercentageStrategy(
-            savings: 0.7,
-            lottery: 0.2,
-            treasury: 0.1
+        let distributionStrategy = PrizeLinkedAccounts.FixedPercentageStrategy(
+            rewards: 0.7,
+            prize: 0.2,
+            protocolFee: 0.1
         )
         
         // Build prize tiers
-        var tiers: [PrizeSavings.PrizeTier] = []
+        var tiers: [PrizeLinkedAccounts.PrizeTier] = []
         var i = 0
         while i < tierAmounts.length {
-            let tier = PrizeSavings.PrizeTier(
+            let tier = PrizeLinkedAccounts.PrizeTier(
                 amount: tierAmounts[i],
                 count: tierCounts[i],
                 name: tierNames[i],
@@ -42,11 +42,11 @@ transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierN
             i = i + 1
         }
         
-        let prizeDistribution = PrizeSavings.FixedAmountTiers(
+        let prizeDistribution = PrizeLinkedAccounts.FixedAmountTiers(
             tiers: tiers
-        ) as {PrizeSavings.PrizeDistribution}
+        ) as {PrizeLinkedAccounts.PrizeDistribution}
         
-        let config = PrizeSavings.PoolConfig(
+        let config = PrizeLinkedAccounts.PoolConfig(
             assetType: Type<@FlowToken.Vault>(),
             yieldConnector: mockConnector,
             minimumDeposit: 1.0,
@@ -56,8 +56,8 @@ transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierN
             winnerTrackerCap: nil
         )
         
-        let admin = signer.storage.borrow<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>(
-            from: PrizeSavings.AdminStoragePath
+        let admin = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
+            from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Could not borrow Admin resource")
         
         let poolID = admin.createPool(

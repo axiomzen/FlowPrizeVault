@@ -1,6 +1,6 @@
 # Time-Weighted Average Balance (TWAB)
 
-This document provides an in-depth explanation of the Time-Weighted Average Balance (TWAB) mechanism used in PrizeSavings to ensure fair lottery odds.
+This document provides an in-depth explanation of the Time-Weighted Average Balance (TWAB) mechanism used in PrizeLinkedAccounts to ensure fair prize odds.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ This document provides an in-depth explanation of the Time-Weighted Average Bala
 
 ## Overview
 
-TWAB (Time-Weighted Average Balance) is a mechanism that calculates a user's lottery odds based on both:
+TWAB (Time-Weighted Average Balance) is a mechanism that calculates a user's prize odds based on both:
 
 1. **How much** they have deposited (balance)
 2. **How long** they have held that balance (time)
@@ -307,12 +307,12 @@ This gives non-interacting users full credit for their shares over the entire ro
 
 ## Bonus Weights
 
-Admins can grant bonus lottery weights for promotions or rewards:
+Admins can grant bonus prize weights for promotions or rewards:
 
 ```cadence
-/// Mapping of receiverID to bonus lottery weight.
+/// Mapping of receiverID to bonus prize weight.
 /// Bonus weight represents equivalent token deposit for the full round duration.
-/// A bonus of 5.0 gives the same lottery weight as holding 5 tokens for the entire round.
+/// A bonus of 5.0 gives the same prize weight as holding 5 tokens for the entire round.
 /// Audit trail (reason, timestamp, admin) is preserved in events, not stored here.
 access(self) let receiverBonusWeights: {UInt64: UFix64}
 ```
@@ -330,7 +330,7 @@ let bonusWeight = self.getBonusWeight(receiverID: receiverID)
 let totalWeight = twabStake + bonusWeight
 ```
 
-A bonus of `5.0` gives the user the same lottery weight as if they had deposited 5 additional tokens for the entire round duration. No time-scaling is needed because TWAB is already normalized.
+A bonus of `5.0` gives the user the same prize weight as if they had deposited 5 additional tokens for the entire round duration. No time-scaling is needed because TWAB is already normalized.
 
 ### Audit Trail
 
@@ -569,7 +569,7 @@ The TWAB snapshot is taken at commit time, ensuring:
 
 ## Summary
 
-TWAB provides provably fair lottery odds by:
+TWAB provides provably fair prize odds by:
 
 1. **Measuring balance × time** instead of just balance
 2. **Preventing last-minute manipulation** via time-weighting

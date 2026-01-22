@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -108,8 +108,8 @@ access(all) fun testLateStartDrawUsesCappedWeights() {
     // Wait more time (gap period)
     Test.moveTime(by: 60.0)
     
-    // Fund lottery and start draw
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and start draw
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     let startSuccess = tryStartDraw(poolID)
     Test.assert(startSuccess, message: "Start draw should succeed")
@@ -213,7 +213,7 @@ access(all) fun testIntervalShortenMidRound() {
 // 
 // Verifies that users who withdraw to 0 during batch processing:
 // 1. Get 0 weight in the current draw
-// 2. Cannot win the lottery
+// 2. Cannot win the prize
 // 3. Don't corrupt the batch processing
 // ============================================================================
 
@@ -234,8 +234,8 @@ access(all) fun testGhostUserWithdrawDuringBatchGetsZeroWeight() {
     // Advance past round end
     Test.moveTime(by: 61.0)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Start draw
     let startSuccess = tryStartDraw(poolID)
@@ -261,7 +261,7 @@ access(all) fun testGhostUserWithdrawDuringBatchGetsZeroWeight() {
     log("✓ Ghost user (withdrew to 0 during batch) handled correctly")
 }
 
-access(all) fun testGhostUserCannotWinLottery() {
+access(all) fun testGhostUserCannotWinPrize() {
     // Create pool with 60-second interval
     let poolID = createTestPoolWithMediumInterval()
     
@@ -273,8 +273,8 @@ access(all) fun testGhostUserCannotWinLottery() {
     // Advance past round end
     Test.moveTime(by: 61.0)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Start draw
     let startSuccess = tryStartDraw(poolID)
@@ -327,8 +327,8 @@ access(all) fun testReDepositDuringBatchNotEligibleForCurrentDraw() {
     // Advance past round end
     Test.moveTime(by: 61.0)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Start draw - snapshot taken here
     let startSuccess = tryStartDraw(poolID)
@@ -372,8 +372,8 @@ access(all) fun testWithdrawAndReDepositDuringBatch() {
     // Advance past round end
     Test.moveTime(by: 61.0)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Start draw
     let startSuccess = tryStartDraw(poolID)

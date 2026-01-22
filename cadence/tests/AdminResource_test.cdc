@@ -37,15 +37,15 @@ access(all) fun testAdminCanCreatePool() {
 // ============================================================================
 
 access(all) fun testAdminCanUpdateDistributionStrategy() {
-    let poolID = createPoolWithDistribution(savings: 0.7, lottery: 0.2, treasury: 0.1)
+    let poolID = createPoolWithDistribution(rewards: 0.7, prize: 0.2, protocolFee: 0.1)
     
     // Update to new distribution
-    updateDistributionStrategy(poolID: poolID, savings: 0.5, lottery: 0.3, treasury: 0.2)
+    updateDistributionStrategy(poolID: poolID, rewards: 0.5, prize: 0.3, protocolFee: 0.2)
     
     let details = getPoolDistributionDetails(poolID)
-    Test.assertEqual(0.5, details["savingsPercent"]! as! UFix64)
-    Test.assertEqual(0.3, details["lotteryPercent"]! as! UFix64)
-    Test.assertEqual(0.2, details["treasuryPercent"]! as! UFix64)
+    Test.assertEqual(0.5, details["rewardsPercent"]! as! UFix64)
+    Test.assertEqual(0.3, details["prizePercent"]! as! UFix64)
+    Test.assertEqual(0.2, details["protocolFeePercent"]! as! UFix64)
 }
 
 access(all) fun testAdminCanUpdatePrizeDistribution() {
@@ -94,8 +94,8 @@ access(all) fun testUpdateDrawIntervalDuringGapPeriod() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end (enter gap period)
     Test.moveTime(by: 61.0)
@@ -125,8 +125,8 @@ access(all) fun testUpdateDrawIntervalDuringBatchProcessing() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end and start draw
     Test.moveTime(by: 61.0)
@@ -161,8 +161,8 @@ access(all) fun testNewRoundGetsUpdatedIntervalAfterDraw() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Update interval - only affects future rounds
     updateDrawInterval(poolID: poolID, newInterval: 180.0)
@@ -191,8 +191,8 @@ access(all) fun testIntervalUpdateDoesNotAffectPendingDrawRound() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end
     Test.moveTime(by: 61.0)
@@ -244,8 +244,8 @@ access(all) fun testIntervalUpdateAcrossMultipleRounds() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 50.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery for round 1
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize for round 1
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Update interval to 5s BEFORE the draw - this will apply to round 2
     updateDrawInterval(poolID: poolID, newInterval: 5.0)
@@ -261,8 +261,8 @@ access(all) fun testIntervalUpdateAcrossMultipleRounds() {
     // Round 2 was created with the updated 5s interval
     Test.assertEqual(5.0, (getPoolInitialState(poolID)["roundDuration"]! as! UFix64))
     
-    // Fund lottery for round 2 (prize was distributed in round 1)
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize for round 2 (prize was distributed in round 1)
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Update interval to 10s - will apply to round 3
     updateDrawInterval(poolID: poolID, newInterval: 10.0)
@@ -288,8 +288,8 @@ access(all) fun testFinalizedRoundDurationNotModified() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end and start draw
     Test.moveTime(by: 61.0)
@@ -542,7 +542,7 @@ access(all) fun testCriticalOpsDelegateCanEnableEmergencyMode() {
 }
 
 access(all) fun testCriticalOpsDelegateCanUpdateDistributionStrategy() {
-    let poolID = createPoolWithDistribution(savings: 0.7, lottery: 0.2, treasury: 0.1)
+    let poolID = createPoolWithDistribution(rewards: 0.7, prize: 0.2, protocolFee: 0.1)
     
     // Create a delegate account
     let delegate = Test.createAccount()
@@ -552,14 +552,14 @@ access(all) fun testCriticalOpsDelegateCanUpdateDistributionStrategy() {
     setupCriticalOpsDelegate(delegate)
     
     // Delegate should be able to update distribution strategy (CriticalOps function)
-    let success = delegateUpdateDistributionStrategy(delegate, poolID: poolID, savings: 0.5, lottery: 0.3, treasury: 0.2)
+    let success = delegateUpdateDistributionStrategy(delegate, poolID: poolID, rewards: 0.5, prize: 0.3, protocolFee: 0.2)
     Test.assertEqual(true, success)
     
     // Verify the change was made
     let details = getPoolDistributionDetails(poolID)
-    Test.assertEqual(0.5, details["savingsPercent"]! as! UFix64)
-    Test.assertEqual(0.3, details["lotteryPercent"]! as! UFix64)
-    Test.assertEqual(0.2, details["treasuryPercent"]! as! UFix64)
+    Test.assertEqual(0.5, details["rewardsPercent"]! as! UFix64)
+    Test.assertEqual(0.3, details["prizePercent"]! as! UFix64)
+    Test.assertEqual(0.2, details["protocolFeePercent"]! as! UFix64)
 }
 
 access(all) fun testCriticalOpsDelegateCanSetPoolState() {

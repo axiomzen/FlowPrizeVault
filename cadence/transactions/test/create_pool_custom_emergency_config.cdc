@@ -1,4 +1,4 @@
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FungibleToken"
 import "FlowToken"
 import "DeFiActions"
@@ -15,7 +15,7 @@ transaction(
     minRecoveryHealth: UFix64
 ) {
     prepare(signer: auth(Storage, Capabilities) &Account) {
-        let currentPoolCount = PrizeSavings.getAllPoolIDs().length
+        let currentPoolCount = PrizeLinkedAccounts.getAllPoolIDs().length
         let vaultPath = StoragePath(identifier: "testYieldVaultEC_".concat(currentPoolCount.toString()))!
         
         let testVault <- FlowToken.createEmptyVault(vaultType: Type<@FlowToken.Vault>())
@@ -30,17 +30,17 @@ transaction(
             vaultType: Type<@FlowToken.Vault>()
         )
         
-        let distributionStrategy = PrizeSavings.FixedPercentageStrategy(
-            savings: 0.7,
-            lottery: 0.2,
-            treasury: 0.1
+        let distributionStrategy = PrizeLinkedAccounts.FixedPercentageStrategy(
+            rewards: 0.7,
+            prize: 0.2,
+            protocolFee: 0.1
         )
         
-        let prizeDistribution = PrizeSavings.SingleWinnerPrize(
+        let prizeDistribution = PrizeLinkedAccounts.SingleWinnerPrize(
             nftIDs: []
-        ) as {PrizeSavings.PrizeDistribution}
+        ) as {PrizeLinkedAccounts.PrizeDistribution}
         
-        let config = PrizeSavings.PoolConfig(
+        let config = PrizeLinkedAccounts.PoolConfig(
             assetType: Type<@FlowToken.Vault>(),
             yieldConnector: mockConnector,
             minimumDeposit: 1.0,
@@ -51,7 +51,7 @@ transaction(
         )
         
         // Create custom emergency config
-        let emergencyConfig = PrizeSavings.EmergencyConfig(
+        let emergencyConfig = PrizeLinkedAccounts.EmergencyConfig(
             maxEmergencyDuration: maxEmergencyDuration,
             autoRecoveryEnabled: autoRecoveryEnabled,
             minYieldSourceHealth: minYieldSourceHealth,
@@ -61,8 +61,8 @@ transaction(
             minRecoveryHealth: minRecoveryHealth
         )
         
-        let admin = signer.storage.borrow<auth(PrizeSavings.CriticalOps) &PrizeSavings.Admin>(
-            from: PrizeSavings.AdminStoragePath
+        let admin = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
+            from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Could not borrow Admin resource")
         
         let poolID = admin.createPool(

@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "test_helpers.cdc"
 
 /// Tests for deposit capacity overflow protection
@@ -87,7 +87,7 @@ access(all) fun testDepositSucceedsWithinCapacity() {
     
     // Verify deposit succeeded by checking pool totals
     let poolTotals = getPoolTotals(poolID)
-    Test.assertEqual(depositAmount, poolTotals["allocatedSavings"]!)
+    Test.assertEqual(depositAmount, poolTotals["allocatedRewards"]!)
     
     log("Test passed: Deposit succeeded within capacity limit")
 }
@@ -106,7 +106,7 @@ access(all) fun testDepositExactlyAtCapacitySucceeds() {
     
     // Verify deposit succeeded by checking pool totals
     let poolTotals = getPoolTotals(poolID)
-    Test.assertEqual(50.0, poolTotals["allocatedSavings"]!)
+    Test.assertEqual(50.0, poolTotals["allocatedRewards"]!)
     
     log("Test passed: Deposit exactly at capacity limit succeeded")
 }
@@ -123,7 +123,7 @@ access(all) fun testSponsorDepositFailsWhenCapacityExceeded() {
     // Attempt sponsor deposit of 60 tokens (exceeds capacity)
     let result = Test.executeTransaction(
         Test.Transaction(
-            code: Test.readFile("../transactions/prize-savings/sponsor_deposit.cdc"),
+            code: Test.readFile("../transactions/prize-linked-accounts/sponsor_deposit.cdc"),
             authorizers: [sponsor.address],
             signers: [sponsor],
             arguments: [poolID, 60.0]
@@ -169,7 +169,7 @@ access(all) fun testPartialCapacityRemainsUndeposited() {
     // The error should show available and requested amounts
     let errorMessage = result.error!.message
     Test.assert(
-        errorMessage.contains("30") && errorMessage.contains("50"),
+        errorMessage.contains("30") && errorMessage.contains("20"),
         message: "Error should show available and requested amounts. Got: ".concat(errorMessage)
     )
     

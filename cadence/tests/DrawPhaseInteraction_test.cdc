@@ -1,5 +1,5 @@
 import Test
-import "PrizeSavings"
+import "PrizeLinkedAccounts"
 import "FlowToken"
 import "test_helpers.cdc"
 
@@ -24,8 +24,8 @@ access(all) fun testDepositDuringPhase1StartDraw() {
     setupUserWithFundsAndCollection(existingUser, amount: depositAmount + 10.0)
     depositToPool(existingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Phase 1: startDraw() called
@@ -70,8 +70,8 @@ access(all) fun testDepositDuringPhase2BatchProcessing() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -109,8 +109,8 @@ access(all) fun testDepositDuringPhase3Randomness() {
     setupUserWithFundsAndCollection(existingUser, amount: depositAmount + 10.0)
     depositToPool(existingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Phases 1-3
@@ -155,8 +155,8 @@ access(all) fun testWithdrawDuringPhase1StartDraw() {
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     depositToPool(user2, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Phase 1: startDraw() called
@@ -195,8 +195,8 @@ access(all) fun testWithdrawDuringPhase2BatchProcessing() {
         i = i + 1
     }
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -237,8 +237,8 @@ access(all) fun testWithdrawDuringPhase3Randomness() {
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     depositToPool(user2, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Phases 1-3
@@ -271,8 +271,8 @@ access(all) fun testNewUserJoinsDuringDraw() {
     setupUserWithFundsAndCollection(existingUser, amount: depositAmount + 10.0)
     depositToPool(existingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -312,8 +312,8 @@ access(all) fun testUserLeavesCompletelyDuringDraw() {
     depositToPool(stayingUser, poolID: poolID, amount: depositAmount)
     depositToPool(leavingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -361,8 +361,8 @@ access(all) fun testUserNotAffectedByOthersDuringDraw() {
     // Get user1's entries before draw
     let user1EntriesBefore = getUserEntries(user1.address, poolID)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -404,8 +404,8 @@ access(all) fun testDifferentUsersDifferentPhases() {
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     depositToPool(user2, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Phase 1: Start draw, user1 adds more
@@ -450,8 +450,8 @@ access(all) fun testMultipleDepositsFromSameUserDuringDraw() {
     setupUserWithFundsAndCollection(user, amount: 200.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -495,8 +495,8 @@ access(all) fun testMultipleWithdrawalsFromSameUserDuringDraw() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -544,8 +544,8 @@ access(all) fun testDrawCompletesWithOnlyOriginalParticipants() {
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     depositToPool(user2, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Full draw process

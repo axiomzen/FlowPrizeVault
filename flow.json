@@ -39,8 +39,8 @@
 				"testing": "0000000000000007"
 			}
 		},
-		"PrizeSavings": {
-			"source": "cadence/contracts/PrizeSavings.cdc",
+		"PrizeLinkedAccounts": {
+			"source": "cadence/contracts/PrizeLinkedAccounts.cdc",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"testing": "0000000000000007",
@@ -132,7 +132,7 @@
 		},
 		"EVM": {
 			"source": "mainnet://e467b9dd11fa00df.EVM",
-			"hash": "2a4782c7459dc5b72c034f67c8dd1beac6bb9b29104772a3e6eb6850718bb3b4",
+			"hash": "960b0c7df7ee536956af196fba8c8d5dd4f7a89a4ecc61467e31287c4617b0dd",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "e467b9dd11fa00df",
@@ -213,7 +213,7 @@
 		},
 		"FlowTransactionScheduler": {
 			"source": "mainnet://e467b9dd11fa00df.FlowTransactionScheduler",
-			"hash": "c701f26f6a8e993b2573ec8700142f61c9ca936b199af8cc75dee7d9b19c9e95",
+			"hash": "23157cf7d70534e45b0ab729133232d0ffb3cdae52661df1744747cb1f8c0495",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "e467b9dd11fa00df",
@@ -222,7 +222,7 @@
 		},
 		"FlowTransactionSchedulerUtils": {
 			"source": "mainnet://e467b9dd11fa00df.FlowTransactionSchedulerUtils",
-			"hash": "429ed886472cd65def9e5ab1dd20079b0dcfb23095d18d54077767ac3316a8ce",
+			"hash": "71a1febab6b9ba76abec36dab1e61b1c377e44fbe627e5fac649deb71b727877",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"mainnet": "e467b9dd11fa00df",
@@ -458,7 +458,7 @@
 				"DeFiActions",
 				"FungibleTokenConnectors",
 				"PrizeWinnerTracker",
-				"PrizeSavings",
+				"PrizeLinkedAccounts",
 				"MockNFT",
 				"MockYieldConnector"
 			]
