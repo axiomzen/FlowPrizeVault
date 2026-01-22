@@ -209,7 +209,7 @@ access(all) fun testSharePriceAfterYieldDistribution() {
     let postYieldShares = postYieldInfo["totalShares"]!
     
     // Shares should not change (yield increases assets, not shares)
-    // Note: Actually, only ~70% goes to savings due to distribution strategy
+    // Note: Actually, only ~70% goes to rewards due to distribution strategy
     // The shares should be essentially unchanged
     Test.assert(
         isWithinTolerance(postYieldShares, preYieldShares, ACCEPTABLE_PRECISION_LOSS),
@@ -255,7 +255,7 @@ access(all) fun testLargeAssetSmallShares() {
     let sharePrice = info["sharePrice"]!
     
     // Share price should be significantly > 1.0
-    // With 70% savings distribution: 10 initial + 70 yield = 80 assets for 10 shares
+    // With 70% rewards distribution: 10 initial + 70 yield = 80 assets for 10 shares
     // sharePrice ≈ 80/10 = 8.0 (approximate, accounting for dust)
     Test.assert(
         sharePrice > 1.0,

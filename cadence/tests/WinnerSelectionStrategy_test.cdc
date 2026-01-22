@@ -30,8 +30,8 @@ access(all) fun testSingleWinnerPrizeSelectsOne() {
     depositToPool(user2, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     depositToPool(user3, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and execute draw
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and execute draw
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     let deployerAccount = getDeployerAccount()
     executeFullDraw(deployerAccount, poolID: poolID)
@@ -53,8 +53,8 @@ access(all) fun testSingleWinnerPrizeEmptyDeposits() {
     // Test that with no deposits, the distribution handles gracefully
     let poolID = createTestPoolWithShortInterval()
     
-    // Fund lottery but don't have any deposits
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize but don't have any deposits
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // The draw should handle empty deposits gracefully
     // Note: This test verifies the distribution doesn't panic with empty receivers
@@ -70,8 +70,8 @@ access(all) fun testSingleWinnerPrizeSingleDepositor() {
     setupUserWithFundsAndCollection(user, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and execute draw
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and execute draw
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 2.0)
     
     let deployerAccount = getDeployerAccount()
@@ -127,8 +127,8 @@ access(all) fun testPercentageSplitFewerDepositorsThanWinners() {
     depositToPool(user1, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     depositToPool(user2, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0) // Wait for 60s round to end
     
     // Draw should handle gracefully with fewer depositors than expected winners
@@ -237,7 +237,7 @@ access(all) fun testFixedAmountTiersInsufficientPrizePool() {
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
     // Fund with less than needed (only 10.0 but need 100.0)
-    fundLotteryPool(poolID, amount: 10.0)
+    fundPrizePool(poolID, amount: 10.0)
     
     // The pool should exist but draw behavior depends on implementation
     let poolDetails = getPoolDetails(poolID)

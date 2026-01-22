@@ -72,13 +72,13 @@ access(all) fun testRoundEndsAfterDuration() {
 access(all) fun testCanDrawNowAfterRoundEnds() {
     let poolID = createTestPoolWithMediumInterval()
     
-    // Setup participant for lottery
+    // Setup participant for prize
     let participant = Test.createAccount()
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Initially cannot draw
     let statusBefore = getDrawStatus(poolID)
@@ -185,8 +185,8 @@ access(all) fun testRoundIDIncrementsAfterDraw() {
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT + 10.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Get initial round ID
     let stateBefore = getPoolInitialState(poolID)
@@ -214,8 +214,8 @@ access(all) fun testEntriesResetAfterDraw() {
     setupUserWithFundsAndCollection(participant, amount: depositAmount + 10.0)
     depositToPool(participant, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end
     Test.moveTime(by: 61.0)
@@ -246,8 +246,8 @@ access(all) fun testGapDepositGetsFullNextRoundEntries() {
     setupUserWithFundsAndCollection(existingUser, amount: depositAmount + 10.0)
     depositToPool(existingUser, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Wait for round to end but don't start draw
     Test.moveTime(by: 61.0)
@@ -573,8 +573,8 @@ access(all) fun testZeroBalanceHasZeroEntries() {
     let balance = getUserPoolBalance(leavingUser.address, poolID)
     Test.assertEqual(0.0, balance["totalBalance"]!)
     
-    // Fund lottery and execute draw
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and execute draw
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     executeFullDraw(stayingUser, poolID: poolID)
     

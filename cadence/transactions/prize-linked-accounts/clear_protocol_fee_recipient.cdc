@@ -1,9 +1,9 @@
 import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 import FungibleToken from "FungibleToken"
 
-/// Clear the treasury recipient to disable automatic forwarding.
+/// Clear the protocol recipient to disable automatic forwarding.
 /// 
-/// When no recipient is set, treasury allocation stays in the yield source
+/// When no recipient is set, protocol allocation stays in the yield source
 /// as future yield (not lost, just not forwarded).
 ///
 /// Parameters:
@@ -18,7 +18,7 @@ transaction(poolID: UInt64) {
     }
     
     execute {
-        self.adminRef.setPoolTreasuryRecipient(
+        self.adminRef.setPoolProtocolFeeRecipient(
             poolID: poolID,
             recipientCap: nil
         )

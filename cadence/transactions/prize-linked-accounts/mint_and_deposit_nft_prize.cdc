@@ -2,7 +2,7 @@ import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 import MockNFT from "../../contracts/mock/MockNFT.cdc"
 import NonFungibleToken from "NonFungibleToken"
 
-/// Mint a MockNFT and deposit it as an NFT prize for the lottery
+/// Mint a MockNFT and deposit it as an NFT prize for the prize
 transaction(poolID: UInt64, nftName: String, nftDescription: String) {
     let adminRef: auth(PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin
     let minterRef: &MockNFT.NFTMinter

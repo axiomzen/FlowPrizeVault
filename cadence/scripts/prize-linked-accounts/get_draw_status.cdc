@@ -86,7 +86,7 @@ access(all) struct DrawStatus {
     }
 }
 
-/// Get lottery draw status for a pool
+/// Get prize draw status for a pool
 ///
 /// Parameters:
 /// - poolID: The pool ID to query
@@ -116,7 +116,7 @@ access(all) fun main(poolID: UInt64): DrawStatus {
         roundEndTime: poolRef.getRoundEndTime(),
         secondsUntilNextDraw: poolRef.getTimeUntilNextDraw(),
         prizePoolBalance: poolRef.getPrizePoolBalance(),
-        allocatedPrizeYield: poolRef.getAllocatedLotteryYield(),
+        allocatedPrizeYield: poolRef.getAllocatedPrizeYield(),
         currentRoundID: poolRef.getCurrentRoundID(),
         roundElapsedTime: poolRef.getRoundElapsedTime(),
         isRoundEnded: poolRef.isRoundEnded(),

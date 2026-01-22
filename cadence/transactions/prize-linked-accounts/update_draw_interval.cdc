@@ -6,7 +6,7 @@ import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 /// Rounds created after the next startDraw() will use the new interval.
 ///
 /// IMPORTANT:
-/// - Does NOT affect the current round's duration or lottery eligibility
+/// - Does NOT affect the current round's duration or prize eligibility
 /// - The current round's duration is immutable once created
 ///
 /// Parameters:

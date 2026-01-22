@@ -2,8 +2,8 @@ import "PrizeLinkedAccounts"
 import "FungibleToken"
 import "FlowToken"
 
-/// Fund the lottery prize pool directly using Admin
-/// This simulates yield that would go to the lottery
+/// Fund the prize prize pool directly using Admin
+/// This simulates yield that would go to the prize
 transaction(poolID: UInt64, amount: UFix64) {
     
     let adminRef: auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin
@@ -25,7 +25,7 @@ transaction(poolID: UInt64, amount: UFix64) {
         // Withdraw tokens
         let tokens <- self.vaultRef.withdraw(amount: amount)
         
-        // Fund the lottery pool directly
+        // Fund the prize pool directly
         self.adminRef.fundPoolDirect(
             poolID: poolID,
             destination: PrizeLinkedAccounts.PoolFundingDestination.Prize,
@@ -34,7 +34,7 @@ transaction(poolID: UInt64, amount: UFix64) {
             metadata: nil
         )
         
-        log("Funded lottery pool with ".concat(amount.toString()).concat(" FLOW"))
+        log("Funded prize pool with ".concat(amount.toString()).concat(" FLOW"))
     }
 }
 

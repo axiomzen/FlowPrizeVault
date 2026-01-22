@@ -349,7 +349,7 @@ fun processRewards(_ poolID: UInt64) {
 }
 
 access(all)
-fun fundLotteryPool(_ poolID: UInt64, amount: UFix64) {
+fun fundPrizePool(_ poolID: UInt64, amount: UFix64) {
     let deployerAccount = getDeployerAccount()
     
     // Ensure deployer has funds
@@ -480,11 +480,11 @@ fun checkAdminExists(_ address: Address): Bool {
 // ============================================================================
 
 access(all)
-fun createPoolWithDistribution(rewards: UFix64, prize: UFix64, treasury: UFix64): UInt64 {
+fun createPoolWithDistribution(rewards: UFix64, prize: UFix64, protocolFee: UFix64): UInt64 {
     let deployerAccount = getDeployerAccount()
     let createResult = _executeTransaction(
         "../transactions/test/create_pool_custom_distribution.cdc",
-        [rewards, prize, treasury],
+        [rewards, prize, protocolFee],
         deployerAccount
     )
     assertTransactionSucceeded(createResult, context: "Create pool with custom distribution")
@@ -494,11 +494,11 @@ fun createPoolWithDistribution(rewards: UFix64, prize: UFix64, treasury: UFix64)
 }
 
 access(all)
-fun createPoolWithDistributionExpectFailure(rewards: UFix64, prize: UFix64, treasury: UFix64): Bool {
+fun createPoolWithDistributionExpectFailure(rewards: UFix64, prize: UFix64, protocolFee: UFix64): Bool {
     let deployerAccount = getDeployerAccount()
     let createResult = _executeTransaction(
         "../transactions/test/create_pool_custom_distribution.cdc",
-        [rewards, prize, treasury],
+        [rewards, prize, protocolFee],
         deployerAccount
     )
     return createResult.error == nil
@@ -712,11 +712,11 @@ fun getEmergencyConfigDetails(_ poolID: UInt64): {String: AnyStruct} {
 // ============================================================================
 
 access(all)
-fun updateDistributionStrategy(poolID: UInt64, rewards: UFix64, prize: UFix64, treasury: UFix64) {
+fun updateDistributionStrategy(poolID: UInt64, rewards: UFix64, prize: UFix64, protocolFee: UFix64) {
     let deployerAccount = getDeployerAccount()
     let result = _executeTransaction(
         "../transactions/test/update_distribution_strategy.cdc",
-        [poolID, rewards, prize, treasury],
+        [poolID, rewards, prize, protocolFee],
         deployerAccount
     )
     assertTransactionSucceeded(result, context: "Update distribution strategy")
@@ -920,10 +920,10 @@ fun delegateEnableEmergencyMode(_ delegate: Test.TestAccount, poolID: UInt64, re
 }
 
 access(all)
-fun delegateUpdateDistributionStrategy(_ delegate: Test.TestAccount, poolID: UInt64, rewards: UFix64, prize: UFix64, treasury: UFix64): Bool {
+fun delegateUpdateDistributionStrategy(_ delegate: Test.TestAccount, poolID: UInt64, rewards: UFix64, prize: UFix64, protocolFee: UFix64): Bool {
     let result = _executeTransaction(
         "../transactions/test/delegate_update_distribution_strategy.cdc",
-        [poolID, rewards, prize, treasury],
+        [poolID, rewards, prize, protocolFee],
         delegate
     )
     return result.error == nil
@@ -1039,7 +1039,7 @@ fun triggerSyncWithYieldSource(poolID: UInt64) {
 }
 
 access(all)
-fun getPoolSavingsInfo(_ poolID: UInt64): {String: UFix64} {
+fun getPoolRewardsInfo(_ poolID: UInt64): {String: UFix64} {
     let scriptResult = _executeScript("../scripts/test/get_pool_rewards_info.cdc", [poolID])
     Test.expect(scriptResult, Test.beSucceeded())
     return scriptResult.returnValue! as! {String: UFix64}

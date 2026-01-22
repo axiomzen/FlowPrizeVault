@@ -30,7 +30,7 @@ PrizeLinkedAccounts implements a "no-loss lottery" where:
 
 1. **Users deposit tokens** into savings pools
 2. **Deposits are sent to yield sources** (modular DeFi integrations)
-3. **Yield is split** between savings interest, lottery prizes, and treasury (configurable)
+3. **Yield is split** between savings interest, lottery prizes, and protocol (configurable)
 4. **Periodic lottery draws** award prizes to depositors (weighted by balance × time)
 5. **Users can withdraw** their principal + accrued savings interest at any time
 
@@ -61,7 +61,7 @@ PrizeLinkedAccounts implements a "no-loss lottery" where:
 │  │                            Pool                                   │  │
 │  ├──────────────────────────────────────────────────────────────────┤  │
 │  │  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────┐  │  │
-│  │  │SavingsDistributor│  │PrizeDistributor│  │TreasuryDistributor│ │  │
+│  │  │SavingsDistributor│  │PrizeDistributor│  │ProtocolDistributor│ │  │
 │  │  │ (shares/TWAB)   │  │ (prizes/NFTs)   │  │  (protocol fees) │  │  │
 │  │  └────────┬────────┘  └────────┬─────────┘  └────────┬────────┘  │  │
 │  │           │                    │                      │           │  │
@@ -89,7 +89,7 @@ The main protocol contract containing:
 | **Pool** | Core resource managing deposits, withdrawals, yield processing, and prize draws |
 | **SavingsDistributor** | ERC4626-style shares vault with epoch-based TWAB tracking |
 | **PrizeDistributor** | Prize pool management, NFT prizes, and draw execution |
-| **TreasuryDistributor** | Protocol fee collection and withdrawals |
+| **ProtocolDistributor** | Protocol fee collection and withdrawals |
 | **PoolPositionCollection** | User-owned resource for interacting with pools |
 | **Admin** | Privileged operations (strategy updates, emergency controls) |
 
@@ -156,11 +156,11 @@ Lottery draws use Flow's `RandomConsumer` for provably fair selection:
 
 ### Distribution Strategies
 
-Configurable splits between rewards/prize/treasury:
+Configurable splits between rewards/prize/protocol:
 
 | Strategy | Description |
 |----------|-------------|
-| `FixedPercentageStrategy` | Static split (e.g., 50% savings, 40% lottery, 10% treasury) |
+| `FixedPercentageStrategy` | Static split (e.g., 50% savings, 40% lottery, 10% protocol) |
 
 Custom strategies can implement the `DistributionStrategy` interface.
 
@@ -349,7 +349,7 @@ All transactions are located in `cadence/transactions/prize-linked-accounts/`:
 | Transaction | Description |
 |-------------|-------------|
 | `create_pool.cdc` | Create a new PrizeLinkedAccounts pool |
-| `withdraw_treasury.cdc` | Withdraw funds from pool treasury |
+| `withdraw_protocol.cdc` | Withdraw funds from pool protocol |
 | `update_draw_interval.cdc` | Change time between lottery draws |
 | `enable_emergency_mode.cdc` | Enable emergency mode (withdrawals only) |
 | `disable_emergency_mode.cdc` | Return pool to normal operation |
@@ -375,7 +375,7 @@ All scripts are located in `cadence/scripts/prize-linked-accounts/`:
 | `get_all_pools.cdc` | List all pool IDs |
 | `get_user_shares.cdc` | Detailed user share info and TWAB stake |
 | `get_draw_status.cdc` | Lottery timing, prize pool, epoch info |
-| `get_treasury_stats.cdc` | Treasury balance and funding stats |
+| `get_protocol_stats.cdc` | Protocol balance and funding stats |
 | `get_emergency_info.cdc` | Emergency state and details |
 | `get_user_pools.cdc` | All pools a user is registered with |
 | `is_registered.cdc` | Check if user is registered with a pool |
@@ -422,7 +422,7 @@ All scripts are located in `cadence/scripts/prize-linked-accounts/`:
 
 | Component | Trust Level | Notes |
 |-----------|-------------|-------|
-| Admin | High | Can update strategies, enable emergency mode, withdraw treasury |
+| Admin | High | Can update strategies, enable emergency mode, withdraw protocol |
 | Yield Source | High | Protocol depends on yield source solvency |
 | RandomConsumer | Core Flow | Flow protocol-level randomness |
 
@@ -436,7 +436,7 @@ All scripts are located in `cadence/scripts/prize-linked-accounts/`:
 ### Rounding & Dust
 
 - Share conversions may produce small rounding dust
-- Dust is tracked and periodically sent to treasury
+- Dust is tracked and periodically sent to protocol
 - Minimum deposit prevents dust-only positions
 
 ### Access Control
@@ -486,7 +486,7 @@ This tests the full contract lifecycle including:
 - NFT prize lifecycle (deposit, award, claim)
 - Emergency mode and admin operations
 - Multi-user scenarios and lottery fairness
-- Treasury recipient setup and forwarding
+- Protocol recipient setup and forwarding
 - Draw timing and state management
 - Invalid pool/parameter handling
 - Access control verification
@@ -511,7 +511,7 @@ flow test cadence/tests/PrizeVault_test.cdc
 | Edge Cases | Minimum deposits, zero values, invalid pools, concurrent draws |
 | Precision | UFix64 limits, 8 decimal precision, large values |
 | Multi-User | Multiple depositors, fair prize distribution |
-| Treasury | Recipient setup, forwarding verification |
+| Protocol | Recipient setup, forwarding verification |
 | Draw Timing | Interval enforcement, concurrent prevention, stale recovery |
 | Integration | Full lifecycle via `test_prize_savings.py` |
 

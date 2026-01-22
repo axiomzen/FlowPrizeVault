@@ -7,8 +7,8 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
 
     return {
         "allocatedRewards": poolRef.allocatedRewards,
-        "lotteryBalance": poolRef.getPrizePoolBalance(),
-        "totalTreasuryForwarded": poolRef.getTotalTreasuryForwarded(),
+        "prizeBalance": poolRef.getPrizePoolBalance(),
+        "totalProtocolFeeForwarded": poolRef.getTotalProtocolFeeForwarded(),
         "totalStaked": poolRef.getTotalAllocatedFunds()
     }
 }

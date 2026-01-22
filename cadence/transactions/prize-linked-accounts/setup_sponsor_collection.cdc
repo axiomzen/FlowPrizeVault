@@ -2,11 +2,11 @@ import "PrizeLinkedAccounts"
 
 /// Sets up a SponsorPositionCollection for the signer.
 /// 
-/// This enables the account to make sponsor deposits (lottery-ineligible).
-/// Sponsors earn savings yield but cannot win lottery prizes.
+/// This enables the account to make sponsor deposits (prize-ineligible).
+/// Sponsors earn rewards yield but cannot win prize prizes.
 /// 
-/// A single account can have both a PoolPositionCollection (lottery-eligible)
-/// AND a SponsorPositionCollection (lottery-ineligible) simultaneously.
+/// A single account can have both a PoolPositionCollection (prize-eligible)
+/// AND a SponsorPositionCollection (prize-ineligible) simultaneously.
 transaction {
     prepare(signer: auth(SaveValue, BorrowValue, Capabilities) &Account) {
         // Check if already exists

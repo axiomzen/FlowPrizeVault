@@ -1,7 +1,7 @@
 import "PrizeLinkedAccounts"
 
 /// Transaction to update distribution strategy for a pool
-transaction(poolID: UInt64, rewardsPercent: UFix64, prizePercent: UFix64, treasuryPercent: UFix64) {
+transaction(poolID: UInt64, rewardsPercent: UFix64, prizePercent: UFix64, protocolFeePercent: UFix64) {
     prepare(signer: auth(Storage) &Account) {
         let admin = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
             from: PrizeLinkedAccounts.AdminStoragePath
@@ -10,7 +10,7 @@ transaction(poolID: UInt64, rewardsPercent: UFix64, prizePercent: UFix64, treasu
         let newStrategy = PrizeLinkedAccounts.FixedPercentageStrategy(
             rewards: rewardsPercent,
             prize: prizePercent,
-            treasury: treasuryPercent
+            protocolFee: protocolFeePercent
         )
         
         admin.updatePoolDistributionStrategy(

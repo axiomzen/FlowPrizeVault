@@ -95,8 +95,8 @@ access(all) fun testOverflowWithLongIntervalAndModerateTVL() {
     // Total deposits: 100M FLOW
     // With normalized TWAB: totalWeight ≈ 100M (not 360B)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Advance time past draw interval (1 hour + buffer)
     Test.moveTime(by: 3601.0)
@@ -130,8 +130,8 @@ access(all) fun testSingleUserTWABOverflow() {
     setupUserWithFundsAndCollection(user, amount: largeDeposit + 100.0)
     depositToPool(user, poolID: poolID, amount: largeDeposit)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Advance time past draw interval
     Test.moveTime(by: 3601.0)
@@ -175,8 +175,8 @@ access(all) fun testSafeOperationBelowThreshold() {
         i = i + 1
     }
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Advance time
     Test.moveTime(by: 3601.0)
@@ -215,8 +215,8 @@ access(all) fun testSevenDayProxyOverflow() {
         i = i + 1
     }
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Advance time
     Test.moveTime(by: 10001.0)
@@ -256,8 +256,8 @@ access(all) fun testJustUnderOverflowBoundary() {
         i = i + 1
     }
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Advance time
     Test.moveTime(by: 10001.0)
@@ -293,8 +293,8 @@ access(all) fun testJustOverOverflowBoundary() {
         i = i + 1
     }
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Advance time
     Test.moveTime(by: 10001.0)

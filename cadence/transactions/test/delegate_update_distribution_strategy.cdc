@@ -1,7 +1,7 @@
 import "PrizeLinkedAccounts"
 
 /// Delegate uses CriticalOps capability to update distribution strategy
-transaction(poolID: UInt64, rewards: UFix64, prize: UFix64, treasury: UFix64) {
+transaction(poolID: UInt64, rewards: UFix64, prize: UFix64, protocolFee: UFix64) {
     prepare(signer: auth(Storage) &Account) {
         // Get the capability from own storage
         let cap = signer.storage.borrow<&Capability<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>>(
@@ -14,7 +14,7 @@ transaction(poolID: UInt64, rewards: UFix64, prize: UFix64, treasury: UFix64) {
         let newStrategy = PrizeLinkedAccounts.FixedPercentageStrategy(
             rewards: rewards,
             prize: prize,
-            treasury: treasury
+            protocolFee: protocolFee
         )
         
         adminRef.updatePoolDistributionStrategy(

@@ -56,8 +56,8 @@ access(all) fun testPoolFunctionsWithoutTracker() {
     setupUserWithFundsAndCollection(user, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and execute draw
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and execute draw
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 2.0)
     
     let deployerAccount = getDeployerAccount()
@@ -78,13 +78,13 @@ access(all) fun testMultipleDrawsWithoutTracker() {
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
     // Execute multiple draws
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 2.0)
     let deployerAccount = getDeployerAccount()
     executeFullDraw(deployerAccount, poolID: poolID)
     
     // Second draw
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 2.0)
     executeFullDraw(deployerAccount, poolID: poolID)
     

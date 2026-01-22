@@ -2,7 +2,7 @@
 PrizeWinnerTracker - Pluggable Winner History Tracking
 
 A separate contract that can be optionally plugged into PrizeVaultModular
-to track lottery winners without coupling the core logic.
+to track prize winners without coupling the core logic.
 
 Design Principles:
 - Interface-based (can swap implementations)

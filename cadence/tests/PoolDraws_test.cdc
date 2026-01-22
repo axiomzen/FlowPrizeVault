@@ -23,8 +23,8 @@ access(all) fun testCannotDrawBeforeInterval() {
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Check immediately - should not be able to draw yet
     let drawStatus = getDrawStatus(poolID)
@@ -42,8 +42,8 @@ access(all) fun testCanDrawAfterIntervalElapsed() {
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
     // Advance time past interval
     Test.moveTime(by: 2.0)
@@ -66,8 +66,8 @@ access(all) fun testStartDrawSetsBatchInProgressFlag() {
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 2.0)
     
     // Start draw (this only initializes batch processing, doesn't request randomness yet)
@@ -85,7 +85,7 @@ access(all) fun testStartDrawSetsBatchInProgressFlag() {
     Test.assert(!isDrawInProgress, message: "Draw should not be in progress until randomness is requested")
 }
 
-access(all) fun testCompleteLotteryDraw() {
+access(all) fun testCompletePrizeDraw() {
     let depositAmount = DEFAULT_DEPOSIT_AMOUNT
     let prizeAmount = DEFAULT_PRIZE_AMOUNT
     
@@ -97,8 +97,8 @@ access(all) fun testCompleteLotteryDraw() {
     setupUserWithFundsAndCollection(drawParticipant, amount: depositAmount + 1.0)
     depositToPool(drawParticipant, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery and advance time past 60s interval
-    fundLotteryPool(poolID, amount: prizeAmount)
+    // Fund prize and advance time past 60s interval
+    fundPrizePool(poolID, amount: prizeAmount)
     Test.moveTime(by: 61.0)
     
     // Execute full draw (4-phase: start → batch → randomness → complete)
@@ -122,7 +122,7 @@ access(all) fun testPrizeIsReinvestedIntoDeposits() {
     depositToPool(participant, poolID: poolID, amount: depositAmount)
     
     // Fund and execute draw
-    fundLotteryPool(poolID, amount: prizeAmount)
+    fundPrizePool(poolID, amount: prizeAmount)
     Test.moveTime(by: 61.0)
     executeFullDraw(participant, poolID: poolID)
     
@@ -157,7 +157,7 @@ access(all) fun testDrawWithMultipleParticipants() {
     depositToPool(participant3, poolID: poolID, amount: depositAmount)
     
     // Fund and execute draw
-    fundLotteryPool(poolID, amount: prizeAmount)
+    fundPrizePool(poolID, amount: prizeAmount)
     Test.moveTime(by: 61.0)
     executeFullDraw(participant1, poolID: poolID)
     
@@ -171,10 +171,10 @@ access(all) fun testDrawWithMultipleParticipants() {
 }
 
 // ============================================================================
-// TESTS - Lottery Pool Funding
+// TESTS - Prize Pool Funding
 // ============================================================================
 
-access(all) fun testFundLotteryPoolIncreasesBalance() {
+access(all) fun testFundPrizePoolIncreasesBalance() {
     let poolID = createTestPoolWithShortInterval()
     let fundAmount = DEFAULT_PRIZE_AMOUNT
     
@@ -183,12 +183,12 @@ access(all) fun testFundLotteryPoolIncreasesBalance() {
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Get initial lottery balance
+    // Get initial prize balance
     let initialStatus = getDrawStatus(poolID)
     let initialBalance = initialStatus["prizePoolBalance"]! as! UFix64
     
-    // Fund lottery
-    fundLotteryPool(poolID, amount: fundAmount)
+    // Fund prize
+    fundPrizePool(poolID, amount: fundAmount)
     
     // Verify balance increased
     let finalStatus = getDrawStatus(poolID)

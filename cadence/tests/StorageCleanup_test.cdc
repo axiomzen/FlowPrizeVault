@@ -76,8 +76,8 @@ access(all) fun testCleanupGhostReceiverCreatedDuringDraw() {
     depositToPool(participant1, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     depositToPool(participant2, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Verify initial state
@@ -134,8 +134,8 @@ access(all) fun testCleanupBlockedDuringBatchProcessing() {
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -154,8 +154,8 @@ access(all) fun testCleanupBlockedAfterRandomnessRequested() {
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw and request randomness
@@ -238,8 +238,8 @@ access(all) fun testCleanupDoesNotAffectActiveUsers() {
     depositToPool(active2, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     depositToPool(withdrawer, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -276,8 +276,8 @@ access(all) fun testCleanupAfterUserRedeposits() {
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT * 2.0 + 2.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw
@@ -319,8 +319,8 @@ access(all) fun testMultipleCleanupCallsAreIdempotent() {
     setupUserWithFundsAndCollection(participant, amount: DEFAULT_DEPOSIT_AMOUNT + 1.0)
     depositToPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Create ghost during draw
@@ -368,8 +368,8 @@ access(all) fun testReceiverLimitOfOne() {
     depositToPool(p1, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     depositToPool(p2, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     
-    // Fund lottery and advance time
-    fundLotteryPool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
+    // Fund prize and advance time
+    fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
     // Start draw

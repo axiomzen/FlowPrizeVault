@@ -1,6 +1,6 @@
 import "PrizeLinkedAccounts"
 
-/// Complete a lottery draw for a pool (Admin only)
+/// Complete a prize draw for a pool (Admin only)
 transaction(poolID: UInt64) {
     
     prepare(signer: auth(Storage) &Account) {

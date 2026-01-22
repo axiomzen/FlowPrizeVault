@@ -5,8 +5,8 @@ access(all) struct PoolStats {
     access(all) let poolID: UInt64
     access(all) let allocatedRewards: UFix64
     access(all) let prizePoolBalance: UFix64
-    access(all) let totalTreasuryForwarded: UFix64
-    access(all) let totalSavingsDistributed: UFix64
+    access(all) let totalProtocolFeeForwarded: UFix64
+    access(all) let totalRewardsDistributed: UFix64
     access(all) let availableYieldRewards: UFix64
     access(all) let sharePrice: UFix64
     access(all) let totalShares: UFix64
@@ -27,8 +27,8 @@ access(all) struct PoolStats {
         poolID: UInt64,
         allocatedRewards: UFix64,
         prizePoolBalance: UFix64,
-        totalTreasuryForwarded: UFix64,
-        totalSavingsDistributed: UFix64,
+        totalProtocolFeeForwarded: UFix64,
+        totalRewardsDistributed: UFix64,
         availableYieldRewards: UFix64,
         sharePrice: UFix64,
         totalShares: UFix64,
@@ -48,8 +48,8 @@ access(all) struct PoolStats {
         self.poolID = poolID
         self.allocatedRewards = allocatedRewards
         self.prizePoolBalance = prizePoolBalance
-        self.totalTreasuryForwarded = totalTreasuryForwarded
-        self.totalSavingsDistributed = totalSavingsDistributed
+        self.totalProtocolFeeForwarded = totalProtocolFeeForwarded
+        self.totalRewardsDistributed = totalRewardsDistributed
         self.availableYieldRewards = availableYieldRewards
         self.sharePrice = sharePrice
         self.totalShares = totalShares
@@ -84,8 +84,8 @@ access(all) fun main(poolID: UInt64): PoolStats {
         poolID: poolID,
         allocatedRewards: poolRef.allocatedRewards,
         prizePoolBalance: poolRef.getPrizePoolBalance(),
-        totalTreasuryForwarded: poolRef.getTotalTreasuryForwarded(),
-        totalSavingsDistributed: poolRef.getTotalRewardsDistributed(),
+        totalProtocolFeeForwarded: poolRef.getTotalProtocolFeeForwarded(),
+        totalRewardsDistributed: poolRef.getTotalRewardsDistributed(),
         availableYieldRewards: poolRef.getAvailableYieldRewards(),
         sharePrice: poolRef.getRewardsSharePrice(),
         totalShares: poolRef.getTotalRewardsShares(),

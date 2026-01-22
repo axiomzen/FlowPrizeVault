@@ -4,7 +4,7 @@ import "PrizeLinkedAccounts"
 
 /// Withdraws funds from a sponsor position.
 /// 
-/// Sponsors can withdraw their deposits plus any earned savings yield.
+/// Sponsors can withdraw their deposits plus any earned rewards yield.
 /// 
 /// @param poolID - ID of the pool to withdraw from
 /// @param amount - Amount to withdraw

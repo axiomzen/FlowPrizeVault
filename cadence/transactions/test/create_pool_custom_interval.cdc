@@ -27,11 +27,11 @@ transaction(drawIntervalSeconds: UFix64) {
             vaultType: Type<@FlowToken.Vault>()
         )
         
-        // Create distribution strategy (70% savings, 20% lottery, 10% treasury)
+        // Create distribution strategy (70% rewards, 20% prize, 10% protocol)
         let strategy = PrizeLinkedAccounts.FixedPercentageStrategy(
             rewards: 0.7,
             prize: 0.2,
-            treasury: 0.1
+            protocolFee: 0.1
         )
         
         // Create prize distribution

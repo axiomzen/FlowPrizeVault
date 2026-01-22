@@ -28,8 +28,8 @@ access(all) fun testThreeConsecutiveRounds() {
     let stateRound1 = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(1), stateRound1["currentRoundID"]! as! UInt64)
     
-    // Fund lottery for round 1
-    fundLotteryPool(poolID, amount: 5.0)
+    // Fund prize for round 1
+    fundPrizePool(poolID, amount: 5.0)
     
     // Execute round 1 draw
     Test.moveTime(by: 61.0)
@@ -39,8 +39,8 @@ access(all) fun testThreeConsecutiveRounds() {
     let stateRound2 = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(2), stateRound2["currentRoundID"]! as! UInt64)
     
-    // Fund lottery for round 2
-    fundLotteryPool(poolID, amount: 5.0)
+    // Fund prize for round 2
+    fundPrizePool(poolID, amount: 5.0)
     
     // Execute round 2 draw
     Test.moveTime(by: 61.0)
@@ -50,8 +50,8 @@ access(all) fun testThreeConsecutiveRounds() {
     let stateRound3 = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(3), stateRound3["currentRoundID"]! as! UInt64)
     
-    // Fund lottery for round 3
-    fundLotteryPool(poolID, amount: 5.0)
+    // Fund prize for round 3
+    fundPrizePool(poolID, amount: 5.0)
     
     // Execute round 3 draw
     Test.moveTime(by: 61.0)
@@ -75,8 +75,8 @@ access(all) fun testUserSkipsMiddleRound() {
     setupUserWithFundsAndCollection(user, amount: depositAmount * 2.0 + 50.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery for round 1
-    fundLotteryPool(poolID, amount: 5.0)
+    // Fund prize for round 1
+    fundPrizePool(poolID, amount: 5.0)
     
     // Execute round 1 draw - user wins
     Test.moveTime(by: 61.0)
@@ -89,8 +89,8 @@ access(all) fun testUserSkipsMiddleRound() {
     let currentBalance = getUserPoolBalance(user.address, poolID)["totalBalance"]!
     withdrawFromPool(user, poolID: poolID, amount: currentBalance)
     
-    // Fund lottery for round 2 (user has 0 shares, should not win)
-    fundLotteryPool(poolID, amount: 5.0)
+    // Fund prize for round 2 (user has 0 shares, should not win)
+    fundPrizePool(poolID, amount: 5.0)
     
     // We need another participant for round 2
     let round2User = Test.createAccount()
@@ -104,8 +104,8 @@ access(all) fun testUserSkipsMiddleRound() {
     // User rejoins for round 3
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery for round 3
-    fundLotteryPool(poolID, amount: 5.0)
+    // Fund prize for round 3
+    fundPrizePool(poolID, amount: 5.0)
     
     // Execute round 3 draw
     Test.moveTime(by: 61.0)
@@ -125,20 +125,20 @@ access(all) fun testUserChangingBalanceAcrossRounds() {
     
     // Round 1: Deposit 100
     depositToPool(user, poolID: poolID, amount: 100.0)
-    fundLotteryPool(poolID, amount: 5.0)
+    fundPrizePool(poolID, amount: 5.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user, poolID: poolID)
     
     // Round 2: Add 50 more (now 155 with prize)
     depositToPool(user, poolID: poolID, amount: 50.0)
-    fundLotteryPool(poolID, amount: 5.0)
+    fundPrizePool(poolID, amount: 5.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user, poolID: poolID)
     
     // Round 3: Withdraw 30
     let balanceBeforeWithdraw = getUserPoolBalance(user.address, poolID)["totalBalance"]!
     withdrawFromPool(user, poolID: poolID, amount: 30.0)
-    fundLotteryPool(poolID, amount: 5.0)
+    fundPrizePool(poolID, amount: 5.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user, poolID: poolID)
     
@@ -161,7 +161,7 @@ access(all) fun testDrawIntervalChangesBetweenRounds() {
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
     // Fund and execute round 1 with medium interval
-    fundLotteryPool(poolID, amount: 5.0)
+    fundPrizePool(poolID, amount: 5.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user, poolID: poolID)
     
@@ -169,7 +169,7 @@ access(all) fun testDrawIntervalChangesBetweenRounds() {
     // For now, we verify the round uses the interval from pool creation
     
     // Execute round 2
-    fundLotteryPool(poolID, amount: 5.0)
+    fundPrizePool(poolID, amount: 5.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user, poolID: poolID)
     
@@ -192,7 +192,7 @@ access(all) fun testPrizeAffectsNextRoundTWAB() {
     let entriesRound1 = getUserEntries(user.address, poolID)
     
     // Fund and execute round 1
-    fundLotteryPool(poolID, amount: prizeAmount)
+    fundPrizePool(poolID, amount: prizeAmount)
     Test.moveTime(by: 61.0)
     executeFullDraw(user, poolID: poolID)
     
@@ -230,7 +230,7 @@ access(all) fun testMultipleWinnersNextRoundImpact() {
     depositToPool(user2, poolID: poolID, amount: depositAmount)
     
     // Fund and execute round 1
-    fundLotteryPool(poolID, amount: prizeAmount)
+    fundPrizePool(poolID, amount: prizeAmount)
     Test.moveTime(by: 61.0)
     executeFullDraw(user1, poolID: poolID)
     
@@ -258,7 +258,7 @@ access(all) fun testUserEntriesCarryForwardCorrectly() {
     // Execute multiple rounds, checking entries each time
     var roundNum = 1
     while roundNum <= 3 {
-        fundLotteryPool(poolID, amount: 5.0)
+        fundPrizePool(poolID, amount: 5.0)
         Test.moveTime(by: 61.0)
         
         // Get entries before draw
@@ -294,7 +294,7 @@ access(all) fun testRoundIDSequenceIsContiguous() {
         Test.assertEqual(expectedRoundID, currentRoundID)
         
         // Fund and execute draw
-        fundLotteryPool(poolID, amount: 1.0)
+        fundPrizePool(poolID, amount: 1.0)
         Test.moveTime(by: 61.0)
         executeFullDraw(user, poolID: poolID)
         
@@ -312,7 +312,7 @@ access(all) fun testOldRoundDataCleanedUp() {
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
     // Execute round 1
-    fundLotteryPool(poolID, amount: 5.0)
+    fundPrizePool(poolID, amount: 5.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user, poolID: poolID)
     
@@ -348,7 +348,7 @@ access(all) fun testMultipleUsersMultipleRounds() {
     depositToPool(user2, poolID: poolID, amount: depositAmount)
     depositToPool(user3, poolID: poolID, amount: depositAmount)
     
-    fundLotteryPool(poolID, amount: 10.0)
+    fundPrizePool(poolID, amount: 10.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user1, poolID: poolID)
     
@@ -356,14 +356,14 @@ access(all) fun testMultipleUsersMultipleRounds() {
     let user2Balance = getUserPoolBalance(user2.address, poolID)["totalBalance"]!
     withdrawFromPool(user2, poolID: poolID, amount: user2Balance)
     
-    fundLotteryPool(poolID, amount: 10.0)
+    fundPrizePool(poolID, amount: 10.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user1, poolID: poolID)
     
     // Round 3: User2 rejoins with different amount
     depositToPool(user2, poolID: poolID, amount: depositAmount / 2.0)
     
-    fundLotteryPool(poolID, amount: 10.0)
+    fundPrizePool(poolID, amount: 10.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user1, poolID: poolID)
     
@@ -390,7 +390,7 @@ access(all) fun testNewUserJoinsEachRound() {
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     
     // Round 1
-    fundLotteryPool(poolID, amount: 10.0)
+    fundPrizePool(poolID, amount: 10.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user1, poolID: poolID)
     
@@ -399,7 +399,7 @@ access(all) fun testNewUserJoinsEachRound() {
     setupUserWithFundsAndCollection(user2, amount: depositAmount + 10.0)
     depositToPool(user2, poolID: poolID, amount: depositAmount)
     
-    fundLotteryPool(poolID, amount: 10.0)
+    fundPrizePool(poolID, amount: 10.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user1, poolID: poolID)
     
@@ -408,7 +408,7 @@ access(all) fun testNewUserJoinsEachRound() {
     setupUserWithFundsAndCollection(user3, amount: depositAmount + 10.0)
     depositToPool(user3, poolID: poolID, amount: depositAmount)
     
-    fundLotteryPool(poolID, amount: 10.0)
+    fundPrizePool(poolID, amount: 10.0)
     Test.moveTime(by: 61.0)
     executeFullDraw(user1, poolID: poolID)
     
@@ -435,18 +435,18 @@ access(all) fun testRoundWithNoPrize() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Don't fund lottery pool for round 1
+    // Don't fund prize pool for round 1
     
     // Wait for round to end
     Test.moveTime(by: 61.0)
     
     // Check status
     let status = getDrawStatus(poolID)
-    let lotteryBalance = status["prizePoolBalance"]! as! UFix64
+    let prizeBalance = status["prizePoolBalance"]! as! UFix64
     
-    // If lottery balance is 0, draw might still work but with 0 prize
+    // If prize balance is 0, draw might still work but with 0 prize
     // This test verifies the system doesn't break with 0 prize
-    if lotteryBalance > 0.0 {
+    if prizeBalance > 0.0 {
         executeFullDraw(user, poolID: poolID)
         
         let state = getPoolInitialState(poolID)
@@ -485,7 +485,7 @@ access(all) fun testUserBalanceConsistentAcrossRounds() {
         )
         
         // Execute draw
-        fundLotteryPool(poolID, amount: prizeAmount)
+        fundPrizePool(poolID, amount: prizeAmount)
         Test.moveTime(by: 61.0)
         executeFullDraw(user, poolID: poolID)
         

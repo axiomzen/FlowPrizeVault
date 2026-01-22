@@ -77,19 +77,19 @@ userBalance = (userShares / totalShares) × totalAssets
 access(all) var totalDeposited: UFix64
 
 /// Amount tracked as being in the yield source
-/// Includes: principal + reinvested savings yield
+/// Includes: principal + reinvested rewards yield
 access(all) var totalStaked: UFix64
 
-/// Lottery funds still earning in yield source (not yet withdrawn)
+/// Prize funds still earning in yield source (not yet withdrawn)
 /// Materialized to prize pool at draw time
-access(all) var pendingPrizeYield: UFix64
+access(all) var allocatedPrizeYield: UFix64
 
-/// Treasury funds still earning in yield source (not yet withdrawn)
+/// Protocol funds still earning in yield source (not yet withdrawn)
 /// Materialized and forwarded to recipient (or unclaimed vault) at draw time
-access(all) var pendingTreasuryYield: UFix64
+access(all) var allocatedProtocolFee: UFix64
 ```
 
-### SavingsDistributor Variables
+### RewardsDistributor Variables
 
 ```cadence
 /// Total shares minted across all users
@@ -122,20 +122,20 @@ access(self) let receiverTotalEarnedPrizes: {UInt64: UFix64}
 │                    ACCOUNTING RELATIONSHIPS                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  allocatedFunds = totalStaked + pendingPrizeYield             │
-│                 + pendingTreasuryYield                          │
+│  allocatedFunds = totalStaked + allocatedPrizeYield             │
+│                 + allocatedProtocolFee                          │
 │                                                                 │
 │  allocatedFunds = yieldSource.balance()                         │
 │  (must be equal after every sync)                               │
 │                                                                 │
 │  totalStaked >= totalDeposited                                  │
-│  (difference = reinvested savings yield)                        │
+│  (difference = reinvested rewards yield)                        │
 │                                                                 │
-│  SavingsDistributor.totalAssets = totalStaked                   │
+│  RewardsDistributor.totalAssets = totalStaked                   │
 │                                                                 │
 │  Σ(userShareValues) = totalAssets                               │
 │                                                                 │
-│  userBalance = principal + savingsInterest                      │
+│  userBalance = principal + rewardsInterest                      │
 │              = receiverDeposits[id] + (shareValue - principal)  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -226,10 +226,10 @@ access(all) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64) {
     
     // 3. Calculate shares to mint
     let amount = from.balance
-    let sharesToMint = self.savingsDistributor.convertToShares(amount)
+    let sharesToMint = self.rewardsDistributor.convertToShares(amount)
     
     // 4. Update state
-    self.savingsDistributor.deposit(receiverID: receiverID, amount: amount)
+    self.rewardsDistributor.deposit(receiverID: receiverID, amount: amount)
     
     // 5. Track principal separately
     let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
@@ -278,7 +278,7 @@ access(all) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Va
     }
     
     // 2. Get user's total balance (principal + interest)
-    let totalBalance = self.savingsDistributor.getUserAssetValue(receiverID: receiverID)
+    let totalBalance = self.rewardsDistributor.getUserAssetValue(receiverID: receiverID)
     assert(totalBalance >= amount, message: "Insufficient balance")
     
     // 3. Withdraw from yield source
@@ -287,7 +287,7 @@ access(all) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Va
     
     // 4. Calculate and burn shares
     let sharesToBurn = (actualWithdrawn * self.totalShares) / self.totalAssets
-    self.savingsDistributor.withdraw(receiverID: receiverID, amount: actualWithdrawn)
+    self.rewardsDistributor.withdraw(receiverID: receiverID, amount: actualWithdrawn)
     
     // 5. Update principal tracking (interest is withdrawn first)
     let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
@@ -340,7 +340,7 @@ The `syncWithYieldSource` function synchronizes internal accounting with the act
 ```cadence
 access(contract) fun syncWithYieldSource() {
     let yieldBalance = self.config.yieldConnector.minimumAvailable()
-    let allocatedFunds = self.totalStaked + self.pendingPrizeYield + self.pendingTreasuryYield
+    let allocatedFunds = self.totalStaked + self.allocatedPrizeYield + self.allocatedProtocolFee
     
     if yieldBalance > allocatedFunds {
         // EXCESS: Yield source has more than we've tracked
@@ -364,20 +364,20 @@ access(self) fun applyExcess(amount: UFix64) {
     // 1. Apply distribution strategy (e.g., 50/30/20 split)
     let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
     
-    // 2. Distribute to savings (O(1) - just update totalAssets)
+    // 2. Distribute to rewards (O(1) - just update totalAssets)
     if plan.rewardsAmount > 0.0 {
-        self.savingsDistributor.accrueYield(amount: plan.rewardsAmount)
+        self.rewardsDistributor.accrueYield(amount: plan.rewardsAmount)
         self.totalStaked = self.totalStaked + plan.rewardsAmount
     }
     
-    // 3. Track lottery funds (stay in yield source until draw)
-    if plan.lotteryAmount > 0.0 {
-        self.pendingPrizeYield = self.pendingPrizeYield + plan.lotteryAmount
+    // 3. Track prize funds (stay in yield source until draw)
+    if plan.prizeAmount > 0.0 {
+        self.allocatedPrizeYield = self.allocatedPrizeYield + plan.prizeAmount
     }
     
-    // 4. Track treasury funds (stay in yield source until draw)
-    if plan.treasuryAmount > 0.0 {
-        self.pendingTreasuryYield = self.pendingTreasuryYield + plan.treasuryAmount
+    // 4. Track protocol fee (stay in yield source until draw)
+    if plan.protocolFeeAmount > 0.0 {
+        self.allocatedProtocolFee = self.allocatedProtocolFee + plan.protocolFeeAmount
     }
 }
 ```
@@ -430,8 +430,8 @@ Yield is split between three destinations:
 ```cadence
 struct DistributionPlan {
     let rewardsAmount: UFix64   // Goes to shareholders (increases share price)
-    let lotteryAmount: UFix64   // Funds prize pool
-    let treasuryAmount: UFix64  // Protocol fees
+    let prizeAmount: UFix64   // Funds prize pool
+    let protocolFeeAmount: UFix64  // Protocol fees
 }
 ```
 
@@ -439,53 +439,53 @@ struct DistributionPlan {
 
 ```cadence
 let strategy = FixedPercentageStrategy(
-    savings: 0.50,   // 50% to savings interest
-    lottery: 0.30,   // 30% to lottery prizes
-    treasury: 0.20   // 20% to protocol treasury
+    rewards: 0.50,   // 50% to rewards interest
+    prize: 0.30,   // 30% to prizes
+    protocolFee: 0.20   // 20% to protocol fee
 )
 
 // With 100 FLOW yield:
-// savings: 50 FLOW → increases share price (tracked in totalStaked)
-// lottery: 30 FLOW → tracked in pendingPrizeYield
-// treasury: 20 FLOW → tracked in pendingTreasuryYield
+// rewards: 50 FLOW → increases share price (tracked in totalStaked)
+// prize: 30 FLOW → tracked in allocatedPrizeYield
+// protocolFee: 20 FLOW → tracked in allocatedProtocolFee
 ```
 
 ### Where Funds Go
 
 | Destination | Storage | When Materialized |
 |-------------|---------|-------------------|
-| Savings | Stays in yield source, tracked in `totalStaked` | Immediate (share price increases) |
-| Lottery | Stays in yield source, tracked in `pendingPrizeYield` | At draw time → prize pool |
-| Treasury | Stays in yield source, tracked in `pendingTreasuryYield` | At draw time → recipient or unclaimed vault |
+| Rewards | Stays in yield source, tracked in `totalStaked` | Immediate (share price increases) |
+| Prize | Stays in yield source, tracked in `allocatedPrizeYield` | At draw time → prize pool |
+| Protocol Fee | Stays in yield source, tracked in `allocatedProtocolFee` | At draw time → recipient or unclaimed vault |
 
 ### Draw-Time Materialization
 
-At the start of each lottery draw, pending funds are materialized:
+At the start of each prize draw, pending funds are materialized:
 
 ```cadence
 // In startDraw():
-// 1. Materialize lottery funds
-if self.pendingPrizeYield > 0.0 {
-    let lotteryVault <- self.config.yieldConnector.withdrawAvailable(
-        maxAmount: self.pendingPrizeYield
+// 1. Materialize prize funds
+if self.allocatedPrizeYield > 0.0 {
+    let prizeVault <- self.config.yieldConnector.withdrawAvailable(
+        maxAmount: self.allocatedPrizeYield
     )
-    self.prizeDistributor.fundPrizePool(vault: <- lotteryVault)
-    self.pendingPrizeYield = 0.0
+    self.prizeDistributor.fundPrizePool(vault: <- prizeVault)
+    self.allocatedPrizeYield = 0.0
 }
 
-// 2. Materialize treasury funds
-if self.pendingTreasuryYield > 0.0 {
-    let treasuryVault <- self.config.yieldConnector.withdrawAvailable(
-        maxAmount: self.pendingTreasuryYield
+// 2. Materialize protocol fee
+if self.allocatedProtocolFee > 0.0 {
+    let protocolFeeVault <- self.config.yieldConnector.withdrawAvailable(
+        maxAmount: self.allocatedProtocolFee
     )
-    self.pendingTreasuryYield = 0.0
+    self.allocatedProtocolFee = 0.0
     
-    if let recipientRef = self.treasuryRecipientCap?.borrow() {
+    if let recipientRef = self.protocolFeeRecipientCap?.borrow() {
         // Forward to configured recipient
-        recipientRef.deposit(from: <- treasuryVault)
+        recipientRef.deposit(from: <- protocolFeeVault)
     } else {
         // Store in unclaimed vault for admin withdrawal
-        self.unclaimedTreasuryVault.deposit(from: <- treasuryVault)
+        self.unclaimedProtocolFeeVault.deposit(from: <- protocolFeeVault)
     }
 }
 ```
@@ -503,7 +503,7 @@ A **deficit** occurs when the yield source balance is less than `allocatedFunds`
 - A hack or exploit affects the yield source
 
 ```
-allocatedFunds = totalStaked + pendingPrizeYield + pendingTreasuryYield
+allocatedFunds = totalStaked + allocatedPrizeYield + allocatedProtocolFee
 
 DEFICIT occurs when:
 yieldSource.balance() < allocatedFunds
@@ -514,11 +514,11 @@ yieldSource.balance() < allocatedFunds
 Deficits are distributed proportionally according to the same distribution strategy used for yield:
 
 ```cadence
-// Example: 50% savings, 30% lottery, 20% treasury strategy
+// Example: 50% rewards, 30% prize, 20% protocol strategy
 // With a 100 FLOW deficit:
-//   - Treasury absorbs: 20 FLOW
-//   - Lottery absorbs: 30 FLOW  
-//   - Savings absorbs: 50 FLOW
+//   - Protocol absorbs: 20 FLOW
+//   - Prize absorbs: 30 FLOW  
+//   - Rewards absorbs: 50 FLOW
 ```
 
 ### Shortfall Priority (Protect User Principal)
@@ -530,17 +530,17 @@ When an allocation can't fully cover its share, the shortfall cascades in this p
 │              DEFICIT ABSORPTION PRIORITY ORDER                   │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  1. TREASURY (First)                                            │
-│     → Protocol absorbs loss first                               │
-│     → Capped by pendingTreasuryYield                            │
-│     → Shortfall cascades to lottery                             │
+│  1. PROTOCOL FEE (First)                                            │
+│     → Protocol fee absorbs loss first                               │
+│     → Capped by allocatedProtocolFee                            │
+│     → Shortfall cascades to prize                             │
 │                                                                 │
-│  2. LOTTERY (Second)                                            │
-│     → Prize pool absorbs its share + treasury shortfall         │
-│     → Capped by pendingPrizeYield                             │
-│     → Shortfall cascades to savings                             │
+│  2. PRIZE (Second)                                            │
+│     → Prize pool absorbs its share + protocol fee shortfall         │
+│     → Capped by allocatedPrizeYield                             │
+│     → Shortfall cascades to rewards                             │
 │                                                                 │
-│  3. SAVINGS (Last)                                              │
+│  3. REWARDS (Last)                                              │
 │     → User principal is last resort                             │
 │     → Absorbs its share + all shortfalls from above             │
 │     → Decreases share price for all depositors                  │
@@ -555,29 +555,29 @@ access(self) fun applyDeficit(amount: UFix64) {
     // Calculate target losses per strategy
     let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
     
-    // 1. Treasury absorbs first (protocol takes loss before users)
-    var treasuryShortfall: UFix64 = 0.0
-    if plan.treasuryAmount > self.pendingTreasuryYield {
-        treasuryShortfall = plan.treasuryAmount - self.pendingTreasuryYield
-        self.pendingTreasuryYield = 0.0
+    // 1. Protocol absorbs first (protocol takes loss before users)
+    var protocolShortfall: UFix64 = 0.0
+    if plan.protocolFeeAmount > self.allocatedProtocolFee {
+        protocolShortfall = plan.protocolFeeAmount - self.allocatedProtocolFee
+        self.allocatedProtocolFee = 0.0
     } else {
-        self.pendingTreasuryYield = self.pendingTreasuryYield - plan.treasuryAmount
+        self.allocatedProtocolFee = self.allocatedProtocolFee - plan.protocolFeeAmount
     }
     
-    // 2. Lottery absorbs its share + treasury shortfall
-    let totalLotteryTarget = plan.lotteryAmount + treasuryShortfall
-    var lotteryShortfall: UFix64 = 0.0
-    if totalLotteryTarget > self.pendingPrizeYield {
-        lotteryShortfall = totalLotteryTarget - self.pendingPrizeYield
-        self.pendingPrizeYield = 0.0
+    // 2. Prize absorbs its share + protocol shortfall
+    let totalPrizeTarget = plan.prizeAmount + protocolShortfall
+    var prizeShortfall: UFix64 = 0.0
+    if totalPrizeTarget > self.allocatedPrizeYield {
+        prizeShortfall = totalPrizeTarget - self.allocatedPrizeYield
+        self.allocatedPrizeYield = 0.0
     } else {
-        self.pendingPrizeYield = self.pendingPrizeYield - totalLotteryTarget
+        self.allocatedPrizeYield = self.allocatedPrizeYield - totalPrizeTarget
     }
     
-    // 3. Savings absorbs remainder (share price decrease)
-    let totalSavingsLoss = plan.rewardsAmount + lotteryShortfall
-    self.savingsDistributor.decreaseTotalAssets(amount: totalSavingsLoss)
-    self.totalStaked = self.totalStaked - totalSavingsLoss
+    // 3. Rewards absorbs remainder (share price decrease)
+    let totalRewardsLoss = plan.rewardsAmount + prizeShortfall
+    self.rewardsDistributor.decreaseTotalAssets(amount: totalRewardsLoss)
+    self.totalStaked = self.totalStaked - totalRewardsLoss
 }
 ```
 
@@ -585,35 +585,35 @@ access(self) fun applyDeficit(amount: UFix64) {
 
 ```
 Initial State (after yield accumulation):
-  totalStaked = 110 (100 deposit + 10 savings yield)
-  pendingPrizeYield = 6
-  pendingTreasuryYield = 4
+  totalStaked = 110 (100 deposit + 10 rewards yield)
+  allocatedPrizeYield = 6
+  allocatedProtocolFee = 4
   allocatedFunds = 110 + 6 + 4 = 120
 
 Deficit of 20 FLOW occurs (yield source now has 100):
-  Strategy: 50% savings, 30% lottery, 20% treasury
+  Strategy: 50% rewards, 30% prize, 20% protocol
   
   Target losses:
-    treasury: 20 * 0.20 = 4
-    lottery:  20 * 0.30 = 6
-    savings:  20 * 0.50 = 10
+    protocolFee: 20 * 0.20 = 4
+    prize:  20 * 0.30 = 6
+    rewards:  20 * 0.50 = 10
 
-  Step 1: Treasury absorbs 4 (has 4, exactly covers its share)
-    pendingTreasuryYield: 4 → 0
-    treasuryShortfall: 0
+  Step 1: Protocol absorbs 4 (has 4, exactly covers its share)
+    allocatedProtocolFee: 4 → 0
+    protocolShortfall: 0
 
-  Step 2: Lottery absorbs 6 (has 6, exactly covers its share)
-    pendingPrizeYield: 6 → 0
-    lotteryShortfall: 0
+  Step 2: Prize absorbs 6 (has 6, exactly covers its share)
+    allocatedPrizeYield: 6 → 0
+    prizeShortfall: 0
 
-  Step 3: Savings absorbs 10
+  Step 3: Rewards absorbs 10
     totalStaked: 110 → 100
     Share price decreases proportionally
 
 Final State:
   totalStaked = 100
-  pendingPrizeYield = 0
-  pendingTreasuryYield = 0
+  allocatedPrizeYield = 0
+  allocatedProtocolFee = 0
   allocatedFunds = 100 (matches yield source balance ✓)
 ```
 
@@ -622,46 +622,46 @@ Final State:
 ```
 State:
   totalStaked = 103
-  pendingPrizeYield = 3
-  pendingTreasuryYield = 4
+  allocatedPrizeYield = 3
+  allocatedProtocolFee = 4
   allocatedFunds = 110
 
 Deficit of 20 FLOW (larger than all pending yield):
-  Strategy: 30% savings, 30% lottery, 40% treasury
+  Strategy: 30% rewards, 30% prize, 40% protocol
 
   Target losses:
-    treasury: 20 * 0.40 = 8
-    lottery:  20 * 0.30 = 6
-    savings:  20 * 0.30 = 6
+    protocolFee: 20 * 0.40 = 8
+    prize:  20 * 0.30 = 6
+    rewards:  20 * 0.30 = 6
 
-  Step 1: Treasury absorbs (has 4, needs 8)
+  Step 1: Protocol absorbs (has 4, needs 8)
     absorbed: 4
-    treasuryShortfall: 8 - 4 = 4
-    pendingTreasuryYield: 4 → 0
+    protocolShortfall: 8 - 4 = 4
+    allocatedProtocolFee: 4 → 0
 
-  Step 2: Lottery absorbs (has 3, needs 6 + 4 = 10)
+  Step 2: Prize absorbs (has 3, needs 6 + 4 = 10)
     absorbed: 3
-    lotteryShortfall: 10 - 3 = 7
-    pendingPrizeYield: 3 → 0
+    prizeShortfall: 10 - 3 = 7
+    allocatedPrizeYield: 3 → 0
 
-  Step 3: Savings absorbs (its 6 + 7 shortfall = 13)
+  Step 3: Rewards absorbs (its 6 + 7 shortfall = 13)
     totalStaked: 103 → 90
     Share price decrease: ~12.6%
 
 Final State:
   totalStaked = 90
-  pendingPrizeYield = 0
-  pendingTreasuryYield = 0
+  allocatedPrizeYield = 0
+  allocatedProtocolFee = 0
   allocatedFunds = 90 (matches yield source balance ✓)
 ```
 
 ### Why This Priority Order?
 
-1. **Treasury first**: The protocol should absorb losses before users. Treasury represents protocol revenue that hasn't been claimed yet.
+1. **Protocol first**: The protocol should absorb losses before users. Protocol represents protocol revenue that hasn't been claimed yet.
 
 2. **Lottery second**: Prize pool losses affect future winners, not current depositors' principal. It's "house money" from unrealized yield.
 
-3. **Savings last**: User principal is the most important to protect. Only after exhausting treasury and lottery buffers do user deposits take a haircut.
+3. **Savings last**: User principal is the most important to protect. Only after exhausting protocol and lottery buffers do user deposits take a haircut.
 
 This design philosophy prioritizes user trust and principal protection while allowing the protocol to operate as a buffer against losses.
 
@@ -673,7 +673,7 @@ This design philosophy prioritizes user trust and principal protection while all
 
 1. **Allocated Funds = Yield Source Balance** (after every sync)
    ```
-   totalStaked + pendingPrizeYield + pendingTreasuryYield == yieldSource.balance()
+   totalStaked + allocatedPrizeYield + allocatedProtocolFee == yieldSource.balance()
    ```
    This is the most important invariant. It ensures no "ghost" funds exist in the yield source that aren't tracked.
 
@@ -685,7 +685,7 @@ This design philosophy prioritizes user trust and principal protection while all
 3. **Total Staked ≥ Total Deposited** (during normal operation)
    ```
    totalStaked >= totalDeposited
-   // Difference is reinvested savings yield
+   // Difference is reinvested rewards yield
    // Note: May be violated during severe deficits
    ```
 
@@ -699,8 +699,8 @@ This design philosophy prioritizes user trust and principal protection while all
    totalShares >= 0
    totalAssets >= 0
    userShares[id] >= 0
-   pendingPrizeYield >= 0
-   pendingTreasuryYield >= 0
+   allocatedPrizeYield >= 0
+   allocatedProtocolFee >= 0
    ```
 
 6. **Withdrawal Limit**
@@ -757,13 +757,13 @@ State:
   userShares[A] = 100
 
 Yield source generates 10 FLOW, split 50/40/10:
-  savings: 5 FLOW
-  lottery: 4 FLOW
-  treasury: 1 FLOW
+  rewards: 5 FLOW
+  prize: 4 FLOW
+  protocolFee: 1 FLOW
 
 After processRewards():
   totalShares = 100 (unchanged)
-  totalAssets = 105 (100 + 5 savings)
+  totalAssets = 105 (100 + 5 rewards)
   sharePrice = 1.05
   User A value = 105 FLOW
 ```
@@ -944,7 +944,7 @@ Time-Weighted Average Balance (TWAB) determines prize weight. Users who deposit 
                       │
           ┌──────────┴──────────┐
           │                     │
-    SavingsDistributor    activeRound: Round
+    RewardsDistributor    activeRound: Round
     (ERC4626 shares only)       │
                                 ├── roundID
                                 ├── startTime
@@ -961,8 +961,8 @@ Time-Weighted Average Balance (TWAB) determines prize weight. Users who deposit 
 ```
 
 Key design decisions:
-- **Per-Round Resources**: Each lottery round is a separate `Round` resource
-- **SavingsDistributor Decoupling**: TWAB is separate from ERC4626 share accounting
+- **Per-Round Resources**: Each prize round is a separate `Round` resource
+- **RewardsDistributor Decoupling**: TWAB is separate from ERC4626 share accounting
 - **Projection-Based**: Store projected end-of-round value, not accumulated value
 - **Double-Buffering**: `activeRound` and `pendingDrawRound` allow continuous operation during draws
 - **Batched Processing**: O(n) weight capture split across multiple transactions
@@ -1149,15 +1149,15 @@ The shares model provides:
 | **Simple Withdrawals** | Burn shares proportional to withdrawal |
 | **Auditable State** | `allocatedFunds == yieldSource.balance()` invariant |
 | **Donation Attack Protection** | Virtual offset prevents share price manipulation |
-| **Principal Protection** | Deficit priority: treasury → lottery → savings |
+| **Principal Protection** | Deficit priority: protocol fee → prize → rewards |
 
 ### Key Design Principles
 
 1. **Shares represent proportional ownership, not absolute balance.** When yield accrues, the pool grows but shares stay constant—everyone's proportional claim on a larger pool automatically increases their value.
 
-2. **All yield stays in the yield source until draw time.** Lottery and treasury portions are tracked via `pendingPrizeYield` and `pendingTreasuryYield`, ensuring `allocatedFunds` always equals the yield source balance.
+2. **All yield stays in the yield source until draw time.** Prize and protocol fee portions are tracked via `allocatedPrizeYield` and `allocatedProtocolFee`, ensuring `allocatedFunds` always equals the yield source balance.
 
-3. **Deficits are handled with user protection in mind.** The priority order (treasury → lottery → savings) ensures the protocol absorbs losses before users, and lottery pools buffer savings before user principal is affected.
+3. **Deficits are handled with user protection in mind.** The priority order (protocol fee → prize → rewards) ensures the protocol absorbs losses before users, and prize pools buffer savings before user principal is affected.
 
 4. **The virtual offset pattern** (adding 1.0 to both shares and assets in conversions) provides defense-in-depth against the ERC4626 inflation attack, ensuring the protocol remains secure even if future yield connectors allow permissionless deposits.
 

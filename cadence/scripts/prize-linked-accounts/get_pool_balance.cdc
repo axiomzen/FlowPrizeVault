@@ -6,7 +6,7 @@ import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 /// - address: The account address
 /// - poolID: The pool ID to query
 ///
-/// Returns: PoolBalance struct with deposits, prizes, savings, and total balance
+/// Returns: PoolBalance struct with deposits, prizes, rewards, and total balance
 access(all) fun main(address: Address, poolID: UInt64): PrizeLinkedAccounts.PoolBalance {
     let collectionRef = getAccount(address)
         .capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(

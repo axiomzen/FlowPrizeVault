@@ -3,7 +3,7 @@ import FungibleToken from "FungibleToken"
 import FlowToken from "FlowToken"
 
 /// Withdraw transaction - Withdraws tokens from a PrizeLinkedAccounts pool
-/// Includes both principal and any accrued savings interest
+/// Includes both principal and any accrued rewards interest
 ///
 /// Parameters:
 /// - poolID: The ID of the pool to withdraw from

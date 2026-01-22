@@ -1,6 +1,6 @@
 import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 
-/// Complete Draw transaction - Finalizes a lottery draw for a pool (Admin only)
+/// Complete Draw transaction - Finalizes a prize draw for a pool (Admin only)
 /// This reveals the random number and selects winner(s)
 /// Must be called after startDraw and at least 1 block has passed
 ///

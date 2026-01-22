@@ -13,7 +13,7 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
     return {
         "rewardsPercent": testPlan.rewardsAmount,
         "prizePercent": testPlan.prizeAmount,
-        "treasuryPercent": testPlan.treasuryAmount
+        "protocolFeePercent": testPlan.protocolFeeAmount
     }
 }
 

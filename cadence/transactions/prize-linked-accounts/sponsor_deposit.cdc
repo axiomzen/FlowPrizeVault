@@ -2,10 +2,10 @@ import "FungibleToken"
 import "FlowToken"
 import "PrizeLinkedAccounts"
 
-/// Deposits funds as a sponsor (lottery-ineligible).
+/// Deposits funds as a sponsor (prize-ineligible).
 /// 
-/// Sponsors earn savings yield through share price appreciation but
-/// are NOT eligible to win lottery prizes.
+/// Sponsors earn rewards yield through share price appreciation but
+/// are NOT eligible to win prize prizes.
 /// 
 /// Prerequisites:
 /// - Must have called setup_sponsor_collection first

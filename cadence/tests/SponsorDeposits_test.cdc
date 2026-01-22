@@ -82,7 +82,7 @@ access(all) fun testSponsorDepositUpdatesSponsorBalance() {
     Test.assertEqual(0.0, sponsorBalance["totalEarnedPrizes"]!)  // Sponsors can't win
 }
 
-access(all) fun testSponsorHasZeroLotteryEntries() {
+access(all) fun testSponsorHasZeroPrizeEntries() {
     let poolID: UInt64 = 0
     let depositAmount: UFix64 = 100.0
     
@@ -92,7 +92,7 @@ access(all) fun testSponsorHasZeroLotteryEntries() {
     setupSponsorWithFundsAndCollection(sponsor, amount: depositAmount + 1.0)
     sponsorDepositToPool(sponsor, poolID: poolID, amount: depositAmount)
     
-    // Verify sponsor has zero lottery entries
+    // Verify sponsor has zero prize entries
     let entries = getSponsorEntries(sponsor.address, poolID)
     Test.assertEqual(0.0, entries)
 }
@@ -178,7 +178,7 @@ access(all) fun testSponsorFullWithdrawalCleanup() {
 // TESTS - Regular vs Sponsor Isolation
 // ============================================================================
 
-access(all) fun testRegularUserHasLotteryEntries() {
+access(all) fun testRegularUserHasPrizeEntries() {
     let poolID: UInt64 = 0
     let depositAmount: UFix64 = 50.0
     
@@ -188,9 +188,9 @@ access(all) fun testRegularUserHasLotteryEntries() {
     setupUserWithFundsAndCollection(regularUser, amount: depositAmount + 1.0)
     depositToPool(regularUser, poolID: poolID, amount: depositAmount)
     
-    // Regular user should have lottery entries
+    // Regular user should have prize entries
     let entries = getUserEntries(regularUser.address, poolID)
-    Test.assert(entries > 0.0, message: "Regular user should have lottery entries")
+    Test.assert(entries > 0.0, message: "Regular user should have prize entries")
 }
 
 access(all) fun testSameAccountCanBeBothRegularAndSponsor() {
@@ -230,7 +230,7 @@ access(all) fun testSameAccountCanBeBothRegularAndSponsor() {
 // TESTS - Sponsor Yield Earning
 // ============================================================================
 
-access(all) fun testSponsorEarnsSavingsYield() {
+access(all) fun testSponsorEarnsRewardsYield() {
     // Create pool with short interval for quick yield processing
     let poolID = createTestPoolWithShortInterval()
     let depositAmount: UFix64 = 100.0
@@ -239,15 +239,15 @@ access(all) fun testSponsorEarnsSavingsYield() {
     setupSponsorWithFundsAndCollection(sponsor, amount: depositAmount + 1.0)
     sponsorDepositToPool(sponsor, poolID: poolID, amount: depositAmount)
     
-    // Fund lottery to simulate yield
-    fundLotteryPool(poolID, amount: 10.0)
+    // Fund prize to simulate yield
+    fundPrizePool(poolID, amount: 10.0)
     
     // Process rewards
     processRewards(poolID)
     
-    // Sponsor should have earned savings interest
+    // Sponsor should have earned rewards interest
     let sponsorBalance = getSponsorBalance(sponsor.address, poolID)
-    // The savingsEarned may be > 0 depending on distribution strategy
+    // The rewardsEarned may be > 0 depending on distribution strategy
     // At minimum, deposits should still equal the deposit amount
     Test.assertEqual(depositAmount, sponsorBalance["totalBalance"]!)
 }
@@ -270,7 +270,7 @@ access(all) fun testSponsorAndRegularUserBothEarnYield() {
     depositToPool(regularUser, poolID: poolID, amount: depositAmount)
     
     // Simulate yield
-    fundLotteryPool(poolID, amount: 20.0)
+    fundPrizePool(poolID, amount: 20.0)
     processRewards(poolID)
     
     // Both should have their deposits intact
@@ -280,7 +280,7 @@ access(all) fun testSponsorAndRegularUserBothEarnYield() {
     Test.assertEqual(depositAmount, sponsorBalance["totalBalance"]!)
     Test.assertEqual(depositAmount, regularBalance["totalBalance"]!)
     
-    // But only regular user has lottery entries
+    // But only regular user has prize entries
     let regularEntries = getUserEntries(regularUser.address, poolID)
     let sponsorEntries = getSponsorEntries(sponsor.address, poolID)
     

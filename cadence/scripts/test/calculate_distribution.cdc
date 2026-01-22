@@ -11,7 +11,7 @@ access(all) fun main(poolID: UInt64, totalAmount: UFix64): {String: UFix64} {
     return {
         "rewardsAmount": plan.rewardsAmount,
         "prizeAmount": plan.prizeAmount,
-        "treasuryAmount": plan.treasuryAmount
+        "protocolFeeAmount": plan.protocolFeeAmount
     }
 }
 

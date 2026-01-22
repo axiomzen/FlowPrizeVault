@@ -8,7 +8,7 @@ Tests the complete lifecycle of the PrizeLinkedAccounts contract:
 - Pool creation
 - Deposits and withdrawals
 - Lottery draw execution
-- Treasury forwarding
+- Protocol funds forwarding
 - Multi-user scenarios
 
 Usage:
@@ -310,10 +310,10 @@ def test_scripts() -> bool:
     success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_draw_status.cdc", pool_id)
     check_result(success, output, "get_draw_status.cdc", r'isDrawInProgress|canDrawNow')
     
-    # Test get_treasury_stats
-    print_step("Testing get_treasury_stats.cdc...")
-    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_treasury_stats.cdc", pool_id)
-    check_result(success, output, "get_treasury_stats.cdc", r'totalForwarded|hasRecipient')
+    # Test get_protocol_fee_stats
+    print_step("Testing get_protocol_fee_stats.cdc...")
+    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_protocol_fee_stats.cdc", pool_id)
+    check_result(success, output, "get_protocol_fee_stats.cdc", r'totalForwarded|hasRecipient')
     
     # Test get_emergency_info
     print_step("Testing get_emergency_info.cdc...")
@@ -542,12 +542,12 @@ def test_admin() -> bool:
     
     return True
 
-def test_treasury() -> bool:
-    """Test treasury recipient and forwarding"""
+def test_protocol() -> bool:
+    """Test protocol recipient and forwarding"""
     print_header("TESTING TREASURY RECIPIENT & FORWARDING")
     
     if not verify_pool_id():
-        print_error("POOL_ID not valid - skipping treasury tests")
+        print_error("POOL_ID not valid - skipping protocol tests")
         return False
     
     pool_id = str(POOL_ID)
@@ -555,29 +555,29 @@ def test_treasury() -> bool:
     print_info(f"Testing with Pool ID: {pool_id}")
     
     # Check initial state
-    print_step("Checking initial treasury state...")
-    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_treasury_stats.cdc", pool_id)
+    print_step("Checking initial protocol state...")
+    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_protocol_fee_stats.cdc", pool_id)
     print(output)
     
-    # Set treasury recipient
-    print_step("Setting treasury recipient to admin account...")
+    # Set protocol recipient
+    print_step("Setting protocol recipient to admin account...")
     success, output = run_flow_tx(
-        "cadence/transactions/prize-linked-accounts/set_treasury_recipient.cdc",
+        "cadence/transactions/prize-linked-accounts/set_protocol_fee_recipient.cdc",
         pool_id, admin_addr, "/public/flowTokenReceiver"
     )
-    check_result(success, output, "Set treasury recipient")
+    check_result(success, output, "Set protocol recipient")
     
     # Verify recipient
-    print_step("Verifying treasury recipient is configured...")
-    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_treasury_stats.cdc", pool_id)
+    print_step("Verifying protocol recipient is configured...")
+    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_protocol_fee_stats.cdc", pool_id)
     if "hasRecipient: true" in output:
-        print_success("Treasury recipient configured")
+        print_success("Protocol recipient configured")
     else:
-        print_error("Treasury recipient not set")
+        print_error("Protocol recipient not set")
     print(output)
     
     # Add yield
-    print_step("Adding yield to trigger treasury forwarding...")
+    print_step("Adding yield to trigger protocol forwarding...")
     success, output = run_flow_tx("cadence/transactions/prize-linked-accounts/add_yield_to_pool.cdc", "50.0")
     check_result(success, output, "Add 50 FLOW yield")
     
@@ -586,61 +586,61 @@ def test_treasury() -> bool:
     success, output = run_flow_tx("cadence/transactions/prize-linked-accounts/deposit.cdc", pool_id, "1.0")
     check_result(success, output, "Deposit to trigger processing")
     
-    # Check treasury stats
-    print_step("Checking treasury forwarding results...")
-    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_treasury_stats.cdc", pool_id)
+    # Check protocol stats
+    print_step("Checking protocol forwarding results...")
+    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_protocol_fee_stats.cdc", pool_id)
     print(output)
     
     # Clear recipient
-    print_step("Clearing treasury recipient...")
-    success, output = run_flow_tx("cadence/transactions/prize-linked-accounts/clear_treasury_recipient.cdc", pool_id)
-    check_result(success, output, "Clear treasury recipient")
+    print_step("Clearing protocol recipient...")
+    success, output = run_flow_tx("cadence/transactions/prize-linked-accounts/clear_protocol_recipient.cdc", pool_id)
+    check_result(success, output, "Clear protocol recipient")
     
     # Verify cleared
-    print_step("Verifying treasury recipient is cleared...")
-    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_treasury_stats.cdc", pool_id)
+    print_step("Verifying protocol recipient is cleared...")
+    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_protocol_fee_stats.cdc", pool_id)
     if "hasRecipient: false" in output:
-        print_success("Treasury recipient cleared")
+        print_success("Protocol recipient cleared")
     else:
-        print_error("Treasury recipient not cleared")
+        print_error("Protocol recipient not cleared")
     
     # =========================================
-    # Test withdraw_treasury.cdc
+    # Test withdraw_protocol_fee.cdc
     # =========================================
-    print_step("Testing treasury withdrawal (without recipient)...")
-    print_info("When no recipient is set, treasury funds accumulate in the pool")
+    print_step("Testing protocol withdrawal (without recipient)...")
+    print_info("When no recipient is set, protocol funds accumulate in the pool")
     
-    # Add yield to accumulate treasury (10% goes to treasury with default distribution)
+    # Add yield to accumulate protocol (10% goes to protocol with default distribution)
     success, output = run_flow_tx("cadence/transactions/prize-linked-accounts/add_yield_to_pool.cdc", "100.0")
-    check_result(success, output, "Add 100 FLOW yield for treasury accumulation")
+    check_result(success, output, "Add 100 FLOW yield for protocol accumulation")
     
     # Process rewards via deposit
     run_flow_tx("cadence/transactions/prize-linked-accounts/deposit.cdc", pool_id, "1.0")
     
-    # Check treasury stats for accumulated amount
-    print_step("Checking accumulated treasury...")
-    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_treasury_stats.cdc", pool_id)
+    # Check protocol stats for accumulated amount
+    print_step("Checking accumulated protocol...")
+    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_protocol_fee_stats.cdc", pool_id)
     print(output)
     
-    # Attempt admin treasury withdrawal
-    print_step("Testing admin treasury withdrawal...")
+    # Attempt admin protocol withdrawal
+    print_step("Testing admin protocol withdrawal...")
     success, output = run_flow_tx(
-        "cadence/transactions/prize-linked-accounts/withdraw_treasury.cdc",
-        pool_id, "1.0", "Test treasury withdrawal"
+        "cadence/transactions/prize-linked-accounts/withdraw_protocol_fee.cdc",
+        pool_id, "1.0", "Test protocol withdrawal"
     )
     
     if success:
-        print_success("Admin treasury withdrawal successful")
+        print_success("Admin protocol withdrawal successful")
     else:
-        # May fail if no treasury accumulated or insufficient funds
+        # May fail if no protocol accumulated or insufficient funds
         if "insufficient" in output.lower() or "not enough" in output.lower():
-            print_info("Treasury withdrawal failed - no funds available (expected in some cases)")
+            print_info("Protocol withdrawal failed - no funds available (expected in some cases)")
         else:
-            print_info(f"Treasury withdrawal result: {output[:200]}")
+            print_info(f"Protocol withdrawal result: {output[:200]}")
     
-    # Check treasury stats after withdrawal
-    print_step("Treasury stats after withdrawal attempt...")
-    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_treasury_stats.cdc", pool_id)
+    # Check protocol stats after withdrawal
+    print_step("Protocol stats after withdrawal attempt...")
+    success, output = run_flow_script("cadence/scripts/prize-linked-accounts/get_protocol_fee_stats.cdc", pool_id)
     print(output)
     
     return True
@@ -2965,14 +2965,14 @@ def test_precision_boundary() -> bool:
         # Look for distribution percentages
         savings_match = re.search(r'savingsRate["\s:]+([0-9.]+)', output)
         lottery_match = re.search(r'lotteryRate["\s:]+([0-9.]+)', output)
-        treasury_match = re.search(r'treasuryRate["\s:]+([0-9.]+)', output)
+        protocol_match = re.search(r'protocolRate["\s:]+([0-9.]+)', output)
         
         if savings_match:
             print_info(f"  Savings rate: {savings_match.group(1)}")
         if lottery_match:
             print_info(f"  Lottery rate: {lottery_match.group(1)}")
-        if treasury_match:
-            print_info(f"  Treasury rate: {treasury_match.group(1)}")
+        if protocol_match:
+            print_info(f"  Protocol rate: {protocol_match.group(1)}")
         
         print_success("Distribution ratios verified")
     else:
@@ -3080,7 +3080,7 @@ def main():
     test_nft_edge_cases()
     test_precision_boundary()
     test_multiple_users()
-    test_treasury()
+    test_protocol()
     
     sys.exit(print_summary())
 

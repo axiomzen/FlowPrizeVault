@@ -9,7 +9,7 @@ Architecture:
 - TWAB (time-weighted average balance) using normalized weights for fair prize weighting
 - On-chain randomness via Flow's RandomConsumer
 - Modular yield sources via DeFi Actions interface
-- Configurable distribution strategies (savings/prize/treasury split)
+- Configurable distribution strategies (rewards/prize/protocolFee split)
 - Pluggable winner selection (weighted single, multi-winner, fixed tiers)
 - Resource-based position ownership via PoolPositionCollection
 - Emergency mode with auto-recovery and health monitoring
@@ -52,7 +52,7 @@ access(all) contract PrizeLinkedAccounts {
     
     /// Entitlement reserved exclusively for account owner operations.
     /// SECURITY: Never issue capabilities with this entitlement - it protects
-    /// treasury recipient configuration which could redirect funds if compromised.
+    /// protocol fee recipient configuration which could redirect funds if compromised.
     access(all) entitlement OwnerOnly
     
     /// Entitlement for user position operations (deposit, withdraw, claim).
@@ -103,7 +103,7 @@ access(all) contract PrizeLinkedAccounts {
     access(all) let PoolPositionCollectionPublicPath: PublicPath
     
     /// Storage path where users store their SponsorPositionCollection resource.
-    /// Sponsors earn savings yield but are NOT eligible to win prizes.
+    /// Sponsors earn rewards yield but are NOT eligible to win prizes.
     access(all) let SponsorPositionCollectionStoragePath: StoragePath
     
     /// Public path for SponsorPositionCollection capability (read-only access).
@@ -131,7 +131,7 @@ access(all) contract PrizeLinkedAccounts {
     access(all) event Deposited(poolID: UInt64, receiverID: UInt64, amount: UFix64, shares: UFix64, ownerAddress: Address?)
     
     /// Emitted when a sponsor deposits funds (prize-ineligible).
-    /// Sponsors earn savings yield but cannot win prizes.
+    /// Sponsors earn rewards yield but cannot win prizes.
     /// @param poolID - Pool receiving the deposit
     /// @param receiverID - UUID of the sponsor's SponsorPositionCollection
     /// @param amount - Amount deposited
@@ -154,11 +154,11 @@ access(all) contract PrizeLinkedAccounts {
     /// Emitted when yield rewards are processed and distributed.
     /// @param poolID - Pool processing rewards
     /// @param totalAmount - Total yield amount processed
-    /// @param rewardsAmount - Portion allocated to savings (auto-compounds)
+    /// @param rewardsAmount - Portion allocated to rewards (auto-compounds)
     /// @param prizeAmount - Portion allocated to prize pool
     access(all) event RewardsProcessed(poolID: UInt64, totalAmount: UFix64, rewardsAmount: UFix64, prizeAmount: UFix64)
     
-    /// Emitted when savings yield is accrued to the share price.
+    /// Emitted when rewards yield is accrued to the share price.
     /// @param poolID - Pool accruing yield
     /// @param amount - Amount of yield accrued (increases share price for all depositors)
     access(all) event RewardsYieldAccrued(poolID: UInt64, amount: UFix64)
@@ -166,22 +166,22 @@ access(all) contract PrizeLinkedAccounts {
     /// Emitted when a deficit is applied across allocations.
     /// @param poolID - Pool experiencing the deficit
     /// @param totalDeficit - Total deficit amount detected
-    /// @param absorbedByTreasury - Amount absorbed by pending treasury yield
+    /// @param absorbedByProtocolFee - Amount absorbed by pending protocol fee
     /// @param absorbedByPrize - Amount absorbed by pending prize yield
-    /// @param absorbedByRewards - Amount absorbed by savings (decreases share price)
-    access(all) event DeficitApplied(poolID: UInt64, totalDeficit: UFix64, absorbedByTreasury: UFix64, absorbedByPrize: UFix64, absorbedByRewards: UFix64)
+    /// @param absorbedByRewards - Amount absorbed by rewards (decreases share price)
+    access(all) event DeficitApplied(poolID: UInt64, totalDeficit: UFix64, absorbedByProtocolFee: UFix64, absorbedByPrize: UFix64, absorbedByRewards: UFix64)
 
     /// Emitted when a deficit cannot be fully reconciled (pool insolvency).
-    /// This means treasury, prize, and savings were all exhausted but deficit remains.
+    /// This means protocol fee, prize, and rewards were all exhausted but deficit remains.
     /// @param poolID - Pool experiencing insolvency
     /// @param unreconciledAmount - Deficit amount that could not be absorbed
     access(all) event InsolvencyDetected(poolID: UInt64, unreconciledAmount: UFix64)
     
-    /// Emitted when rounding dust from rewards distribution is sent to treasury.
+    /// Emitted when rounding dust from rewards distribution is sent to protocol fee.
     /// This occurs due to virtual shares absorbing a tiny fraction of yield.
     /// @param poolID - Pool generating dust
-    /// @param amount - Dust amount routed to treasury
-    access(all) event RewardsRoundingDustToTreasury(poolID: UInt64, amount: UFix64)
+    /// @param amount - Dust amount routed to protocol fee
+    access(all) event RewardsRoundingDustToProtocolFee(poolID: UInt64, amount: UFix64)
     
     // ============================================================
     // EVENTS - Prize/Draw
@@ -313,24 +313,24 @@ access(all) contract PrizeLinkedAccounts {
     /// @param adminUUID - UUID of the Admin resource performing the unpause (audit trail)
     access(all) event PoolUnpaused(poolID: UInt64, adminUUID: UInt64)
     
-    /// Emitted when the treasury receives funding (legacy event).
-    /// @param poolID - Pool whose treasury received funds
+    /// Emitted when the protocol fee receives funding
+    /// @param poolID - Pool whose protocol fee received funds
     /// @param amount - Amount of tokens funded
     /// @param source - Source of funding (e.g., "rounding_dust", "fees")
-    access(all) event TreasuryFunded(poolID: UInt64, amount: UFix64, source: String)
+    access(all) event ProtocolFeeFunded(poolID: UInt64, amount: UFix64, source: String)
     
-    /// Emitted when the treasury recipient address is changed.
+    /// Emitted when the protocol fee recipient address is changed.
     /// SECURITY: This is a sensitive operation - recipient receives protocol fees.
     /// @param poolID - Pool being configured
-    /// @param newRecipient - New treasury recipient address (nil to disable forwarding)
+    /// @param newRecipient - New protocol fee recipient address (nil to disable forwarding)
     /// @param adminUUID - UUID of the Admin resource performing the update (audit trail)
-    access(all) event TreasuryRecipientUpdated(poolID: UInt64, newRecipient: Address?, adminUUID: UInt64)
+    access(all) event ProtocolFeeRecipientUpdated(poolID: UInt64, newRecipient: Address?, adminUUID: UInt64)
     
-    /// Emitted when treasury funds are auto-forwarded to the configured recipient.
-    /// @param poolID - Pool forwarding treasury funds
+    /// Emitted when protocol fee is auto-forwarded to the configured recipient.
+    /// @param poolID - Pool forwarding protocol fee
     /// @param amount - Amount forwarded
     /// @param recipient - Address receiving the funds
-    access(all) event TreasuryForwarded(poolID: UInt64, amount: UFix64, recipient: Address)
+    access(all) event ProtocolFeeForwarded(poolID: UInt64, amount: UFix64, recipient: Address)
     
     // ============================================================
     // EVENTS - Bonus Weight Management
@@ -482,7 +482,7 @@ access(all) contract PrizeLinkedAccounts {
     /// Emitted when an admin directly funds a pool component.
     /// Used for external sponsorships or manual prize pool funding.
     /// @param poolID - Pool receiving the direct funding
-    /// @param destination - Numeric destination code: 0=Savings, 1=Lottery (see PoolFundingDestination enum)
+    /// @param destination - Numeric destination code: 0=Rewards, 1=Prize (see PoolFundingDestination enum)
     /// @param destinationName - Human-readable destination name (e.g., "Rewards", "Prize")
     /// @param amount - Amount of tokens being funded
     /// @param adminUUID - UUID of the Admin resource performing the funding (audit trail)
@@ -623,7 +623,7 @@ access(all) contract PrizeLinkedAccounts {
     /// The Admin resource uses entitlements to provide fine-grained access control:
     /// - ConfigOps: Non-destructive configuration changes (draw intervals, bonuses, rewards)
     /// - CriticalOps: Potentially impactful changes (strategies, emergency mode, draws)
-    /// - OwnerOnly: Highly sensitive operations (treasury recipient - NEVER issue capabilities)
+    /// - OwnerOnly: Highly sensitive operations (protocol fee recipient - NEVER issue capabilities)
     /// 
     /// SECURITY NOTES:
     /// - Store in a secure account
@@ -750,7 +750,7 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Enables emergency mode for a pool.
         /// In emergency mode, only withdrawals are allowed - no deposits or draws.
-        /// Use when yield source is compromised or protocol issues detected.
+        /// Use when yield source is compromised or protocol-level issues detected.
         /// @param poolID - ID of the pool to put in emergency mode
         /// @param reason - Human-readable reason for emergency (logged in event)
         access(CriticalOps) fun enableEmergencyMode(poolID: UInt64, reason: String) {
@@ -798,7 +798,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Directly funds a pool component with external tokens.
         /// Use for sponsorships, promotional prize pools, or yield subsidies.
         /// @param poolID - ID of the pool to fund
-        /// @param destination - Where to route funds (Savings or Lottery)
+        /// @param destination - Where to route funds (Rewards or Prize)
         /// @param from - Vault containing funds to deposit
         /// @param purpose - Human-readable description of funding purpose
         /// @param metadata - Optional key-value pairs for additional context
@@ -893,8 +893,8 @@ access(all) contract PrizeLinkedAccounts {
             }
         }
         
-        /// Set the treasury recipient for automatic forwarding.
-        /// Once set, treasury funds are auto-forwarded during syncWithYieldSource().
+        /// Set the protocol fee recipient for automatic forwarding.
+        /// Once set, protocol fee is auto-forwarded during syncWithYieldSource().
         /// Pass nil to disable auto-forwarding (funds stored in distributor).
         /// 
         /// SECURITY: Requires OwnerOnly entitlement - NEVER issue capabilities with this.
@@ -902,21 +902,21 @@ access(all) contract PrizeLinkedAccounts {
         /// For multi-sig protection, store Admin in a multi-sig account.
         /// 
         /// @param poolID - ID of the pool to configure
-        /// @param recipientCap - Capability to receive treasury funds, or nil to disable
-        access(OwnerOnly) fun setPoolTreasuryRecipient(
+        /// @param recipientCap - Capability to receive protocol fee, or nil to disable
+        access(OwnerOnly) fun setPoolProtocolFeeRecipient(
             poolID: UInt64,
             recipientCap: Capability<&{FungibleToken.Receiver}>?
         ) {
             pre {
                 // Validate capability is usable if provided
-                recipientCap?.check() ?? true: "Treasury recipient capability is invalid or cannot be borrowed. Pool ID: ".concat(poolID.toString()).concat(", Recipient address: ").concat(recipientCap?.address?.toString() ?? "nil")
+                recipientCap?.check() ?? true: "Protocol fee recipient capability is invalid or cannot be borrowed. Pool ID: ".concat(poolID.toString()).concat(", Recipient address: ").concat(recipientCap?.address?.toString() ?? "nil")
             }
             
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
             
-            poolRef.setTreasuryRecipient(cap: recipientCap)
+            poolRef.setProtocolFeeRecipient(cap: recipientCap)
             
-            emit TreasuryRecipientUpdated(
+            emit ProtocolFeeRecipientUpdated(
                 poolID: poolID,
                 newRecipient: recipientCap?.address,
                 adminUUID: self.uuid
@@ -1079,16 +1079,16 @@ access(all) contract PrizeLinkedAccounts {
             poolRef.completeDraw()
         }
 
-        /// Withdraws unclaimed treasury funds from a pool.
+        /// Withdraws unclaimed protocol fee from a pool.
         /// 
-        /// Treasury funds accumulate in the unclaimed vault when no treasury recipient
+        /// Protocol fee accumulates in the unclaimed vault when no protocol fee recipient
         /// is configured at draw time. This function allows admin to withdraw those funds.
         /// 
         /// @param poolID - ID of the pool to withdraw from
         /// @param amount - Amount to withdraw (will be capped at available balance)
         /// @param recipient - Capability to receive the withdrawn funds
         /// @return Actual amount withdrawn (may be less than requested if insufficient balance)
-        access(CriticalOps) fun withdrawUnclaimedTreasury(
+        access(CriticalOps) fun withdrawUnclaimedProtocolFee(
             poolID: UInt64,
             amount: UFix64,
             recipient: Capability<&{FungibleToken.Receiver}>
@@ -1098,12 +1098,12 @@ access(all) contract PrizeLinkedAccounts {
                 amount > 0.0: "Amount must be greater than 0"
             }
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
-            let withdrawn <- poolRef.withdrawUnclaimedTreasury(amount: amount)
+            let withdrawn <- poolRef.withdrawUnclaimedProtocolFee(amount: amount)
             let actualAmount = withdrawn.balance
             
             if actualAmount > 0.0 {
                 recipient.borrow()!.deposit(from: <- withdrawn)
-                emit TreasuryForwarded(
+                emit ProtocolFeeForwarded(
                     poolID: poolID,
                     amount: actualAmount,
                     recipient: recipient.address
@@ -1162,29 +1162,29 @@ access(all) contract PrizeLinkedAccounts {
     // ============================================================
     
     /// Represents the result of a yield distribution calculation.
-    /// Contains the amounts to allocate to each component of the protocol.
+    /// Contains the amounts to allocate to each component.
     access(all) struct DistributionPlan {
-        /// Amount allocated to savings (increases share price for all depositors)
+        /// Amount allocated to rewards (increases share price for all depositors)
         access(all) let rewardsAmount: UFix64
         /// Amount allocated to prize pool (awarded to winners)
         access(all) let prizeAmount: UFix64
-        /// Amount allocated to treasury (protocol fees)
-        access(all) let treasuryAmount: UFix64
+        /// Amount allocated to protocol fee (protocol fees)
+        access(all) let protocolFeeAmount: UFix64
         
         /// Creates a new DistributionPlan.
-        /// @param rewards - Amount for savings distribution
+        /// @param rewards - Amount for rewards distribution
         /// @param prize - Amount for prize pool
-        /// @param treasury - Amount for protocol treasury
-        init(rewards: UFix64, prize: UFix64, treasury: UFix64) {
+        /// @param protocolFee - Amount for protocol
+        init(rewards: UFix64, prize: UFix64, protocolFee: UFix64) {
             self.rewardsAmount = rewards
             self.prizeAmount = prize
-            self.treasuryAmount = treasury
+            self.protocolFeeAmount = protocolFee
         }
     }
     
     /// Strategy Pattern interface for yield distribution algorithms.
     /// 
-    /// Implementations determine how yield is split between rewards, prize, and treasury.
+    /// Implementations determine how yield is split between rewards, prize, and protocol fee.
     /// This enables pools to use different distribution models and swap them at runtime.
     /// 
     /// IMPLEMENTATION NOTES:
@@ -1205,59 +1205,59 @@ access(all) contract PrizeLinkedAccounts {
     /// Fixed percentage distribution strategy.
     /// Splits yield according to pre-configured percentages that must sum to 1.0.
     /// 
-    /// Example: FixedPercentageStrategy(rewards: 0.4, prize: 0.4, treasury: 0.2)
-    /// - 40% of yield goes to savings (increases share price)
+    /// Example: FixedPercentageStrategy(rewards: 0.4, prize: 0.4, protocolFee: 0.2)
+    /// - 40% of yield goes to rewards (increases share price)
     /// - 40% goes to prize pool
-    /// - 20% goes to treasury
+    /// - 20% goes to protocol fee
     access(all) struct FixedPercentageStrategy: DistributionStrategy {
-        /// Percentage of yield allocated to savings (0.0 to 1.0)
+        /// Percentage of yield allocated to rewards (0.0 to 1.0)
         access(all) let rewardsPercent: UFix64
         /// Percentage of yield allocated to prize (0.0 to 1.0)
         access(all) let prizePercent: UFix64
-        /// Percentage of yield allocated to treasury (0.0 to 1.0)
-        access(all) let treasuryPercent: UFix64
+        /// Percentage of yield allocated to protocol fee (0.0 to 1.0)
+        access(all) let protocolFeePercent: UFix64
         
         /// Creates a FixedPercentageStrategy.
         /// IMPORTANT: Percentages must sum to exactly 1.0 (strict equality).
         /// Use values like 0.4, 0.4, 0.2 - not repeating decimals like 0.33333333.
         /// If using thirds, use 0.33, 0.33, 0.34 to sum exactly to 1.0.
-        /// @param rewards - Savings percentage (0.0-1.0)
-        /// @param prize - Lottery percentage (0.0-1.0)
-        /// @param treasury - Treasury percentage (0.0-1.0)
-        init(rewards: UFix64, prize: UFix64, treasury: UFix64) {
+        /// @param rewards - Rewards percentage (0.0-1.0)
+        /// @param prize - Prize percentage (0.0-1.0)
+        /// @param protocolFee - Protocol fee percentage (0.0-1.0)
+        init(rewards: UFix64, prize: UFix64, protocolFee: UFix64) {
             pre {
-                rewards + prize + treasury == 1.0:
+                rewards + prize + protocolFee == 1.0:
                     "FixedPercentageStrategy: Percentages must sum to exactly 1.0, but got "
                     .concat(rewards.toString()).concat(" + ")
                     .concat(prize.toString()).concat(" + ")
-                    .concat(treasury.toString()).concat(" = ")
-                    .concat((rewards + prize + treasury).toString())
+                    .concat(protocolFee.toString()).concat(" = ")
+                    .concat((rewards + prize + protocolFee).toString())
             }
             self.rewardsPercent = rewards
             self.prizePercent = prize
-            self.treasuryPercent = treasury
+            self.protocolFeePercent = protocolFee
         }
         
         /// Calculates distribution by multiplying total by each percentage.
-        /// Treasury receives the remainder to ensure sum == totalAmount (handles UFix64 rounding).
+        /// Protocol receives the remainder to ensure sum == totalAmount (handles UFix64 rounding).
         /// @param totalAmount - Total yield to distribute
         /// @return DistributionPlan with proportional amounts
         access(all) fun calculateDistribution(totalAmount: UFix64): DistributionPlan {
             let rewards = totalAmount * self.rewardsPercent
             let prize = totalAmount * self.prizePercent
-            // Treasury gets the remainder to ensure sum == totalAmount
-            let treasury = totalAmount - rewards - prize
+            // Protocol gets the remainder to ensure sum == totalAmount
+            let protocolFee = totalAmount - rewards - prize
             
             return DistributionPlan(
                 rewards: rewards,
                 prize: prize,
-                treasury: treasury
+                protocolFee: protocolFee
             )
         }
         
         /// Returns strategy description with configured percentages.
         access(all) view fun getStrategyName(): String {
-            return "Fixed: \(self.rewardsPercent) savings, \(self.prizePercent) prize, \(self.treasuryPercent) treasury"
+            return "Fixed: \(self.rewardsPercent) rewards, \(self.prizePercent) prize, \(self.protocolFeePercent) protocol"
         }
     }
     
@@ -1655,7 +1655,7 @@ access(all) contract PrizeLinkedAccounts {
             self.vaultType = vaultType
         }
         
-        /// Accrues yield to the savings pool by increasing totalAssets.
+        /// Accrues yield to the rewards pool by increasing totalAssets.
         /// This effectively increases share price for all depositors.
         /// 
         /// A small portion ("dust") goes to virtual shares to prevent dilution attacks.
@@ -1674,13 +1674,13 @@ access(all) contract PrizeLinkedAccounts {
             // This protects against inflation attacks while minimizing dilution
             let effectiveShares = self.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES
             let dustAmount = amount * PrizeLinkedAccounts.VIRTUAL_SHARES / effectiveShares
-            let actualSavings = amount - dustAmount
+            let actualRewards = amount - dustAmount
             
             // Increase total assets, which increases share price for everyone
-            self.totalAssets = self.totalAssets + actualSavings
-            self.totalDistributed = self.totalDistributed + actualSavings
+            self.totalAssets = self.totalAssets + actualRewards
+            self.totalDistributed = self.totalDistributed + actualRewards
             
-            return actualSavings
+            return actualRewards
         }
         
         /// Decreases total assets to reflect a loss in the yield source.
@@ -2547,7 +2547,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Immutable after pool creation.
         access(contract) let yieldConnector: {DeFiActions.Sink, DeFiActions.Source}
         
-        /// Strategy for distributing yield between rewards, prize, and treasury.
+        /// Strategy for distributing yield between rewards, prize, and protocol fee.
         /// Can be updated by admin with CriticalOps entitlement.
         access(contract) var distributionStrategy: {DistributionStrategy}
         
@@ -2862,7 +2862,7 @@ access(all) contract PrizeLinkedAccounts {
     }
     
     // ============================================================
-    // POOL RESOURCE - Core Prize Savings Pool
+    // POOL RESOURCE - Core Prize Rewards Pool
     // ============================================================
     
     /// The main prize-linked accounts pool resource.
@@ -2870,7 +2870,7 @@ access(all) contract PrizeLinkedAccounts {
     /// Pool is the central coordinator that manages:
     /// - User deposits and withdrawals
     /// - Yield generation and distribution
-    /// - Lottery draws and prize distribution
+    /// - Prize draws and prize distribution
     /// - Emergency mode and health monitoring
     /// 
     /// ARCHITECTURE:
@@ -2891,7 +2891,7 @@ access(all) contract PrizeLinkedAccounts {
     /// DESTRUCTION:
     /// In Cadence 1.0+, nested resources are automatically destroyed with Pool.
     /// Order: pendingDrawReceipt → randomConsumer → shareTracker → prizeDistributor
-    /// Treasury should be forwarded before destruction.
+    /// Protocol fee should be forwarded before destruction.
     access(all) resource Pool {
         // ============================================================
         // CONFIGURATION STATE
@@ -2949,7 +2949,7 @@ access(all) contract PrizeLinkedAccounts {
         access(self) let receiverBonusWeights: {UInt64: UFix64}
         
         /// Tracks which receivers are sponsors (prize-ineligible).
-        /// Sponsors earn savings yield but cannot win prizes.
+        /// Sponsors earn rewards yield but cannot win prizes.
         /// Key: receiverID (UUID of SponsorPositionCollection), Value: true if sponsor
         access(self) let sponsorReceivers: {UInt64: Bool}
         
@@ -2966,7 +2966,7 @@ access(all) contract PrizeLinkedAccounts {
         // KEY RELATIONSHIPS:
         // 
         // allocatedRewards: Sum of user deposits + auto-compounded prizes
-        //   - Excludes savings interest (interest is tracked in share price)
+        //   - Excludes rewards interest (interest is tracked in share price)
         //   - Updated on: deposit (+), prize awarded (+), withdraw (-)
         //   - This is the "no-loss guarantee" amount
         // 
@@ -2978,16 +2978,16 @@ access(all) contract PrizeLinkedAccounts {
         // syncWithYieldSource() syncs these variables with the yield source balance.
         //
         // User portion of yield source balance
-        //   - Includes deposits + won prizes + accrued savings yield
-        //   - Updated on: deposit (+), prize (+), savings yield (+), withdraw (-)
+        //   - Includes deposits + won prizes + accrued rewards yield
+        //   - Updated on: deposit (+), prize (+), rewards yield (+), withdraw (-)
         access(all) var allocatedRewards: UFix64
         //
-        // allocatedPrizeYield: Lottery portion awaiting transfer to prize pool
+        // allocatedPrizeYield: Prize portion awaiting transfer to prize pool
         //   - Accumulates as yield is earned
         //   - Transferred to prize pool vault at draw time
         access(all) var allocatedPrizeYield: UFix64
         //
-        // allocatedTreasuryYield: Treasury portion awaiting transfer to recipient
+        // allocatedProtocolFee: Protocol portion awaiting transfer to recipient
         //   - Accumulates as yield is earned (includes rounding dust)
         //   - Transferred to recipient or unclaimed vault at draw time
         // 
@@ -3001,34 +3001,34 @@ access(all) contract PrizeLinkedAccounts {
         // Sum of these three = yield source balance (see getTotalAllocatedFunds)
         // ============================================================
         
-        /// User allocation: deposits + prizes won + accrued savings yield.
+        /// User allocation: deposits + prizes won + accrued rewards yield.
         /// This is the portion of the yield source that belongs to users.
         
         
-        /// Lottery allocation: yield awaiting transfer to prize pool at draw time.
+        /// Prize allocation: yield awaiting transfer to prize pool at draw time.
         /// Stays in yield source earning until materialized during draw.
         
         
-        /// Treasury allocation: yield awaiting transfer to recipient at draw time.
+        /// Protocol allocation: yield awaiting transfer to recipient at draw time.
         /// Stays in yield source earning until materialized during draw.
-        access(all) var allocatedTreasuryYield: UFix64
+        access(all) var allocatedProtocolFee: UFix64
         
-        /// Cumulative treasury amount forwarded to recipient.
-        access(all) var totalTreasuryForwarded: UFix64
+        /// Cumulative protocol fee amount forwarded to recipient.
+        access(all) var totalProtocolFeeForwarded: UFix64
         
-        /// Capability to treasury recipient for forwarding at draw time.
-        /// If nil, treasury goes to unclaimedTreasuryVault instead.
-        access(self) var treasuryRecipientCap: Capability<&{FungibleToken.Receiver}>?
+        /// Capability to protocol fee recipient for forwarding at draw time.
+        /// If nil, protocol fee goes to unclaimedProtocolFeeVault instead.
+        access(self) var protocolFeeRecipientCap: Capability<&{FungibleToken.Receiver}>?
         
-        /// Holds treasury funds when no recipient is configured.
+        /// Holds protocol fee when no recipient is configured.
         /// Admin can withdraw from this vault at any time.
-        access(self) var unclaimedTreasuryVault: @{FungibleToken.Vault}
+        access(self) var unclaimedProtocolFeeVault: @{FungibleToken.Vault}
         
         // ============================================================
         // NESTED RESOURCES
         // ============================================================
         
-        /// Manages savings: ERC4626-style share accounting.
+        /// Manages rewards: ERC4626-style share accounting.
         access(self) let shareTracker: @ShareTracker
         
         /// Manages prize: prize pool, NFTs, pending claims.
@@ -3092,12 +3092,12 @@ access(all) contract PrizeLinkedAccounts {
             self.allocatedRewards = 0.0
             self.lastDrawTimestamp = 0.0
             self.allocatedPrizeYield = 0.0
-            self.allocatedTreasuryYield = 0.0
-            self.totalTreasuryForwarded = 0.0
-            self.treasuryRecipientCap = nil
+            self.allocatedProtocolFee = 0.0
+            self.totalProtocolFeeForwarded = 0.0
+            self.protocolFeeRecipientCap = nil
             
-            // Create vault for unclaimed treasury (when no recipient configured)
-            self.unclaimedTreasuryVault <- DeFiActionsUtils.getEmptyVault(config.assetType)
+            // Create vault for unclaimed protocol fee (when no recipient configured)
+            self.unclaimedProtocolFeeVault <- DeFiActionsUtils.getEmptyVault(config.assetType)
             
             // Create nested resources
             self.shareTracker <- create ShareTracker(vaultType: config.assetType)
@@ -3462,12 +3462,12 @@ access(all) contract PrizeLinkedAccounts {
         // ============================================================
         
         /// Internal implementation for admin direct funding.
-        /// Routes funds to specified destination (Savings or Lottery).
+        /// Routes funds to specified destination (Rewards or Prize).
         /// 
-        /// For Savings: Deposits to yield source and accrues yield to share price.
-        /// For Lottery: Adds directly to prize pool.
+        /// For Rewards: Deposits to yield source and accrues yield to share price.
+        /// For Prize: Adds directly to prize pool.
         /// 
-        /// @param destination - Where to route funds (Savings or Lottery)
+        /// @param destination - Where to route funds (Rewards or Prize)
         /// @param from - Vault containing funds to deposit
         /// @param adminUUID - Admin resource UUID for audit trail
         /// @param purpose - Description of funding purpose
@@ -3486,14 +3486,14 @@ access(all) contract PrizeLinkedAccounts {
             
             switch destination {
                 case PoolFundingDestination.Prize:
-                    // Lottery funding goes directly to prize vault
+                    // Prize funding goes directly to prize vault
                     self.prizeDistributor.fundPrizePool(vault: <- from)
                     
                 case PoolFundingDestination.Rewards:
-                    // Savings funding requires depositors to receive the yield
+                    // Rewards funding requires depositors to receive the yield
                     assert(
                         self.shareTracker.getTotalShares() > 0.0,
-                        message: "Cannot fund savings with no depositors - funds would be orphaned. Amount: ".concat(from.balance.toString()).concat(", totalShares: ").concat(self.shareTracker.getTotalShares().toString())
+                        message: "Cannot fund rewards with no depositors - funds would be orphaned. Amount: ".concat(from.balance.toString()).concat(", totalShares: ").concat(self.shareTracker.getTotalShares().toString())
                     )
                     
                     let amount = from.balance
@@ -3502,15 +3502,15 @@ access(all) contract PrizeLinkedAccounts {
                     self.depositToYieldSourceFull(<- from)
 
                     // Accrue yield to share price (minus dust to virtual shares)
-                    let actualSavings = self.shareTracker.accrueYield(amount: amount)
-                    let dustAmount = amount - actualSavings
-                    self.allocatedRewards = self.allocatedRewards + actualSavings
-                    emit RewardsYieldAccrued(poolID: self.poolID, amount: actualSavings)
+                    let actualRewards = self.shareTracker.accrueYield(amount: amount)
+                    let dustAmount = amount - actualRewards
+                    self.allocatedRewards = self.allocatedRewards + actualRewards
+                    emit RewardsYieldAccrued(poolID: self.poolID, amount: actualRewards)
                     
-                    // Route dust to pending treasury
+                    // Route dust to pending protocol
                     if dustAmount > 0.0 {
-                        emit RewardsRoundingDustToTreasury(poolID: self.poolID, amount: dustAmount)
-                        self.allocatedTreasuryYield = self.allocatedTreasuryYield + dustAmount
+                        emit RewardsRoundingDustToProtocolFee(poolID: self.poolID, amount: dustAmount)
+                        self.allocatedProtocolFee = self.allocatedProtocolFee + dustAmount
                     }
                     
                 default:
@@ -3622,7 +3622,7 @@ access(all) contract PrizeLinkedAccounts {
         /// 
         /// Called internally by SponsorPositionCollection.deposit().
         /// 
-        /// Sponsors earn savings yield through share price appreciation but
+        /// Sponsors earn rewards yield through share price appreciation but
         /// are NOT eligible to win prizes. This is useful for:
         /// - Protocol treasuries seeding initial liquidity
         /// - Foundations incentivizing participation without competing
@@ -3893,22 +3893,22 @@ access(all) contract PrizeLinkedAccounts {
         /// and depreciation (deficit).
         /// 
         /// ALLOCATED FUNDS (see getTotalAllocatedFunds()):
-        /// allocatedRewards + allocatedPrizeYield + allocatedTreasuryYield
+        /// allocatedRewards + allocatedPrizeYield + allocatedProtocolFee
         /// This sum must always equal the yield source balance after sync.
         /// 
         /// EXCESS (yieldBalance > allocatedFunds):
         /// 1. Calculate excess amount
-        /// 2. Apply distribution strategy (savings/prize/treasury split)
-        /// 3. Accrue savings yield to share price (increases allocatedRewards)
+        /// 2. Apply distribution strategy (rewards/prize/protocolFee split)
+        /// 3. Accrue rewards yield to share price (increases allocatedRewards)
         /// 4. Add prize yield to allocatedPrizeYield
-        /// 5. Add treasury yield to allocatedTreasuryYield
+        /// 5. Add protocol fee to allocatedProtocolFee
         /// 
         /// DEFICIT (yieldBalance < allocatedFunds):
         /// 1. Calculate deficit amount
         /// 2. Distribute proportionally across all allocations
-        /// 3. Reduce allocatedTreasuryYield first (protocol absorbs loss first)
+        /// 3. Reduce allocatedProtocolFee first (protocol absorbs loss first)
         /// 4. Reduce allocatedPrizeYield second
-        /// 5. Reduce savings (share price) last - protecting user principal
+        /// 5. Reduce rewards (share price) last - protecting user principal
         /// 
         /// Called automatically during deposits and withdrawals.
         /// Can also be called manually by admin.
@@ -3958,7 +3958,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Applies excess funds (appreciation) according to the distribution strategy.
         ///
         /// All portions stay in the yield source and are tracked via pending variables.
-        /// Actual transfers happen at draw time (prize yield → prize pool, treasury → recipient/vault).
+        /// Actual transfers happen at draw time (prize yield → prize pool, protocol → recipient/vault).
         ///
         /// @param amount - Total excess amount to distribute
         access(self) fun applyExcess(amount: UFix64) {
@@ -3971,18 +3971,18 @@ access(all) contract PrizeLinkedAccounts {
             // Apply distribution strategy
             let plan = self.config.distributionStrategy.calculateDistribution(totalAmount: amount)
             
-            var savingsDust: UFix64 = 0.0
+            var rewardsDust: UFix64 = 0.0
             
-            // Process savings portion - increases share price for all users
+            // Process rewards portion - increases share price for all users
             if plan.rewardsAmount > 0.0 {
                 // Accrue returns actual amount after virtual share dust
-                let actualSavings = self.shareTracker.accrueYield(amount: plan.rewardsAmount)
-                savingsDust = plan.rewardsAmount - actualSavings
-                self.allocatedRewards = self.allocatedRewards + actualSavings
-                emit RewardsYieldAccrued(poolID: self.poolID, amount: actualSavings)
+                let actualRewards = self.shareTracker.accrueYield(amount: plan.rewardsAmount)
+                rewardsDust = plan.rewardsAmount - actualRewards
+                self.allocatedRewards = self.allocatedRewards + actualRewards
+                emit RewardsYieldAccrued(poolID: self.poolID, amount: actualRewards)
                 
-                if savingsDust > 0.0 {
-                    emit RewardsRoundingDustToTreasury(poolID: self.poolID, amount: savingsDust)
+                if rewardsDust > 0.0 {
+                    emit RewardsRoundingDustToProtocolFee(poolID: self.poolID, amount: rewardsDust)
                 }
             }
             
@@ -3996,13 +3996,13 @@ access(all) contract PrizeLinkedAccounts {
                 )
             }
             
-            // Process treasury portion + savings dust - stays in yield source until draw
-            let totalTreasuryAmount = plan.treasuryAmount + savingsDust
-            if totalTreasuryAmount > 0.0 {
-                self.allocatedTreasuryYield = self.allocatedTreasuryYield + totalTreasuryAmount
-                emit TreasuryFunded(
+            // Process protocol portion + rewards dust - stays in yield source until draw
+            let totalProtocolAmount = plan.protocolFeeAmount + rewardsDust
+            if totalProtocolAmount > 0.0 {
+                self.allocatedProtocolFee = self.allocatedProtocolFee + totalProtocolAmount
+                emit ProtocolFeeFunded(
                     poolID: self.poolID,
-                    amount: totalTreasuryAmount,
+                    amount: totalProtocolAmount,
                     source: "yield_pending"
                 )
             }
@@ -4010,22 +4010,22 @@ access(all) contract PrizeLinkedAccounts {
             emit RewardsProcessed(
                 poolID: self.poolID,
                 totalAmount: amount,
-                rewardsAmount: plan.rewardsAmount - savingsDust,
+                rewardsAmount: plan.rewardsAmount - rewardsDust,
                 prizeAmount: plan.prizeAmount
             )
         }
         
         /// Applies a deficit (depreciation) from the yield source across the pool.
         ///
-        /// Uses a deterministic waterfall that protects user funds (savings) by
-        /// exhausting protocol funds (treasury, prize) first. This is INDEPENDENT
+        /// Uses a deterministic waterfall that protects user funds (rewards) by
+        /// exhausting protocol fee (protocol, prize) first. This is INDEPENDENT
         /// of the distribution strategy to ensure consistent loss handling even after
         /// strategy changes.
         ///
         /// WATERFALL ORDER (protect user principal):
-        /// 1. Treasury absorbs first (drain completely if needed)
-        /// 2. Lottery absorbs second (drain completely if needed)
-        /// 3. Savings absorbs last (share price decrease affects all users)
+        /// 1. Protocol absorbs first (drain completely if needed)
+        /// 2. Prize absorbs second (drain completely if needed)
+        /// 3. Rewards absorbs last (share price decrease affects all users)
         ///
         /// If all three are exhausted but deficit remains, an InsolvencyDetected
         /// event is emitted to alert administrators.
@@ -4038,17 +4038,17 @@ access(all) contract PrizeLinkedAccounts {
 
             var remainingDeficit = amount
 
-            // === STEP 1: Treasury absorbs first (protocol fund) ===
-            var absorbedByTreasury: UFix64 = 0.0
-            if remainingDeficit > 0.0 && self.allocatedTreasuryYield > 0.0 {
-                absorbedByTreasury = remainingDeficit > self.allocatedTreasuryYield
-                    ? self.allocatedTreasuryYield
+            // === STEP 1: Protocol absorbs first (protocol fund) ===
+            var absorbedByProtocolFee: UFix64 = 0.0
+            if remainingDeficit > 0.0 && self.allocatedProtocolFee > 0.0 {
+                absorbedByProtocolFee = remainingDeficit > self.allocatedProtocolFee
+                    ? self.allocatedProtocolFee
                     : remainingDeficit
-                self.allocatedTreasuryYield = self.allocatedTreasuryYield - absorbedByTreasury
-                remainingDeficit = remainingDeficit - absorbedByTreasury
+                self.allocatedProtocolFee = self.allocatedProtocolFee - absorbedByProtocolFee
+                remainingDeficit = remainingDeficit - absorbedByProtocolFee
             }
 
-            // === STEP 2: Lottery absorbs second (protocol fund) ===
+            // === STEP 2: Prize absorbs second (protocol fund) ===
             var absorbedByPrize: UFix64 = 0.0
             if remainingDeficit > 0.0 && self.allocatedPrizeYield > 0.0 {
                 absorbedByPrize = remainingDeficit > self.allocatedPrizeYield
@@ -4058,7 +4058,7 @@ access(all) contract PrizeLinkedAccounts {
                 remainingDeficit = remainingDeficit - absorbedByPrize
             }
 
-            // === STEP 3: Savings absorbs last (user funds) ===
+            // === STEP 3: Rewards absorbs last (user funds) ===
             var absorbedByRewards: UFix64 = 0.0
             if remainingDeficit > 0.0 {
                 absorbedByRewards = self.shareTracker.decreaseTotalAssets(amount: remainingDeficit)
@@ -4077,7 +4077,7 @@ access(all) contract PrizeLinkedAccounts {
             emit DeficitApplied(
                 poolID: self.poolID,
                 totalDeficit: amount,
-                absorbedByTreasury: absorbedByTreasury,
+                absorbedByProtocolFee: absorbedByProtocolFee,
                 absorbedByPrize: absorbedByPrize,
                 absorbedByRewards: absorbedByRewards
             )
@@ -4302,30 +4302,30 @@ access(all) contract PrizeLinkedAccounts {
                 self.allocatedPrizeYield = self.allocatedPrizeYield - actualWithdrawn
             }
             
-            // Materialize pending treasury funds from yield source
-            if self.allocatedTreasuryYield > 0.0 {
-                let treasuryVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedTreasuryYield)
-                let actualWithdrawn = treasuryVault.balance
-                self.allocatedTreasuryYield = self.allocatedTreasuryYield - actualWithdrawn
+            // Materialize pending protocol fee from yield source
+            if self.allocatedProtocolFee > 0.0 {
+                let protocolVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedProtocolFee)
+                let actualWithdrawn = protocolVault.balance
+                self.allocatedProtocolFee = self.allocatedProtocolFee - actualWithdrawn
                 
                 // Forward to recipient if configured, otherwise store in unclaimed vault
-                if let cap = self.treasuryRecipientCap {
+                if let cap = self.protocolFeeRecipientCap {
                     if let recipientRef = cap.borrow() {
-                        let forwardedAmount = treasuryVault.balance
-                        recipientRef.deposit(from: <- treasuryVault)
-                        self.totalTreasuryForwarded = self.totalTreasuryForwarded + forwardedAmount
-                        emit TreasuryForwarded(
+                        let forwardedAmount = protocolVault.balance
+                        recipientRef.deposit(from: <- protocolVault)
+                        self.totalProtocolFeeForwarded = self.totalProtocolFeeForwarded + forwardedAmount
+                        emit ProtocolFeeForwarded(
                             poolID: self.poolID,
                             amount: forwardedAmount,
                             recipient: cap.address
                         )
                     } else {
                         // Recipient capability invalid - store in unclaimed vault
-                        self.unclaimedTreasuryVault.deposit(from: <- treasuryVault)
+                        self.unclaimedProtocolFeeVault.deposit(from: <- protocolVault)
                     }
                 } else {
                     // No recipient configured - store in unclaimed vault for admin withdrawal
-                    self.unclaimedTreasuryVault.deposit(from: <- treasuryVault)
+                    self.unclaimedProtocolFeeVault.deposit(from: <- protocolVault)
                 }
             }
             
@@ -4503,7 +4503,7 @@ access(all) contract PrizeLinkedAccounts {
                         receiverID: winnerID,
                         nftID: nftID,
                         nftType: nftType,
-                        reason: "Lottery win - round \(currentRound)"
+                        reason: "Prize win - round \(currentRound)"
                     )
                     
                     emit NFTPrizeAwarded(
@@ -4899,7 +4899,7 @@ access(all) contract PrizeLinkedAccounts {
             return self.shareTracker.convertToAssets(shares)
         }
         
-        access(all) view fun getUserSavingsValue(receiverID: UInt64): UFix64 {
+        access(all) view fun getUserRewardsValue(receiverID: UInt64): UFix64 {
             return self.shareTracker.getUserAssetValue(receiverID: receiverID)
         }
         
@@ -4963,25 +4963,25 @@ access(all) contract PrizeLinkedAccounts {
         // YIELD ALLOCATION GETTERS
         // ============================================================
         
-        /// Returns total funds allocated across all buckets (rewards + prize + treasury).
+        /// Returns total funds allocated across all buckets (rewards + prize + protocolFee).
         /// This sum should always equal the yield source balance after sync.
         access(all) view fun getTotalAllocatedFunds(): UFix64 {
-            return self.allocatedRewards + self.allocatedPrizeYield + self.allocatedTreasuryYield
+            return self.allocatedRewards + self.allocatedPrizeYield + self.allocatedProtocolFee
         }
         
-        /// Returns the allocated savings amount (user portion of yield source).
+        /// Returns the allocated rewards amount (user portion of yield source).
         access(all) view fun getAllocatedRewards(): UFix64 {
             return self.allocatedRewards
         }
         
         /// Returns the allocated prize yield (awaiting transfer to prize pool).
-        access(all) view fun getAllocatedLotteryYield(): UFix64 {
+        access(all) view fun getAllocatedPrizeYield(): UFix64 {
             return self.allocatedPrizeYield
         }
 
-        /// Returns the allocated treasury yield (awaiting transfer to recipient).
-        access(all) view fun getAllocatedTreasuryYield(): UFix64 {
-            return self.allocatedTreasuryYield
+        /// Returns the allocated protocol fee (awaiting transfer to recipient).
+        access(all) view fun getAllocatedProtocolFee(): UFix64 {
+            return self.allocatedProtocolFee
         }
         
         /// Returns total prize pool balance including pending yield.
@@ -4989,48 +4989,48 @@ access(all) contract PrizeLinkedAccounts {
             return self.prizeDistributor.getPrizePoolBalance() + self.allocatedPrizeYield
         }
         
-        /// @deprecated Use getAllocatedLotteryYield() instead
+        /// @deprecated Use getAllocatedPrizeYield() instead
         access(all) view fun getPendingPrizeYield(): UFix64 {
             return self.allocatedPrizeYield
         }
 
-        /// @deprecated Use getAllocatedTreasuryYield() instead
-        access(all) view fun getPendingTreasuryYield(): UFix64 {
-            return self.allocatedTreasuryYield
+        /// @deprecated Use getAllocatedProtocolFee() instead
+        access(all) view fun getPendingProtocolFee(): UFix64 {
+            return self.allocatedProtocolFee
         }
 
-        access(all) view fun getUnclaimedTreasuryBalance(): UFix64 {
-            return self.unclaimedTreasuryVault.balance
+        access(all) view fun getUnclaimedProtocolBalance(): UFix64 {
+            return self.unclaimedProtocolFeeVault.balance
         }
 
-        access(all) view fun getTreasuryRecipient(): Address? {
-            return self.treasuryRecipientCap?.address
+        access(all) view fun getProtocolRecipient(): Address? {
+            return self.protocolFeeRecipientCap?.address
         }
         
-        access(all) view fun hasTreasuryRecipient(): Bool {
-            if let cap = self.treasuryRecipientCap {
+        access(all) view fun hasProtocolRecipient(): Bool {
+            if let cap = self.protocolFeeRecipientCap {
                 return cap.check()
             }
             return false
         }
         
-        access(all) view fun getTotalTreasuryForwarded(): UFix64 {
-            return self.totalTreasuryForwarded
+        access(all) view fun getTotalProtocolFeeForwarded(): UFix64 {
+            return self.totalProtocolFeeForwarded
         }
         
-        /// Set treasury recipient for forwarding at draw time.
-        access(contract) fun setTreasuryRecipient(cap: Capability<&{FungibleToken.Receiver}>?) {
-            self.treasuryRecipientCap = cap
+        /// Set protocol fee recipient for forwarding at draw time.
+        access(contract) fun setProtocolFeeRecipient(cap: Capability<&{FungibleToken.Receiver}>?) {
+            self.protocolFeeRecipientCap = cap
         }
 
-        /// Withdraws funds from the unclaimed treasury vault.
-        /// Called by Admin.withdrawUnclaimedTreasury.
+        /// Withdraws funds from the unclaimed protocol fee vault.
+        /// Called by Admin.withdrawUnclaimedProtocolFee.
         /// @param amount - Maximum amount to withdraw
         /// @return Vault containing withdrawn funds (may be less than requested)
-        access(contract) fun withdrawUnclaimedTreasury(amount: UFix64): @{FungibleToken.Vault} {
-            let available = self.unclaimedTreasuryVault.balance
+        access(contract) fun withdrawUnclaimedProtocolFee(amount: UFix64): @{FungibleToken.Vault} {
+            let available = self.unclaimedProtocolFeeVault.balance
             let withdrawAmount = amount > available ? available : amount
-            return <- self.unclaimedTreasuryVault.withdraw(amount: withdrawAmount)
+            return <- self.unclaimedProtocolFeeVault.withdraw(amount: withdrawAmount)
         }
 
         // ============================================================
@@ -5143,7 +5143,7 @@ access(all) contract PrizeLinkedAccounts {
     
     /// User's position collection for interacting with prize-linked accounts pools.
     /// 
-    /// This resource represents a user's account in the prize savings protocol.
+    /// This resource represents a user's account in the prize rewards protocol.
     /// It can hold positions across multiple pools simultaneously.
     /// 
     /// ⚠️ CRITICAL SECURITY WARNING:
@@ -5321,7 +5321,7 @@ access(all) contract PrizeLinkedAccounts {
     
     /// Sponsor's position collection for prize-ineligible deposits.
     /// 
-    /// This resource allows users to make deposits that earn savings yield
+    /// This resource allows users to make deposits that earn rewards yield
     /// but are NOT eligible to win prizes. Useful for:
     /// - Protocol treasuries seeding initial liquidity
     /// - Foundations incentivizing participation without competing
@@ -5368,7 +5368,7 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Deposits funds as a sponsor (prize-ineligible).
         /// 
-        /// Sponsors earn savings yield but cannot win prizes.
+        /// Sponsors earn rewards yield but cannot win prizes.
         /// Requires PositionOps entitlement.
         /// 
         /// @param poolID - ID of pool to deposit into
@@ -5528,7 +5528,7 @@ access(all) contract PrizeLinkedAccounts {
     
     /// Creates a new SponsorPositionCollection for a user.
     /// 
-    /// Sponsors can deposit funds that earn savings yield but are
+    /// Sponsors can deposit funds that earn rewards yield but are
     /// NOT eligible to win prizes. A single account can have
     /// both a PoolPositionCollection and SponsorPositionCollection.
     /// 

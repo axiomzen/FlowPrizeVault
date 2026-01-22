@@ -2,7 +2,7 @@ import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 
 /// Process Rewards transaction - Distributes accumulated yield from the yield source
 /// This is permissionless - anyone can call it to trigger reward distribution
-/// Rewards are split according to the pool's distribution strategy (savings/lottery/treasury)
+/// Rewards are split according to the pool's distribution strategy (rewards/prize/protocol)
 ///
 /// Parameters:
 /// - poolID: The ID of the pool to process rewards for

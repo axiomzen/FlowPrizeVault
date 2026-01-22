@@ -1,8 +1,8 @@
 import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 
-/// Treasury statistics structure
-/// Note: Treasury auto-forwards to recipient during reward processing, so there's no balance held
-access(all) struct TreasuryStats {
+/// Protocol statistics structure
+/// Note: Protocol auto-forwards to recipient during reward processing, so there's no balance held
+access(all) struct ProtocolStats {
     access(all) let totalForwarded: UFix64
     access(all) let recipient: Address?
     access(all) let hasRecipient: Bool
@@ -18,20 +18,20 @@ access(all) struct TreasuryStats {
     }
 }
 
-/// Get treasury statistics for a pool
+/// Get protocol statistics for a pool
 ///
 /// Parameters:
 /// - poolID: The pool ID to query
 ///
-/// Returns: TreasuryStats struct with treasury information
-access(all) fun main(poolID: UInt64): TreasuryStats {
+/// Returns: ProtocolStats struct with protocol information
+access(all) fun main(poolID: UInt64): ProtocolStats {
     let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
     
-    return TreasuryStats(
-        totalForwarded: poolRef.getTotalTreasuryForwarded(),
-        recipient: poolRef.getTreasuryRecipient(),
-        hasRecipient: poolRef.hasTreasuryRecipient()
+    return ProtocolStats(
+        totalForwarded: poolRef.getTotalProtocolFeeForwarded(),
+        recipient: poolRef.getProtocolRecipient(),
+        hasRecipient: poolRef.hasProtocolRecipient()
     )
 }
 

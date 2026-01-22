@@ -25,7 +25,7 @@ transaction(tierAmounts: [UFix64], tierCounts: [Int], tierNames: [String], tierN
         let distributionStrategy = PrizeLinkedAccounts.FixedPercentageStrategy(
             rewards: 0.7,
             prize: 0.2,
-            treasury: 0.1
+            protocolFee: 0.1
         )
         
         // Build prize tiers

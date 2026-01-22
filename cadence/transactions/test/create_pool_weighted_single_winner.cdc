@@ -25,7 +25,7 @@ transaction(nftIDs: [UInt64]) {
         let distributionStrategy = PrizeLinkedAccounts.FixedPercentageStrategy(
             rewards: 0.7,
             prize: 0.2,
-            treasury: 0.1
+            protocolFee: 0.1
         )
         
         let prizeDistribution = PrizeLinkedAccounts.SingleWinnerPrize(

@@ -1,7 +1,7 @@
 import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 import NonFungibleToken from "NonFungibleToken"
 
-/// Claim a pending NFT prize from lottery winnings
+/// Claim a pending NFT prize from prize winnings
 ///
 /// Parameters:
 /// - poolID: The pool ID

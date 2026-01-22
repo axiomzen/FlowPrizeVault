@@ -15,7 +15,7 @@ import "PrizeLinkedAccounts"
 ///   - "effectiveShares": totalShares + VIRTUAL_SHARES
 ///   - "virtualAssets": VIRTUAL_ASSETS constant
 ///   - "virtualShares": VIRTUAL_SHARES constant
-///   - "totalAllocatedFunds": Total allocated funds across all buckets (savings + lottery + treasury)
+///   - "totalAllocatedFunds": Total allocated funds across all buckets (rewards + prize + protocol)
 ///   - "totalDistributed": Cumulative yield distributed
 access(all) fun main(poolID: UInt64): {String: UFix64} {
     let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)

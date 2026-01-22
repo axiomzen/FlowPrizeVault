@@ -2,11 +2,11 @@ import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 import FungibleToken from "FungibleToken"
 import FlowToken from "FlowToken"
 
-/// Withdraw Treasury transaction - Withdraws unclaimed treasury funds from pool (Admin only)
-/// Treasury funds come from the treasury percentage of yield distribution when no recipient is set.
+/// Withdraw Protocol transaction - Withdraws unclaimed protocol funds from pool (Admin only)
+/// Protocol funds come from the protocol percentage of yield distribution when no recipient is set.
 ///
 /// Parameters:
-/// - poolID: The ID of the pool to withdraw treasury from
+/// - poolID: The ID of the pool to withdraw protocol from
 /// - amount: The amount to withdraw
 /// - purpose: A description of why the funds are being withdrawn (for logging)
 transaction(poolID: UInt64, amount: UFix64, purpose: String) {
@@ -28,13 +28,13 @@ transaction(poolID: UInt64, amount: UFix64, purpose: String) {
     }
     
     execute {
-        // Withdraw from treasury - function deposits directly via capability
-        let withdrawnAmount = self.adminRef.withdrawUnclaimedTreasury(
+        // Withdraw from protocol - function deposits directly via capability
+        let withdrawnAmount = self.adminRef.withdrawUnclaimedProtocolFee(
             poolID: poolID,
             amount: amount,
             recipient: self.receiverCap
         )
         
-        log("Withdrew ".concat(withdrawnAmount.toString()).concat(" from pool ").concat(poolID.toString()).concat(" treasury for: ").concat(purpose))
+        log("Withdrew ".concat(withdrawnAmount.toString()).concat(" from pool ").concat(poolID.toString()).concat(" protocol for: ").concat(purpose))
     }
 }

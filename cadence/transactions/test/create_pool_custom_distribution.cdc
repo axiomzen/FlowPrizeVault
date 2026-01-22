@@ -5,7 +5,7 @@ import "DeFiActions"
 import "MockYieldConnector"
 
 /// Transaction to create a test pool with custom distribution strategy
-transaction(rewardsPercent: UFix64, prizePercent: UFix64, treasuryPercent: UFix64) {
+transaction(rewardsPercent: UFix64, prizePercent: UFix64, protocolFeePercent: UFix64) {
     prepare(signer: auth(Storage, Capabilities) &Account) {
         // Generate unique storage path based on current pool count to avoid collisions
         let currentPoolCount = PrizeLinkedAccounts.getAllPoolIDs().length
@@ -30,7 +30,7 @@ transaction(rewardsPercent: UFix64, prizePercent: UFix64, treasuryPercent: UFix6
         let strategy = PrizeLinkedAccounts.FixedPercentageStrategy(
             rewards: rewardsPercent,
             prize: prizePercent,
-            treasury: treasuryPercent
+            protocolFee: protocolFeePercent
         )
         
         // Create prize distribution

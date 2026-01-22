@@ -1,7 +1,7 @@
 import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 import FungibleToken from "FungibleToken"
 
-/// Set the treasury recipient for automatic forwarding during syncWithYieldSource.
+/// Set the protocol recipient for automatic forwarding during syncWithYieldSource.
 /// 
 /// **SECURITY MODEL**: This function requires OwnerOnly entitlement which is
 /// NEVER issued via capabilities. Only the account owner (private key holder)
@@ -16,7 +16,7 @@ import FungibleToken from "FungibleToken"
 ///
 /// Example flow:
 /// 1. Account owner calls this once to set recipient address
-/// 2. Every syncWithYieldSource() automatically forwards treasury to recipient
+/// 2. Every syncWithYieldSource() automatically forwards protocol to recipient
 /// 3. No further action needed - fully automated
 transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath) {
     let adminRef: auth(PrizeLinkedAccounts.OwnerOnly) &PrizeLinkedAccounts.Admin
@@ -35,12 +35,12 @@ transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath)
         
         assert(receiverCap.check(), message: "Invalid receiver capability at the specified path")
         
-        self.adminRef.setPoolTreasuryRecipient(
+        self.adminRef.setPoolProtocolFeeRecipient(
             poolID: poolID,
             recipientCap: receiverCap
         )
         
-        log("✅ Treasury auto-forwarding enabled to: ".concat(recipientAddress.toString()))
+        log("✅ Protocol auto-forwarding enabled to: ".concat(recipientAddress.toString()))
     }
 }
 

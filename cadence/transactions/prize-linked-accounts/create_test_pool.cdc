@@ -8,16 +8,16 @@ import FlowToken from "FlowToken"
 ///
 /// Parameters:
 /// - minimumDeposit: Minimum deposit amount required
-/// - drawIntervalSeconds: Time between lottery draws (e.g., 10.0 for 10 seconds in testing)
-/// - rewardsPercent: Percentage of yield going to savings (e.g., 0.5 for 50%)
-/// - prizePercent: Percentage of yield going to lottery (e.g., 0.4 for 40%)
-/// - treasuryPercent: Percentage of yield going to treasury (e.g., 0.1 for 10%)
+/// - drawIntervalSeconds: Time between prize draws (e.g., 10.0 for 10 seconds in testing)
+/// - rewardsPercent: Percentage of yield going to rewards (e.g., 0.5 for 50%)
+/// - prizePercent: Percentage of yield going to prize (e.g., 0.4 for 40%)
+/// - protocolFeePercent: Percentage of yield going to protocol (e.g., 0.1 for 10%)
 transaction(
     minimumDeposit: UFix64,
     drawIntervalSeconds: UFix64,
     rewardsPercent: UFix64,
     prizePercent: UFix64,
-    treasuryPercent: UFix64
+    protocolFeePercent: UFix64
 ) {
     
     let adminRef: auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin
@@ -53,7 +53,7 @@ transaction(
         let distributionStrategy = PrizeLinkedAccounts.FixedPercentageStrategy(
             rewards: rewardsPercent,
             prize: prizePercent,
-            treasury: treasuryPercent
+            protocolFee: protocolFeePercent
         )
         
         // Create prize distribution (single winner takes all)

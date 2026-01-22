@@ -399,7 +399,7 @@ access(all) fun testSharePriceStabilityUnderRepeatedYield() {
             .concat(", Calculated: ").concat(calculatedPrice.toString())
     )
     
-    // User's value should reflect the yield (70% goes to savings)
+    // User's value should reflect the yield (70% goes to rewards)
     let userDetails = getUserShareDetails(user.address, poolID)
     let userValue = userDetails["assetValue"]!
     let expectedMinValue = 1000.0 + (totalYield * 0.7 * 0.99)  // At least 99% of expected

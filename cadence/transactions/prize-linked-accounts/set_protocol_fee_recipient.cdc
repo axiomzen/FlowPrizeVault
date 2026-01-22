@@ -1,17 +1,17 @@
 import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 import FungibleToken from "FungibleToken"
 
-/// Set the treasury recipient for automatic forwarding during syncWithYieldSource.
+/// Set the protocol recipient for automatic forwarding during syncWithYieldSource.
 /// 
-/// Once set, treasury funds are automatically forwarded to the recipient
+/// Once set, protocol funds are automatically forwarded to the recipient
 /// whenever syncWithYieldSource() is called (during deposits, withdrawals, etc.)
 ///
 /// Parameters:
 /// - poolID: The pool to configure
-/// - recipientAddress: Address to receive treasury funds
+/// - recipientAddress: Address to receive protocol funds
 /// - receiverPath: Public path to the FungibleToken.Receiver capability
 ///
-/// To disable forwarding, use clear_treasury_recipient.cdc
+/// To disable forwarding, use clear_protocol_fee_recipient.cdc
 transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath) {
     let adminRef: auth(PrizeLinkedAccounts.OwnerOnly) &PrizeLinkedAccounts.Admin
     
@@ -27,7 +27,7 @@ transaction(poolID: UInt64, recipientAddress: Address, receiverPath: PublicPath)
         
         assert(receiverCap.check(), message: "Invalid receiver capability at the specified path")
         
-        self.adminRef.setPoolTreasuryRecipient(
+        self.adminRef.setPoolProtocolFeeRecipient(
             poolID: poolID,
             recipientCap: receiverCap
         )

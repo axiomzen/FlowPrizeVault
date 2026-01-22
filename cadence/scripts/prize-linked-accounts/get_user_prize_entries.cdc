@@ -1,8 +1,8 @@
 import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 
-/// Lottery entries (normalized TWAB weight) information for a user.
+/// Prize entries (normalized TWAB weight) information for a user.
 /// With normalized TWAB, entries ≈ average shares held over the round.
-access(all) struct UserLotteryEntries {
+access(all) struct UserPrizeEntries {
     access(all) let receiverID: UInt64
     access(all) let currentBalance: UFix64
     access(all) let projectedEntries: UFix64
@@ -48,14 +48,14 @@ access(all) struct UserLotteryEntries {
     }
 }
 
-/// Get lottery entries (share-seconds) information for a user
+/// Get prize entries (share-seconds) information for a user
 ///
 /// Parameters:
 /// - address: The account address
 /// - poolID: The pool ID to query
 ///
-/// Returns: UserLotteryEntries struct with current and projected lottery weight
-access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
+/// Returns: UserPrizeEntries struct with current and projected prize weight
+access(all) fun main(address: Address, poolID: UInt64): UserPrizeEntries {
     // Get the user's collection
     let collectionRef = getAccount(address)
         .capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
@@ -79,7 +79,7 @@ access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
     }
     
     if !isRegistered {
-        return UserLotteryEntries(
+        return UserPrizeEntries(
             receiverID: 0,
             currentBalance: 0.0,
             projectedEntries: 0.0,
@@ -100,7 +100,7 @@ access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
     let roundEndTime = poolRef.getRoundEndTime()
     let secondsUntilDraw = poolRef.getTimeUntilNextDraw()
     
-    // Current lottery entries (normalized TWAB = average shares)
+    // Current prize entries (normalized TWAB = average shares)
     let currentBalance = poolRef.getReceiverTotalBalance(receiverID: receiverID)
     
     // Current entries (normalized TWAB projected to round end)
@@ -116,7 +116,7 @@ access(all) fun main(address: Address, poolID: UInt64): UserLotteryEntries {
     let scaledBonusAtDraw = bonusWeight
     let totalWeightAtDraw = projectedNormalizedWeight + bonusWeight
     
-    return UserLotteryEntries(
+    return UserPrizeEntries(
         receiverID: receiverID,
         currentBalance: currentBalance,
         projectedEntries: projectedEntries,
