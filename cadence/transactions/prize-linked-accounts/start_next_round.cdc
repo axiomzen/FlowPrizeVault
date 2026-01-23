@@ -15,11 +15,11 @@ import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 /// - poolID: The ID of the pool to start the next round for
 transaction(poolID: UInt64) {
 
-    let adminRef: auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin
+    let adminRef: auth(PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin
 
     prepare(signer: auth(Storage, BorrowValue) &Account) {
-        // Borrow the Admin resource with CriticalOps entitlement
-        self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
+        // Borrow the Admin resource with ConfigOps entitlement
+        self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin>(
             from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Admin resource not found")
     }

@@ -1098,7 +1098,7 @@ access(all) contract PrizeLinkedAccounts {
         /// the next round with fresh TWAB tracking.
         /// 
         /// @param poolID - ID of the pool to start next round for
-        access(CriticalOps) fun startNextRound(poolID: UInt64) {
+        access(ConfigOps) fun startNextRound(poolID: UInt64) {
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
             poolRef.startNextRound()
         }

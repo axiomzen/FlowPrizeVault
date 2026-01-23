@@ -85,7 +85,7 @@ transaction(poolID: UInt64, batchLimit: Int) {
             log("STATUS: Round ended, ready to start draw")
             log("ACTION: Starting draw...")
             self.adminRef.startPoolDraw(poolID: poolID)
-            log("RESULT: Draw started! TWAB snapshot taken.")
+            log("RESULT: Draw started! TWAB snapshot taken.") 
             log("DONE: false (call again to process batch)")
             return
         }
