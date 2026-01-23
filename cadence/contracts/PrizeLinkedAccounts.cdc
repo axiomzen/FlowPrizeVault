@@ -3549,8 +3549,9 @@ access(all) contract PrizeLinkedAccounts {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive. Amount: \(from.balance)"
                 from.getType() == self.config.assetType: "Invalid vault type. Expected: \(self.config.assetType.identifier), got: \(from.getType().identifier)"
+                self.shareTracker.getTotalAssets() + from.balance <= PrizeLinkedAccounts.SAFE_MAX_TVL: "Deposit would exceed pool TVL capacity"
             }
-            
+
             // Auto-register if not registered (handles re-deposits after full withdrawal)
             if self.registeredReceivers[receiverID] == nil {
                 self.registerReceiver(receiverID: receiverID, ownerAddress: ownerAddress)
@@ -3576,14 +3577,6 @@ access(all) contract PrizeLinkedAccounts {
                     // Paused: nothing allowed
                     panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(from.balance)")
             }
-
-            // Enforce TVL cap to prevent UFix64 overflow
-            let currentTVL = self.shareTracker.getTotalAssets()
-            let newTVL = currentTVL + from.balance
-            assert(
-                newTVL <= PrizeLinkedAccounts.SAFE_MAX_TVL,
-                message: "Deposit would exceed pool capacity. Current TVL: \(currentTVL), deposit: \(from.balance), max TVL: \(PrizeLinkedAccounts.SAFE_MAX_TVL)"
-            )
 
             // Process pending yield/deficit before deposit to ensure fair share price
             if self.needsSync() {
@@ -3650,8 +3643,9 @@ access(all) contract PrizeLinkedAccounts {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive. Amount: \(from.balance)"
                 from.getType() == self.config.assetType: "Invalid vault type. Expected: \(self.config.assetType.identifier), got: \(from.getType().identifier)"
+                self.shareTracker.getTotalAssets() + from.balance <= PrizeLinkedAccounts.SAFE_MAX_TVL: "Deposit would exceed pool TVL capacity"
             }
-            
+
             // Enforce state-specific deposit rules
             switch self.emergencyState {
                 case PoolEmergencyState.Normal:
@@ -3669,14 +3663,6 @@ access(all) contract PrizeLinkedAccounts {
                     // Paused: nothing allowed
                     panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(from.balance)")
             }
-
-            // Enforce TVL cap to prevent UFix64 overflow
-            let currentTVL = self.shareTracker.getTotalAssets()
-            let newTVL = currentTVL + from.balance
-            assert(
-                newTVL <= PrizeLinkedAccounts.SAFE_MAX_TVL,
-                message: "Deposit would exceed pool capacity. Current TVL: \(currentTVL), deposit: \(from.balance), max TVL: \(PrizeLinkedAccounts.SAFE_MAX_TVL)"
-            )
 
             // Process pending yield/deficit before deposit to ensure fair share price
             if self.needsSync() {
@@ -4211,7 +4197,7 @@ access(all) contract PrizeLinkedAccounts {
         /// @return Number of receivers remaining to process
         access(contract) fun processDrawBatch(limit: Int): Int {
             pre {
-                limit >= 0: "limit cannot be negative"
+                limit >= 0: "Batch limit cannot be negative"
                 self.pendingDrawRound != nil: "No draw in progress"
                 self.pendingDrawReceipt == nil: "Randomness already requested"
                 self.pendingSelectionData != nil: "No selection data"
@@ -5589,7 +5575,7 @@ access(all) contract PrizeLinkedAccounts {
     /// - Batch processing not complete
     ///
     /// @param poolID - ID of the pool
-    /// @param limit - Maximum receivers to process this batch (must be >= 0)
+    /// @param limit - Maximum receivers to process this batch
     /// @return Number of receivers remaining to process
     access(all) fun processDrawBatch(poolID: UInt64, limit: Int): Int {
         let poolRef = self.getPoolInternal(poolID)
