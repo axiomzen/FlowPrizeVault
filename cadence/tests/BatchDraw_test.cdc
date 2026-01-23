@@ -497,7 +497,10 @@ access(all) fun testMultipleBatchCallsAfterComplete() {
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
     
-    // Verify draw completed
+    // Start next round to exit intermission
+    startNextRound(user, poolID: poolID)
+    
+    // Verify draw completed and round incremented
     let finalState = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(2), finalState["currentRoundID"]! as! UInt64)
 }
@@ -506,7 +509,7 @@ access(all) fun testMultipleBatchCallsAfterComplete() {
 // TESTS - Round Transition During Batch
 // ============================================================================
 
-access(all) fun testRoundTransitionsOnStartDraw() {
+access(all) fun testPoolEntersIntermissionOnStartDraw() {
     let poolID = createTestPoolWithMediumInterval()
     
     // Setup participant
@@ -523,16 +526,21 @@ access(all) fun testRoundTransitionsOnStartDraw() {
     let roundBefore = stateBefore["currentRoundID"]! as! UInt64
     Test.assertEqual(UInt64(1), roundBefore)
     
-    // Start draw (this transitions the round)
+    // Start draw (pool enters intermission, round ID stays at 1)
     startDraw(user, poolID: poolID)
     
-    // Check round ID after startDraw
+    // Pool should be in intermission
+    Test.assertEqual(true, isInIntermission(poolID))
+    
+    // Round ID during intermission is the last completed round (still 1, since draw not complete)
+    // Actually it's 0 because no draw has completed yet
     let stateAfter = getPoolInitialState(poolID)
     let roundAfter = stateAfter["currentRoundID"]! as! UInt64
-    Test.assertEqual(UInt64(2), roundAfter)
+    // lastCompletedRoundID is 0 before first draw completes
+    Test.assertEqual(UInt64(0), roundAfter)
 }
 
-access(all) fun testUserEntriesInNewRoundDuringBatch() {
+access(all) fun testUserEntriesInIntermissionDuringBatch() {
     let poolID = createTestPoolWithMediumInterval()
     
     // Setup participant
@@ -544,10 +552,10 @@ access(all) fun testUserEntriesInNewRoundDuringBatch() {
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
-    // Start draw (transitions to new round)
+    // Start draw (pool enters intermission)
     startDraw(user, poolID: poolID)
     
-    // User should have entries in the new round
+    // User should have entries equal to their share balance during intermission
     let entries = getUserEntries(user.address, poolID)
-    Test.assert(entries > 0.0, message: "User should have entries in new round during batch processing")
+    Test.assert(entries > 0.0, message: "User should have entries (share balance) during intermission")
 }

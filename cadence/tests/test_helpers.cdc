@@ -447,21 +447,63 @@ fun commitBlocksForRandomness() {
 }
 
 access(all)
-fun executeFullDraw(_ account: Test.TestAccount, poolID: UInt64) {
-    // 4-phase draw process:
+fun startNextRound(_ account: Test.TestAccount, poolID: UInt64) {
+    // Starts next round, exiting intermission (admin-only)
+    let deployerAccount = getDeployerAccount()
+    let startResult = _executeTransaction(
+        "../transactions/test/start_next_round.cdc",
+        [poolID],
+        deployerAccount
+    )
+    assertTransactionSucceeded(startResult, context: "Start next round")
+}
+
+access(all)
+fun isInIntermission(_ poolID: UInt64): Bool {
+    let drawStatus = getDrawStatus(poolID)
+    return drawStatus["isInIntermission"] as? Bool ?? false
+}
+
+access(all)
+fun executeFullDrawWithIntermission(_ account: Test.TestAccount, poolID: UInt64) {
+    // 4-phase draw process that leaves pool in intermission:
     // 1. Start draw (transitions rounds, inits batch)
     startDraw(account, poolID: poolID)
-    
+
     // 2. Process all batches (capture weights)
     // Use a large batch size to process all in one go for tests
     processAllDrawBatches(account, poolID: poolID, batchSize: 1000)
-    
+
     // 3. Request randomness
     requestDrawRandomness(account, poolID: poolID)
-    
+
     // 4. Wait for randomness and complete
     commitBlocksForRandomness()
     completeDraw(account, poolID: poolID)
+
+    // Pool is now in intermission - do NOT start next round
+}
+
+access(all)
+fun executeFullDraw(_ account: Test.TestAccount, poolID: UInt64) {
+    // 4-phase draw process with backwards compatibility:
+    // 1. Start draw (transitions rounds, inits batch)
+    startDraw(account, poolID: poolID)
+
+    // 2. Process all batches (capture weights)
+    // Use a large batch size to process all in one go for tests
+    processAllDrawBatches(account, poolID: poolID, batchSize: 1000)
+
+    // 3. Request randomness
+    requestDrawRandomness(account, poolID: poolID)
+
+    // 4. Wait for randomness and complete
+    commitBlocksForRandomness()
+    completeDraw(account, poolID: poolID)
+
+    // 5. Start next round (for backwards compatibility)
+    // After completeDraw, pool is in intermission. Start next round automatically.
+    startNextRound(account, poolID: poolID)
 }
 
 // ============================================================================

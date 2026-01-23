@@ -233,7 +233,20 @@ access(all) contract PrizeLinkedAccounts {
     /// @param prizeAmount - Prize pool amount
     /// @param commitBlock - Block where randomness was committed
     access(all) event DrawRandomnessRequested(poolID: UInt64, totalWeight: UFix64, prizeAmount: UFix64, commitBlock: UInt64)
-    
+
+    /// Emitted when the pool enters intermission (after completeDraw, before startNextRound).
+    /// Intermission is a normal state where deposits/withdrawals continue but no draw can occur.
+    /// @param poolID - ID of the pool
+    /// @param completedRoundID - ID of the round that just completed
+    /// @param prizePoolBalance - Current balance in the prize pool
+    access(all) event IntermissionStarted(poolID: UInt64, completedRoundID: UInt64, prizePoolBalance: UFix64)
+
+    /// Emitted when the pool exits intermission and a new round begins.
+    /// @param poolID - ID of the pool
+    /// @param newRoundID - ID of the newly started round
+    /// @param roundDuration - Duration of the new round in seconds
+    access(all) event IntermissionEnded(poolID: UInt64, newRoundID: UInt64, roundDuration: UFix64)
+
     // ============================================================
     // EVENTS - Admin Configuration Changes
     // ============================================================
@@ -1077,6 +1090,17 @@ access(all) contract PrizeLinkedAccounts {
         access(CriticalOps) fun completePoolDraw(poolID: UInt64) {
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
             poolRef.completeDraw()
+        }
+        
+        /// Starts the next round for a pool, exiting intermission (Phase 5 - optional).
+        /// 
+        /// After completeDraw(), the pool enters intermission. Call this to begin
+        /// the next round with fresh TWAB tracking.
+        /// 
+        /// @param poolID - ID of the pool to start next round for
+        access(ConfigOps) fun startNextRound(poolID: UInt64) {
+            let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
+            poolRef.startNextRound()
         }
 
         /// Withdraws unclaimed protocol fee from a pool.
@@ -3047,11 +3071,16 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Current active round for TWAB accumulation.
         /// Deposits and withdrawals accumulate TWAB in this round.
-        access(self) var activeRound: @Round
+        /// nil indicates the pool is in intermission (between rounds).
+        access(self) var activeRound: @Round?
         
         /// Round that has ended and is being processed for the prize draw.
         /// Created during startDraw(), destroyed during completeDraw().
         access(self) var pendingDrawRound: @Round?
+        
+        /// ID of the last completed round (for intermission state queries).
+        /// Updated when completeDraw() finishes, used by getCurrentRoundID() during intermission.
+        access(self) var lastCompletedRoundID: UInt64
         
         // ============================================================
         // BATCH PROCESSING STATE (for prize weight capture)
@@ -3115,6 +3144,7 @@ access(all) contract PrizeLinkedAccounts {
                 duration: config.drawIntervalSeconds
             )
             self.pendingDrawRound <- nil
+            self.lastCompletedRoundID = 0
             
             // Initialize selection data (nil = no batch in progress)
             self.pendingSelectionData <- nil
@@ -3590,15 +3620,18 @@ access(all) contract PrizeLinkedAccounts {
             let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: amount)
             let newShares = oldShares + newSharesMinted
             
-            // Update TWAB in the active round
+            // Update TWAB in the active round (if not in intermission)
             // Gap period is treated as a natural extension of the round until startDraw() is called
-            self.activeRound.recordShareChange(
-                receiverID: receiverID,
-                oldShares: oldShares,
-                newShares: newShares,
-                atTime: now
-            )
-            
+            // During intermission (activeRound == nil): no TWAB recorded, user gets weight when next round starts
+            if let round = &self.activeRound as &Round? {
+                round.recordShareChange(
+                    receiverID: receiverID,
+                    oldShares: oldShares,
+                    newShares: newShares,
+                    atTime: now
+                )
+            }
+
             // Also finalize in pending draw round if one exists (user interacting after startDraw)
             if let pendingRound = &self.pendingDrawRound as &Round? {
                 let pendingEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
@@ -3841,15 +3874,18 @@ access(all) contract PrizeLinkedAccounts {
             // Get new shares AFTER the withdrawal
             let newShares = self.shareTracker.getUserShares(receiverID: receiverID)
             
-            // Update TWAB in the active round
+            // Update TWAB in the active round (if not in intermission)
             // Round extends naturally until startDraw() is called - record at actual timestamp
-            self.activeRound.recordShareChange(
-                receiverID: receiverID,
-                oldShares: oldShares,
-                newShares: newShares,
-                atTime: now
-            )
-            
+            // During intermission (activeRound == nil): no TWAB recorded
+            if let round = &self.activeRound as &Round? {
+                round.recordShareChange(
+                    receiverID: receiverID,
+                    oldShares: oldShares,
+                    newShares: newShares,
+                    atTime: now
+                )
+            }
+
             // Also finalize in pending draw round if one exists
             if let pendingRound = &self.pendingDrawRound as &Round? {
                 let pendingEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
@@ -4116,64 +4152,51 @@ access(all) contract PrizeLinkedAccounts {
                 self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: \(self.emergencyState.rawValue)"
                 self.pendingDrawReceipt == nil: "Draw already in progress"
                 self.pendingDrawRound == nil: "Previous draw not completed"
+                self.activeRound != nil: "Pool is in intermission - call startNextRound first"
             }
-            
+
             // Validate round has ended (this replaces the old draw interval check)
             assert(self.canDrawNow(), message: "Round has not ended yet")
-            
+
             // Final health check before draw
             if self.checkAndAutoTriggerEmergency() {
                 panic("Emergency mode auto-triggered - cannot start draw")
             }
-            
+
             let now = getCurrentBlock().timestamp
-            
+
             // Get the current round's info before transitioning
-            let endedRoundID = self.activeRound.getRoundID()
-            
-            // Get duration from pool config
-            let newRoundDuration = self.config.drawIntervalSeconds
-            
+            // Reference is safe - we validated activeRound != nil in precondition
+            let activeRoundRef = (&self.activeRound as &Round?)!
+            let endedRoundID = activeRoundRef.getRoundID()
+
             // Set the actual end time on the ending round
             // This is the moment we're finalizing - used for TWAB calculations
-            self.activeRound.setActualEndTime(now)
-            
-            // Create new round starting now (before the swap)
-            // Gap interactors are handled by lazy fallback - no explicit initialization needed
-            let newRoundID = endedRoundID + 1
-            let newRound <- create Round(
-                roundID: newRoundID,
-                startTime: now,
-                duration: newRoundDuration
-            )
-            
-            // Atomic swap: new round goes in, ended round comes out
-            let endedRound <- self.activeRound <- newRound
+            activeRoundRef.setActualEndTime(now)
+
+            // Move the active round out (entering intermission)
+            // The swap operator with optional resources: move out existing, put nil in
+            var nilRound: @Round? <- nil
+            self.activeRound <-> nilRound
+            let endedRound <- nilRound!  // Safe to unwrap - we validated not nil
             self.pendingDrawRound <-! endedRound
-            
+
             // Create selection data resource for batch processing
             // Snapshot the current receiver count - only these users will be processed
             // New deposits during batch processing won't extend the batch (prevents DoS)
             self.pendingSelectionData <-! create BatchSelectionData(
                 snapshotCount: self.registeredReceiverList.length
             )
-            
-            // Emit new round started event
-            emit NewRoundStarted(
-                poolID: self.poolID,
-                roundID: newRoundID,
-                startTime: now,
-                duration: newRoundDuration
-            )
-            
+
             // Update last draw timestamp (draw initiated, even though batch processing pending)
             self.lastDrawTimestamp = now
-            
+
             // Emit draw started event (weights will be captured via batch processing)
+            // Note: NewRoundStarted is now emitted in startNextRound(), not here
             emit DrawBatchStarted(
                 poolID: self.poolID,
                 endedRoundID: endedRoundID,
-                newRoundID: newRoundID,
+                newRoundID: 0,  // No new round created yet - pool enters intermission
                 totalReceivers: self.registeredReceiverList.length
             )
         }
@@ -4432,8 +4455,18 @@ access(all) contract PrizeLinkedAccounts {
                     round: self.prizeDistributor.getPrizeRound()
                 )
                 // Still need to clean up the pending draw round
+                // Store the completed round ID before destroying for intermission state queries
                 let usedRound <- self.pendingDrawRound <- nil
+                let completedRoundID = usedRound?.getRoundID() ?? 0
+                self.lastCompletedRoundID = completedRoundID
                 destroy usedRound
+                
+                // Pool is now in intermission - emit event
+                emit IntermissionStarted(
+                    poolID: self.poolID,
+                    completedRoundID: completedRoundID,
+                    prizePoolBalance: self.prizeDistributor.getPrizePoolBalance()
+                )
                 return
             }
             
@@ -4465,15 +4498,18 @@ access(all) contract PrizeLinkedAccounts {
                 let newSharesMinted = self.shareTracker.deposit(receiverID: winnerID, amount: prizeAmount)
                 let newShares = oldShares + newSharesMinted
                 
-                // Update TWAB in active round (prize deposits accumulate TWAB like regular deposits)
-                // Note: We're in the new round now (startDraw already transitioned)
-                let now = getCurrentBlock().timestamp
-                self.activeRound.recordShareChange(
-                    receiverID: winnerID,
-                    oldShares: oldShares,
-                    newShares: newShares,
-                    atTime: now
-                )
+                // Update TWAB in active round if one exists (prize deposits accumulate TWAB like regular deposits)
+                // Note: Pool is in intermission during completeDraw (activeRound == nil)
+                // Prize amounts are added to shares but no TWAB is recorded until next round starts
+                if let round = &self.activeRound as &Round? {
+                    let now = getCurrentBlock().timestamp
+                    round.recordShareChange(
+                        receiverID: winnerID,
+                        oldShares: oldShares,
+                        newShares: newShares,
+                        atTime: now
+                    )
+                }
                 
                 // Update pool total
                 self.allocatedRewards = self.allocatedRewards + prizeAmount
@@ -4548,8 +4584,52 @@ access(all) contract PrizeLinkedAccounts {
             )
             
             // Destroy the pending draw round - its TWAB data has been used
+            // Store the completed round ID before destroying for intermission state queries
             let usedRound <- self.pendingDrawRound <- nil
+            let completedRoundID = usedRound?.getRoundID() ?? 0
+            self.lastCompletedRoundID = completedRoundID
             destroy usedRound
+            
+            // Pool is now in intermission - emit event
+            emit IntermissionStarted(
+                poolID: self.poolID,
+                completedRoundID: completedRoundID,
+                prizePoolBalance: self.prizeDistributor.getPrizePoolBalance()
+            )
+        }
+        
+        /// Starts a new round, exiting intermission (Phase 5 - optional, for explicit round control).
+        /// 
+        /// Creates a new active round with the configured draw interval duration.
+        /// This must be called after completeDraw() to begin the next round.
+        /// 
+        /// PRECONDITIONS:
+        /// - Pool must be in intermission (activeRound == nil)
+        /// - No pending draw in progress
+        /// 
+        /// EMITS: IntermissionEnded
+        access(contract) fun startNextRound() {
+            pre {
+                self.activeRound == nil: "Pool is not in intermission"
+                self.pendingDrawRound == nil: "Pending draw not completed"
+                self.pendingDrawReceipt == nil: "Pending randomness request not completed"
+            }
+            
+            let now = getCurrentBlock().timestamp
+            let newRoundID = self.lastCompletedRoundID + 1
+            let duration = self.config.drawIntervalSeconds
+            
+            self.activeRound <-! create Round(
+                roundID: newRoundID,
+                startTime: now,
+                duration: duration
+            )
+            
+            emit IntermissionEnded(
+                poolID: self.poolID,
+                newRoundID: newRoundID,
+                roundDuration: duration
+            )
         }
         
         // ============================================================
@@ -4599,13 +4679,15 @@ access(all) contract PrizeLinkedAccounts {
         }
         
         /// Returns the current active round's duration.
+        /// Returns 0.0 if in intermission (no active round).
         access(all) view fun getActiveRoundDuration(): UFix64 {
-            return self.activeRound.getDuration()
+            return self.activeRound?.getDuration() ?? 0.0
         }
-        
+
         /// Returns the current active round's ID.
+        /// Returns 0 if in intermission (no active round).
         access(all) view fun getActiveRoundID(): UInt64 {
-            return self.activeRound.getRoundID()
+            return self.activeRound?.getRoundID() ?? 0
         }
         
         /// Updates the minimum deposit amount.
@@ -4754,9 +4836,9 @@ access(all) contract PrizeLinkedAccounts {
         // ============================================================
 
         /// Returns whether the current round has ended and a draw can start.
-        /// This checks if the activeRound's end time has passed.
+        /// Returns false if in intermission (no active round) - must call startNextRound first.
         access(all) view fun canDrawNow(): Bool {
-            return self.activeRound.hasEnded()
+            return self.activeRound?.hasEnded() ?? false
         }
         
         /// Returns total withdrawable balance for a receiver.
@@ -4791,44 +4873,66 @@ access(all) contract PrizeLinkedAccounts {
         /// @param receiverID - User's receiver ID
         /// @return Current share-seconds (accumulated + pending up to now)
         access(all) view fun getUserTimeWeightedShares(receiverID: UInt64): UFix64 {
-            let shares = self.shareTracker.getUserShares(receiverID: receiverID)
-            let now = getCurrentBlock().timestamp
-            return self.activeRound.getCurrentTWAB(receiverID: receiverID, currentShares: shares, atTime: now)
-        }
-        
-        /// Returns the current round ID.
-        access(all) view fun getCurrentRoundID(): UInt64 {
-            return self.activeRound.getRoundID()
-        }
-        
-        /// Returns the current round start time.
-        access(all) view fun getRoundStartTime(): UFix64 {
-            return self.activeRound.getStartTime()
-        }
-        
-        /// Returns the current round end time.
-        access(all) view fun getRoundEndTime(): UFix64 {
-            return self.activeRound.getEndTime()
-        }
-        
-        /// Returns the current round duration.
-        access(all) view fun getRoundDuration(): UFix64 {
-            return self.activeRound.getDuration()
-        }
-        
-        /// Returns elapsed time since round started.
-        access(all) view fun getRoundElapsedTime(): UFix64 {
-            let startTime = self.activeRound.getStartTime()
-            let now = getCurrentBlock().timestamp
-            if now > startTime {
-                return now - startTime
+            if let round = &self.activeRound as &Round? {
+                let shares = self.shareTracker.getUserShares(receiverID: receiverID)
+                let now = getCurrentBlock().timestamp
+                return round.getCurrentTWAB(receiverID: receiverID, currentShares: shares, atTime: now)
             }
             return 0.0
         }
+
+        /// Returns the current round ID.
+        /// During intermission, returns the ID of the last completed round.
+        access(all) view fun getCurrentRoundID(): UInt64 {
+            if let round = &self.activeRound as &Round? {
+                return round.getRoundID()
+            }
+            // In intermission - return last completed round ID
+            return self.lastCompletedRoundID
+        }
         
+        /// Returns the current round start time.
+        /// Returns 0.0 if in intermission (no active round).
+        access(all) view fun getRoundStartTime(): UFix64 {
+            return self.activeRound?.getStartTime() ?? 0.0
+        }
+
+        /// Returns the current round end time.
+        /// Returns 0.0 if in intermission (no active round).
+        access(all) view fun getRoundEndTime(): UFix64 {
+            return self.activeRound?.getEndTime() ?? 0.0
+        }
+
+        /// Returns the current round duration.
+        /// Returns 0.0 if in intermission (no active round).
+        access(all) view fun getRoundDuration(): UFix64 {
+            return self.activeRound?.getDuration() ?? 0.0
+        }
+
+        /// Returns elapsed time since round started.
+        /// Returns 0.0 if in intermission (no active round).
+        access(all) view fun getRoundElapsedTime(): UFix64 {
+            if let round = &self.activeRound as &Round? {
+                let startTime = round.getStartTime()
+                let now = getCurrentBlock().timestamp
+                if now > startTime {
+                    return now - startTime
+                }
+            }
+            return 0.0
+        }
+
         /// Returns whether the active round has ended (gap period).
+        /// Returns true if in intermission (no active round).
         access(all) view fun isRoundEnded(): Bool {
-            return self.activeRound.hasEnded()
+            return self.activeRound?.hasEnded() ?? true
+        }
+        
+        /// Returns whether the pool is in intermission (between rounds).
+        /// During intermission, deposits/withdrawals are allowed but draws cannot start.
+        /// Call startNextRound() to exit intermission and begin a new round.
+        access(all) view fun isInIntermission(): Bool {
+            return self.activeRound == nil
         }
         
         /// Returns whether there's a pending draw round being processed.
@@ -5061,56 +5165,73 @@ access(all) contract PrizeLinkedAccounts {
         /// their current balance until the draw. This provides immediate feedback
         /// after deposits/withdrawals.
         /// 
+        /// During intermission, returns the user's share balance since that will be
+        /// their full TWAB/entries at the beginning of the next round.
+        /// 
         /// Examples:
         /// - 10 shares deposited at round start → 10 entries (immediately)
         /// - 10 shares deposited at halfway point → ~5 entries (prorated)
         /// - 10 shares held for full round → 10 entries
+        /// - During intermission: returns current share balance
         access(all) view fun getUserEntries(receiverID: UInt64): UFix64 {
-            let roundDuration = self.activeRound.getDuration()
-            if roundDuration == 0.0 {
-                return 0.0
+            // During intermission, return share balance (their full entries for next round)
+            if self.activeRound == nil {
+                return self.shareTracker.getUserShares(receiverID: receiverID)
             }
             
-            let roundEndTime = self.activeRound.getEndTime()
-            let shares = self.shareTracker.getUserShares(receiverID: receiverID)
-            
-            // Project NORMALIZED TWAB forward to round end (assumes current shares held until end)
-            // With normalized TWAB, result is already "average shares" - no division needed
-            let projectedNormalizedWeight = self.activeRound.getCurrentTWAB(
-                receiverID: receiverID, 
-                currentShares: shares, 
-                atTime: roundEndTime
-            )
-            
-            // TWAB is already normalized (divided by duration internally)
-            return projectedNormalizedWeight
+            if let round = &self.activeRound as &Round? {
+                let roundDuration = round.getDuration()
+                if roundDuration == 0.0 {
+                    return 0.0
+                }
+
+                let roundEndTime = round.getEndTime()
+                let shares = self.shareTracker.getUserShares(receiverID: receiverID)
+
+                // Project NORMALIZED TWAB forward to round end (assumes current shares held until end)
+                // With normalized TWAB, result is already "average shares" - no division needed
+                let projectedNormalizedWeight = round.getCurrentTWAB(
+                    receiverID: receiverID,
+                    currentShares: shares,
+                    atTime: roundEndTime
+                )
+
+                // TWAB is already normalized (divided by duration internally)
+                return projectedNormalizedWeight
+            }
+            return 0.0
         }
         
         /// Returns how far through the current round we are (0.0 to 1.0+).
-        /// - 0.0 = round just started
+        /// - 0.0 = round just started (or in intermission)
         /// - 0.5 = halfway through round
         /// - 1.0 = round complete, ready for next draw
         access(all) view fun getDrawProgressPercent(): UFix64 {
-            let roundDuration = self.activeRound.getDuration()
-            if roundDuration == 0.0 {
-                return 0.0
+            if let round = &self.activeRound as &Round? {
+                let roundDuration = round.getDuration()
+                if roundDuration == 0.0 {
+                    return 0.0
+                }
+                let elapsed = self.getRoundElapsedTime()
+                return elapsed / roundDuration
             }
-            
-            let elapsed = self.getRoundElapsedTime()
-            return elapsed / roundDuration
+            return 0.0
         }
-        
+
         /// Returns time remaining until round ends (in seconds).
-        /// Returns 0.0 if round has ended (draw can happen now).
+        /// Returns 0.0 if round has ended, in intermission, or draw can happen now.
         access(all) view fun getTimeUntilNextDraw(): UFix64 {
-            let endTime = self.activeRound.getEndTime()
-            let now = getCurrentBlock().timestamp
-            if now >= endTime {
-                return 0.0
+            if let round = &self.activeRound as &Round? {
+                let endTime = round.getEndTime()
+                let now = getCurrentBlock().timestamp
+                if now >= endTime {
+                    return 0.0
+                }
+                return endTime - now
             }
-            return endTime - now
+            return 0.0
         }
-        
+
     }
     
     // ============================================================

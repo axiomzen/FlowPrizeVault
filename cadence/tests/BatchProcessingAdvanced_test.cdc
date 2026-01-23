@@ -560,6 +560,9 @@ access(all) fun testResumeBatchAfterUserWithdrawal() {
     commitBlocksForRandomness()
     completeDraw(users[0], poolID: poolID)
     
+    // Start next round to exit intermission
+    startNextRound(users[0], poolID: poolID)
+    
     // Draw should complete successfully
     let state = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(2), state["currentRoundID"]! as! UInt64)

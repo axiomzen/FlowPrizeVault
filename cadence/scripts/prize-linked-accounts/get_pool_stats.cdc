@@ -22,7 +22,9 @@ access(all) struct PoolStats {
     access(all) let roundStartTime: UFix64
     access(all) let roundElapsedTime: UFix64
     access(all) let isRoundEnded: Bool
-    
+    /// True if pool is in intermission (between rounds, activeRound is nil)
+    access(all) let isInIntermission: Bool
+
     init(
         poolID: UInt64,
         allocatedRewards: UFix64,
@@ -43,7 +45,8 @@ access(all) struct PoolStats {
         currentRoundID: UInt64,
         roundStartTime: UFix64,
         roundElapsedTime: UFix64,
-        isRoundEnded: Bool
+        isRoundEnded: Bool,
+        isInIntermission: Bool
     ) {
         self.poolID = poolID
         self.allocatedRewards = allocatedRewards
@@ -65,6 +68,7 @@ access(all) struct PoolStats {
         self.roundStartTime = roundStartTime
         self.roundElapsedTime = roundElapsedTime
         self.isRoundEnded = isRoundEnded
+        self.isInIntermission = isInIntermission
     }
 }
 
@@ -100,6 +104,7 @@ access(all) fun main(poolID: UInt64): PoolStats {
         currentRoundID: poolRef.getCurrentRoundID(),
         roundStartTime: poolRef.getRoundStartTime(),
         roundElapsedTime: poolRef.getRoundElapsedTime(),
-        isRoundEnded: poolRef.isRoundEnded()
+        isRoundEnded: poolRef.isRoundEnded(),
+        isInIntermission: poolRef.isInIntermission()
     )
 }

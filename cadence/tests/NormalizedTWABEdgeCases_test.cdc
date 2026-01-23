@@ -353,6 +353,9 @@ access(all) fun testReDepositDuringBatchNotEligibleForCurrentDraw() {
     let completeSuccess = tryCompleteDraw(poolID)
     Test.assert(completeSuccess, message: "Complete draw should succeed")
     
+    // Start next round to exit intermission
+    startNextRound(userA, poolID: poolID)
+    
     // User B's deposit is in the NEW round, not the one we just drew
     let userBEntries = getUserEntries(userB.address, poolID)
     Test.assert(userBEntries > 0.0, message: "User B should have entries in the new round")

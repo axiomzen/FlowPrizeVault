@@ -18,6 +18,7 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
         "isBatchInProgress": poolRef.isDrawBatchInProgress(),
         "isBatchComplete": poolRef.isDrawBatchComplete(),
         "isReadyForCompletion": poolRef.isReadyForDrawCompletion(),
-        "batchProgress": poolRef.getDrawBatchProgress()
+        "batchProgress": poolRef.getDrawBatchProgress(),
+        "isInIntermission": poolRef.isInIntermission()
     }
 }
