@@ -91,7 +91,12 @@ access(all) contract PrizeLinkedAccounts {
     /// If totalWeight exceeds this during batch processing, emit a warning event.
     /// With normalized TWAB this should never be reached in practice, but provides safety.
     access(all) let WEIGHT_WARNING_THRESHOLD: UFix64
-    
+
+    /// Maximum total value locked (TVL) per pool (80% of UFix64 max ≈ 147 billion).
+    /// Deposits that would exceed this limit are rejected to prevent UFix64 overflow.
+    /// This provides a safety margin for yield accrual and weight calculations.
+    access(all) let SAFE_MAX_TVL: UFix64
+
     // ============================================================
     // STORAGE PATHS
     // ============================================================
@@ -592,10 +597,10 @@ access(all) contract PrizeLinkedAccounts {
             minRecoveryHealth: UFix64?
         ) {
             pre {
-                minYieldSourceHealth >= 0.0 && minYieldSourceHealth <= 1.0: "minYieldSourceHealth must be between 0.0 and 1.0 but got ".concat(minYieldSourceHealth.toString())
-                maxWithdrawFailures > 0: "maxWithdrawFailures must be at least 1 but got ".concat(maxWithdrawFailures.toString())
-                minBalanceThreshold >= 0.8 && minBalanceThreshold <= 1.0: "minBalanceThreshold must be between 0.8 and 1.0 but got ".concat(minBalanceThreshold.toString())
-                (minRecoveryHealth ?? 0.5) >= 0.0 && (minRecoveryHealth ?? 0.5) <= 1.0: "minRecoveryHealth must be between 0.0 and 1.0 but got ".concat((minRecoveryHealth ?? 0.5).toString())
+                minYieldSourceHealth >= 0.0 && minYieldSourceHealth <= 1.0: "minYieldSourceHealth must be between 0.0 and 1.0 but got \(minYieldSourceHealth)"
+                maxWithdrawFailures > 0: "maxWithdrawFailures must be at least 1 but got \(maxWithdrawFailures)"
+                minBalanceThreshold >= 0.8 && minBalanceThreshold <= 1.0: "minBalanceThreshold must be between 0.8 and 1.0 but got \(minBalanceThreshold)"
+                (minRecoveryHealth ?? 0.5) >= 0.0 && (minRecoveryHealth ?? 0.5) <= 1.0: "minRecoveryHealth must be between 0.0 and 1.0 but got \(minRecoveryHealth ?? 0.5)"
             }
             self.maxEmergencyDuration = maxEmergencyDuration
             self.autoRecoveryEnabled = autoRecoveryEnabled
@@ -768,7 +773,7 @@ access(all) contract PrizeLinkedAccounts {
         /// @param reason - Human-readable reason for emergency (logged in event)
         access(CriticalOps) fun enableEmergencyMode(poolID: UInt64, reason: String) {
             pre {
-                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString())
+                reason.length > 0: "Reason cannot be empty. Pool ID: \(poolID)"
             }
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
             poolRef.setEmergencyMode(reason: reason)
@@ -791,7 +796,7 @@ access(all) contract PrizeLinkedAccounts {
         /// @param reason - Human-readable reason for partial mode
         access(CriticalOps) fun setEmergencyPartialMode(poolID: UInt64, reason: String) {
             pre {
-                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString())
+                reason.length > 0: "Reason cannot be empty. Pool ID: \(poolID)"
             }
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
             poolRef.setPartialMode(reason: reason)
@@ -907,13 +912,19 @@ access(all) contract PrizeLinkedAccounts {
         }
         
         /// Set the protocol fee recipient for automatic forwarding.
-        /// Once set, protocol fee is auto-forwarded during syncWithYieldSource().
-        /// Pass nil to disable auto-forwarding (funds stored in distributor).
-        /// 
+        /// Once set, protocol fee is auto-forwarded during requestDrawRandomness().
+        /// Pass nil to disable auto-forwarding (funds stored in unclaimedProtocolFeeVault).
+        ///
+        /// IMPORTANT: The recipient MUST accept the same vault type as the pool's asset.
+        /// For example, if the pool uses FLOW tokens, the recipient must be a FLOW receiver.
+        /// A type mismatch will cause requestDrawRandomness() to fail. If this happens,
+        /// clear the recipient (set to nil) and retry the draw - funds will go to
+        /// unclaimedProtocolFeeVault for manual withdrawal.
+        ///
         /// SECURITY: Requires OwnerOnly entitlement - NEVER issue capabilities with this.
         /// Only the account owner (via direct storage borrow with auth) can call this.
         /// For multi-sig protection, store Admin in a multi-sig account.
-        /// 
+        ///
         /// @param poolID - ID of the pool to configure
         /// @param recipientCap - Capability to receive protocol fee, or nil to disable
         access(OwnerOnly) fun setPoolProtocolFeeRecipient(
@@ -922,7 +933,7 @@ access(all) contract PrizeLinkedAccounts {
         ) {
             pre {
                 // Validate capability is usable if provided
-                recipientCap?.check() ?? true: "Protocol fee recipient capability is invalid or cannot be borrowed. Pool ID: ".concat(poolID.toString()).concat(", Recipient address: ").concat(recipientCap?.address?.toString() ?? "nil")
+                recipientCap?.check() ?? true: "Protocol fee recipient capability is invalid or cannot be borrowed. Pool ID: \(poolID), Recipient address: \(recipientCap?.address?.toString() ?? "nil")"
             }
             
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
@@ -950,7 +961,7 @@ access(all) contract PrizeLinkedAccounts {
             reason: String
         ) {
             pre {
-                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString()).concat(", Receiver ID: ").concat(receiverID.toString())
+                reason.length > 0: "Reason cannot be empty. Pool ID: \(poolID), Receiver ID: \(receiverID)"
             }
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
             
@@ -970,8 +981,8 @@ access(all) contract PrizeLinkedAccounts {
             reason: String
         ) {
             pre {
-                additionalWeight > 0.0: "Additional weight must be positive (greater than 0). Pool ID: ".concat(poolID.toString()).concat(", Receiver ID: ").concat(receiverID.toString()).concat(", Received weight: ").concat(additionalWeight.toString())
-                reason.length > 0: "Reason cannot be empty. Pool ID: ".concat(poolID.toString()).concat(", Receiver ID: ").concat(receiverID.toString())
+                additionalWeight > 0.0: "Additional weight must be positive (greater than 0). Pool ID: \(poolID), Receiver ID: \(receiverID), Received weight: \(additionalWeight)"
+                reason.length > 0: "Reason cannot be empty. Pool ID: \(poolID), Receiver ID: \(receiverID)"
             }
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
             
@@ -1251,11 +1262,7 @@ access(all) contract PrizeLinkedAccounts {
         init(rewards: UFix64, prize: UFix64, protocolFee: UFix64) {
             pre {
                 rewards + prize + protocolFee == 1.0:
-                    "FixedPercentageStrategy: Percentages must sum to exactly 1.0, but got "
-                    .concat(rewards.toString()).concat(" + ")
-                    .concat(prize.toString()).concat(" + ")
-                    .concat(protocolFee.toString()).concat(" = ")
-                    .concat((rewards + prize + protocolFee).toString())
+                    "FixedPercentageStrategy: Percentages must sum to exactly 1.0, but got \(rewards) + \(prize) + \(protocolFee) = \(rewards + prize + protocolFee)"
             }
             self.rewardsPercent = rewards
             self.prizePercent = prize
@@ -1765,24 +1772,18 @@ access(all) contract PrizeLinkedAccounts {
             let userShareBalance = self.userShares[receiverID] ?? 0.0
             assert(
                 userShareBalance > 0.0,
-                message: "ShareTracker.withdraw: No shares to withdraw for receiver "
-                    .concat(receiverID.toString())
+                message: "ShareTracker.withdraw: No shares to withdraw for receiver \(receiverID)"
             )
             assert(
                 self.totalShares > 0.0 && self.totalAssets > 0.0,
-                message: "ShareTracker.withdraw: Invalid tracker state - totalShares: "
-                    .concat(self.totalShares.toString())
-                    .concat(", totalAssets: ").concat(self.totalAssets.toString())
+                message: "ShareTracker.withdraw: Invalid tracker state - totalShares: \(self.totalShares), totalAssets: \(self.totalAssets)"
             )
 
             // Validate user has sufficient balance
             let currentAssetValue = self.convertToAssets(userShareBalance)
             assert(
                 amount <= currentAssetValue,
-                message: "ShareTracker.withdraw: Insufficient balance - requested "
-                    .concat(amount.toString())
-                    .concat(" but receiver ").concat(receiverID.toString())
-                    .concat(" only has ").concat(currentAssetValue.toString())
+                message: "ShareTracker.withdraw: Insufficient balance - requested \(amount) but receiver \(receiverID) only has \(currentAssetValue)"
             )
 
             // Calculate shares to burn at current share price
@@ -2029,7 +2030,7 @@ access(all) contract PrizeLinkedAccounts {
             if let nft <- self.nftPrizes.remove(key: nftID) {
                 return <- nft
             }
-            panic("NFT not found in prize vault: ".concat(nftID.toString()))
+            panic("NFT not found in prize vault: \(nftID)")
         }
         
         /// Stores an NFT for a winner to claim later.
@@ -2051,7 +2052,7 @@ access(all) contract PrizeLinkedAccounts {
             } else {
                 // This shouldn't happen, but handle gracefully
                 destroy nft
-                panic("Failed to store NFT in pending claims. NFTID: ".concat(nftID.toString()).concat(", receiverID: ").concat(receiverID.toString()))
+                panic("Failed to store NFT in pending claims. NFTID: \(nftID), receiverID: \(receiverID)")
             }
         }
         
@@ -2095,12 +2096,13 @@ access(all) contract PrizeLinkedAccounts {
         access(contract) fun claimPendingNFT(receiverID: UInt64, nftIndex: Int): @{NonFungibleToken.NFT} {
             pre {
                 self.pendingNFTClaims[receiverID] != nil: "No pending NFTs for this receiver"
+                nftIndex >= 0: "NFT index cannot be negative"
                 nftIndex < (self.pendingNFTClaims[receiverID]?.length ?? 0): "Invalid NFT index"
             }
             if let nftsRef = &self.pendingNFTClaims[receiverID] as auth(Remove) &[{NonFungibleToken.NFT}]? {
                 return <- nftsRef.remove(at: nftIndex)
             }
-            panic("Failed to access pending NFT claims. receiverID: ".concat(receiverID.toString()).concat(", nftIndex: ").concat(nftIndex.toString()))
+            panic("Failed to access pending NFT claims. receiverID: \(receiverID), nftIndex: \(nftIndex)")
         }
         
         /// Removes a receiver's pending NFT claims entry from the dictionary.
@@ -2323,12 +2325,12 @@ access(all) contract PrizeLinkedAccounts {
             var total: UFix64 = 0.0
             var splitIndex = 0
             for split in prizeSplits {
-                assert(split >= 0.0 && split <= 1.0, message: "Each split must be between 0 and 1. split: ".concat(split.toString()).concat(", index: ").concat(splitIndex.toString()))
+                assert(split >= 0.0 && split <= 1.0, message: "Each split must be between 0 and 1. split: \(split), index: \(splitIndex)")
                 total = total + split
                 splitIndex = splitIndex + 1
             }
             
-            assert(total == 1.0, message: "Prize splits must sum to 1.0. actual total: ".concat(total.toString()))
+            assert(total == 1.0, message: "Prize splits must sum to 1.0. actual total: \(total)")
             
             self.prizeSplits = prizeSplits
             
@@ -3510,8 +3512,8 @@ access(all) contract PrizeLinkedAccounts {
             metadata: {String: String}
         ) {
             pre {
-                self.emergencyState == PoolEmergencyState.Normal: "Direct funding only in normal state. Current state: ".concat(self.emergencyState.rawValue.toString())
-                from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
+                self.emergencyState == PoolEmergencyState.Normal: "Direct funding only in normal state. Current state: \(self.emergencyState.rawValue)"
+                from.getType() == self.config.assetType: "Invalid vault type. Expected: \(self.config.assetType.identifier), got: \(from.getType().identifier)"
             }
             
             switch destination {
@@ -3523,7 +3525,7 @@ access(all) contract PrizeLinkedAccounts {
                     // Rewards funding requires depositors to receive the yield
                     assert(
                         self.shareTracker.getTotalShares() > 0.0,
-                        message: "Cannot fund rewards with no depositors - funds would be orphaned. Amount: ".concat(from.balance.toString()).concat(", totalShares: ").concat(self.shareTracker.getTotalShares().toString())
+                        message: "Cannot fund rewards with no depositors - funds would be orphaned. Amount: \(from.balance), totalShares: \(self.shareTracker.getTotalShares())"
                     )
                     
                     let amount = from.balance
@@ -3544,7 +3546,7 @@ access(all) contract PrizeLinkedAccounts {
                     }
                     
                 default:
-                    panic("Unsupported funding destination. Destination rawValue: ".concat(destination.rawValue.toString()))
+                    panic("Unsupported funding destination. Destination rawValue: \(destination.rawValue)")
             }
         }
         
@@ -3575,10 +3577,11 @@ access(all) contract PrizeLinkedAccounts {
         /// @param ownerAddress - Optional owner address for address resolution
         access(contract) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64, ownerAddress: Address?) {
             pre {
-                from.balance > 0.0: "Deposit amount must be positive. Amount: ".concat(from.balance.toString())
-                from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
+                from.balance > 0.0: "Deposit amount must be positive. Amount: \(from.balance)"
+                from.getType() == self.config.assetType: "Invalid vault type. Expected: \(self.config.assetType.identifier), got: \(from.getType().identifier)"
+                self.shareTracker.getTotalAssets() + from.balance <= PrizeLinkedAccounts.SAFE_MAX_TVL: "Deposit would exceed pool TVL capacity"
             }
-            
+
             // Auto-register if not registered (handles re-deposits after full withdrawal)
             if self.registeredReceivers[receiverID] == nil {
                 self.registerReceiver(receiverID: receiverID, ownerAddress: ownerAddress)
@@ -3591,20 +3594,20 @@ access(all) contract PrizeLinkedAccounts {
             switch self.emergencyState {
                 case PoolEmergencyState.Normal:
                     // Normal: enforce minimum deposit
-                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit. Required: ".concat(self.config.minimumDeposit.toString()).concat(", got: ").concat(from.balance.toString()))
+                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit. Required: \(self.config.minimumDeposit), got: \(from.balance)")
                 case PoolEmergencyState.PartialMode:
                     // Partial: enforce deposit limit
                     let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
-                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: ".concat(receiverID.toString()))
-                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: ".concat(depositLimit.toString()).concat(", got: ").concat(from.balance.toString()))
+                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: \(receiverID)")
+                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: \(depositLimit), got: \(from.balance)")
                 case PoolEmergencyState.EmergencyMode:
                     // Emergency: no deposits allowed
-                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: \(receiverID), amount: \(from.balance)")
                 case PoolEmergencyState.Paused:
                     // Paused: nothing allowed
-                    panic("Pool is paused. No operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+                    panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(from.balance)")
             }
-            
+
             // Process pending yield/deficit before deposit to ensure fair share price
             if self.needsSync() {
                 self.syncWithYieldSource()
@@ -3671,35 +3674,36 @@ access(all) contract PrizeLinkedAccounts {
         /// @param ownerAddress - Owner address of the SponsorPositionCollection (passed directly since sponsors don't use capabilities)
         access(contract) fun sponsorDeposit(from: @{FungibleToken.Vault}, receiverID: UInt64, ownerAddress: Address?) {
             pre {
-                from.balance > 0.0: "Deposit amount must be positive. Amount: ".concat(from.balance.toString())
-                from.getType() == self.config.assetType: "Invalid vault type. Expected: ".concat(self.config.assetType.identifier).concat(", got: ").concat(from.getType().identifier)
+                from.balance > 0.0: "Deposit amount must be positive. Amount: \(from.balance)"
+                from.getType() == self.config.assetType: "Invalid vault type. Expected: \(self.config.assetType.identifier), got: \(from.getType().identifier)"
+                self.shareTracker.getTotalAssets() + from.balance <= PrizeLinkedAccounts.SAFE_MAX_TVL: "Deposit would exceed pool TVL capacity"
             }
-            
+
             // Enforce state-specific deposit rules
             switch self.emergencyState {
                 case PoolEmergencyState.Normal:
                     // Normal: enforce minimum deposit
-                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit. Required: ".concat(self.config.minimumDeposit.toString()).concat(", got: ").concat(from.balance.toString()))
+                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit. Required: \(self.config.minimumDeposit), got: \(from.balance)")
                 case PoolEmergencyState.PartialMode:
                     // Partial: enforce deposit limit
                     let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
-                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: ".concat(receiverID.toString()))
-                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: ".concat(depositLimit.toString()).concat(", got: ").concat(from.balance.toString()))
+                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: \(receiverID)")
+                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: \(depositLimit), got: \(from.balance)")
                 case PoolEmergencyState.EmergencyMode:
                     // Emergency: no deposits allowed
-                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: \(receiverID), amount: \(from.balance)")
                 case PoolEmergencyState.Paused:
                     // Paused: nothing allowed
-                    panic("Pool is paused. No operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(from.balance.toString()))
+                    panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(from.balance)")
             }
-            
-            // Process pending yield before deposit to ensure fair share price
-            if self.getAvailableYieldRewards() > 0.0 {
+
+            // Process pending yield/deficit before deposit to ensure fair share price
+            if self.needsSync() {
                 self.syncWithYieldSource()
             }
-            
+
             let amount = from.balance
-            
+
             // Record deposit in share tracker (mints shares - same as regular deposit)
             let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: amount)
             
@@ -3759,14 +3763,14 @@ access(all) contract PrizeLinkedAccounts {
         access(contract) fun withdraw(amount: UFix64, receiverID: UInt64, ownerAddress: Address?): @{FungibleToken.Vault} {
             pre {
                 amount > 0.0: "Withdraw amount must be greater than 0"
-                self.registeredReceivers[receiverID] != nil || self.sponsorReceivers[receiverID] == true: "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
+                self.registeredReceivers[receiverID] != nil || self.sponsorReceivers[receiverID] == true: "Receiver not registered. ReceiverID: \(receiverID)"
             }
             
             // Update stored address if provided (tracks current owner)
             self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             
             // Paused pool: nothing allowed
-            assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. ReceiverID: ".concat(receiverID.toString()).concat(", amount: ").concat(amount.toString()))
+            assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. ReceiverID: \(receiverID), amount: \(amount)")
             
             // In emergency mode, check if we can auto-recover
             if self.emergencyState == PoolEmergencyState.EmergencyMode {
@@ -4216,6 +4220,7 @@ access(all) contract PrizeLinkedAccounts {
         /// @return Number of receivers remaining to process
         access(contract) fun processDrawBatch(limit: Int): Int {
             pre {
+                limit >= 0: "Batch limit cannot be negative"
                 self.pendingDrawRound != nil: "No draw in progress"
                 self.pendingDrawReceipt == nil: "Randomness already requested"
                 self.pendingSelectionData != nil: "No selection data"
@@ -5406,7 +5411,7 @@ access(all) contract PrizeLinkedAccounts {
             if self.registeredPools[poolID] == nil {
                 return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
             }
-            
+
             if let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID) {
                 return PoolBalance(
                     totalBalance: poolRef.getReceiverTotalBalance(receiverID: self.uuid),
@@ -5625,7 +5630,7 @@ access(all) contract PrizeLinkedAccounts {
     /// @return Authorized reference (panics if not found)
     access(contract) fun getPoolInternal(_ poolID: UInt64): auth(CriticalOps, ConfigOps) &Pool {
         return (&self.pools[poolID] as auth(CriticalOps, ConfigOps) &Pool?)
-            ?? panic("Cannot get Pool: Pool with ID ".concat(poolID.toString()).concat(" does not exist"))
+            ?? panic("Cannot get Pool: Pool with ID \(poolID) does not exist")
     }
     
     /// Returns all pool IDs currently in the contract.
@@ -5663,7 +5668,74 @@ access(all) contract PrizeLinkedAccounts {
     access(all) fun createSponsorPositionCollection(): @SponsorPositionCollection {
         return <- create SponsorPositionCollection()
     }
-    
+
+    /// Starts a prize draw for a pool (Phase 1 of 4). PERMISSIONLESS.
+    ///
+    /// Anyone can call this when the round has ended and no draw is in progress.
+    /// This ensures draws cannot stall if admin is unavailable.
+    ///
+    /// Preconditions (enforced internally):
+    /// - Pool must be in Normal state (not emergency/paused)
+    /// - No pending draw in progress
+    /// - Round must have ended (canDrawNow() returns true)
+    ///
+    /// @param poolID - ID of the pool to start draw for
+    access(all) fun startDraw(poolID: UInt64) {
+        let poolRef = self.getPoolInternal(poolID)
+        poolRef.startDraw()
+    }
+
+    /// Processes a batch of receivers for weight capture (Phase 2 of 4). PERMISSIONLESS.
+    ///
+    /// Anyone can call this to advance batch processing.
+    /// Call repeatedly until return value is 0 (or isDrawBatchComplete()).
+    ///
+    /// Preconditions (enforced internally):
+    /// - Draw must be in progress (pendingDrawRound != nil)
+    /// - Randomness not yet requested
+    /// - Batch processing not complete
+    ///
+    /// @param poolID - ID of the pool
+    /// @param limit - Maximum receivers to process this batch
+    /// @return Number of receivers remaining to process
+    access(all) fun processDrawBatch(poolID: UInt64, limit: Int): Int {
+        let poolRef = self.getPoolInternal(poolID)
+        return poolRef.processDrawBatch(limit: limit)
+    }
+
+    /// Requests randomness after batch processing complete (Phase 3 of 4). PERMISSIONLESS.
+    ///
+    /// Anyone can call this when batch processing is complete.
+    /// Materializes pending yield, captures final weights, and commits to randomness.
+    /// Must wait until next block before completeDraw().
+    ///
+    /// Preconditions (enforced internally):
+    /// - Draw in progress
+    /// - Batch processing complete
+    /// - Randomness not yet requested
+    ///
+    /// @param poolID - ID of the pool
+    access(all) fun requestDrawRandomness(poolID: UInt64) {
+        let poolRef = self.getPoolInternal(poolID)
+        poolRef.requestDrawRandomness()
+    }
+
+    /// Completes a prize draw for a pool (Phase 4 of 4). PERMISSIONLESS.
+    ///
+    /// Anyone can call this after randomness is ready (next block after request).
+    /// Fulfills randomness request, selects winners, and distributes prizes.
+    /// Prizes are auto-compounded into winners' deposits.
+    ///
+    /// Preconditions (enforced internally):
+    /// - Randomness must have been requested
+    /// - Must be in a different block than requestDrawRandomness()
+    ///
+    /// @param poolID - ID of the pool to complete draw for
+    access(all) fun completeDraw(poolID: UInt64) {
+        let poolRef = self.getPoolInternal(poolID)
+        poolRef.completeDraw()
+    }
+
     // ============================================================
     // ENTRY QUERY FUNCTIONS - Contract-level convenience accessors
     // ============================================================
@@ -5731,7 +5803,11 @@ access(all) contract PrizeLinkedAccounts {
         // Warning threshold for normalized weights (90% of UFIX64_MAX ≈ 166 billion)
         // With normalized TWAB, weights are ~average shares, so this is very generous
         self.WEIGHT_WARNING_THRESHOLD = 166000000000.0
-        
+
+        // Maximum TVL per pool (80% of UFIX64_MAX ≈ 147 billion)
+        // Provides safety margin for yield accrual and prevents overflow
+        self.SAFE_MAX_TVL = 147500000000.0
+
         // Storage paths for user collections
         self.PoolPositionCollectionStoragePath = /storage/PrizeLinkedAccountsCollection
         self.PoolPositionCollectionPublicPath = /public/PrizeLinkedAccountsCollection

@@ -1222,3 +1222,413 @@ fun cleanupPoolStaleEntriesExpectFailure(_ poolID: UInt64, startIndex: Int, rece
     return Test.executeTransaction(txn)
 }
 
+// ============================================================================
+// NFT PRIZE MANAGEMENT HELPERS
+// ============================================================================
+
+/// Deploy the MockNFT contract for testing
+access(all)
+fun deployMockNFT() {
+    deployContract(name: "MockNFT", path: "../contracts/mock/MockNFT.cdc")
+}
+
+/// Mint a MockNFT and return its ID (for deposit) and UUID (for pool config)
+/// Returns {"id": UInt64, "uuid": UInt64}
+access(all)
+fun mintMockNFTWithUUID(recipient: Test.TestAccount, name: String, description: String): {String: UInt64} {
+    let deployerAccount = getDeployerAccount()
+
+    // Get the NFT IDs BEFORE minting to find the new one after
+    let idsBefore = getMockNFTIDs(recipient.address)
+
+    let mintResult = _executeTransaction(
+        "../transactions/test/mint_mock_nft.cdc",
+        [recipient.address, name, description],
+        deployerAccount
+    )
+    assertTransactionSucceeded(mintResult, context: "Mint mock NFT")
+
+    // Get the NFT IDs AFTER minting
+    let idsAfter = getMockNFTIDs(recipient.address)
+
+    // Find the new ID (the one in idsAfter but not in idsBefore)
+    var newID: UInt64 = 0
+    for id in idsAfter {
+        var found = false
+        for beforeID in idsBefore {
+            if id == beforeID {
+                found = true
+                break
+            }
+        }
+        if !found {
+            newID = id
+            break
+        }
+    }
+
+    // Get the uuid of this NFT
+    let uuid = getMockNFTUUID(recipient.address, newID)
+
+    return {"id": newID, "uuid": uuid}
+}
+
+/// Mint a MockNFT and return its ID (for backwards compatibility)
+access(all)
+fun mintMockNFT(recipient: Test.TestAccount, name: String, description: String): UInt64 {
+    let result = mintMockNFTWithUUID(recipient: recipient, name: name, description: description)
+    return result["id"]!
+}
+
+/// Setup a MockNFT collection for a user
+access(all)
+fun setupMockNFTCollection(_ account: Test.TestAccount) {
+    let setupResult = _executeTransaction(
+        "../transactions/test/setup_mock_nft_collection.cdc",
+        [],
+        account
+    )
+    assertTransactionSucceeded(setupResult, context: "Setup MockNFT collection")
+}
+
+/// Get MockNFT IDs owned by an account
+access(all)
+fun getMockNFTIDs(_ address: Address): [UInt64] {
+    let scriptResult = _executeScript("../scripts/test/get_mock_nft_ids.cdc", [address])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! [UInt64]
+}
+
+/// Get the uuid of a MockNFT by its id
+access(all)
+fun getMockNFTUUID(_ ownerAddress: Address, _ nftID: UInt64): UInt64 {
+    let scriptResult = _executeScript("../scripts/test/get_mock_nft_uuid.cdc", [ownerAddress, nftID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UInt64
+}
+
+/// Deposit an NFT prize to a pool (admin operation)
+access(all)
+fun depositNFTPrize(_ poolID: UInt64, nftID: UInt64) {
+    let deployerAccount = getDeployerAccount()
+    let depositResult = _executeTransaction(
+        "../transactions/test/deposit_nft_prize.cdc",
+        [poolID, nftID],
+        deployerAccount
+    )
+    assertTransactionSucceeded(depositResult, context: "Deposit NFT prize")
+}
+
+/// Withdraw an unassigned NFT prize from a pool (admin operation)
+access(all)
+fun withdrawNFTPrize(_ poolID: UInt64, nftID: UInt64) {
+    let deployerAccount = getDeployerAccount()
+    let withdrawResult = _executeTransaction(
+        "../transactions/test/withdraw_nft_prize.cdc",
+        [poolID, nftID],
+        deployerAccount
+    )
+    assertTransactionSucceeded(withdrawResult, context: "Withdraw NFT prize")
+}
+
+/// Withdraw an NFT prize expecting failure
+access(all)
+fun withdrawNFTPrizeExpectFailure(_ poolID: UInt64, nftID: UInt64): Bool {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/withdraw_nft_prize.cdc",
+        [poolID, nftID],
+        deployerAccount
+    )
+    return result.error == nil
+}
+
+/// Claim a pending NFT prize as a user
+access(all)
+fun claimPendingNFT(_ account: Test.TestAccount, poolID: UInt64, nftIndex: Int) {
+    let claimResult = _executeTransaction(
+        "../transactions/test/claim_nft_prize.cdc",
+        [poolID, nftIndex],
+        account
+    )
+    assertTransactionSucceeded(claimResult, context: "Claim pending NFT")
+}
+
+/// Claim a pending NFT expecting failure
+access(all)
+fun claimPendingNFTExpectFailure(_ account: Test.TestAccount, poolID: UInt64, nftIndex: Int): Bool {
+    let result = _executeTransaction(
+        "../transactions/test/claim_nft_prize.cdc",
+        [poolID, nftIndex],
+        account
+    )
+    return result.error == nil
+}
+
+/// Get the count of pending NFT claims for a user
+access(all)
+fun getPendingNFTCount(_ userAddress: Address, _ poolID: UInt64): Int {
+    let scriptResult = _executeScript("../scripts/test/get_pending_nft_count.cdc", [userAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! Int
+}
+
+/// Get the IDs of pending NFT claims for a user
+access(all)
+fun getPendingNFTIDs(_ userAddress: Address, _ poolID: UInt64): [UInt64] {
+    let scriptResult = _executeScript("../scripts/test/get_pending_nft_ids.cdc", [userAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! [UInt64]
+}
+
+/// Get the count of available NFT prizes in a pool
+access(all)
+fun getNFTPrizeCount(_ poolID: UInt64): Int {
+    let scriptResult = _executeScript("../scripts/test/get_nft_prize_count.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! Int
+}
+
+/// Get the available NFT prize IDs in a pool
+access(all)
+fun getAvailableNFTPrizeIDs(_ poolID: UInt64): [UInt64] {
+    let scriptResult = _executeScript("../scripts/test/get_available_nft_prize_ids.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! [UInt64]
+}
+
+/// Create a pool with NFT prize IDs specified in the distribution (60s interval)
+access(all)
+fun createPoolWithNFTPrizes(nftIDs: [UInt64]): UInt64 {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/create_pool_with_nft_prizes.cdc",
+        [nftIDs],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Create pool with NFT prizes")
+
+    let poolCount = getPoolCount()
+    return UInt64(poolCount - 1)
+}
+
+// ============================================================================
+// PROTOCOL FEE MANAGEMENT HELPERS
+// ============================================================================
+
+/// Set the protocol fee recipient for a pool (requires OwnerOnly entitlement)
+access(all)
+fun setProtocolFeeRecipient(_ poolID: UInt64, recipientAddress: Address) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/set_protocol_fee_recipient.cdc",
+        [poolID, recipientAddress],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Set protocol fee recipient")
+}
+
+/// Clear the protocol fee recipient (set to nil)
+access(all)
+fun clearProtocolFeeRecipient(_ poolID: UInt64) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/clear_protocol_fee_recipient.cdc",
+        [poolID],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Clear protocol fee recipient")
+}
+
+/// Withdraw unclaimed protocol fee from a pool
+access(all)
+fun withdrawUnclaimedProtocolFee(_ poolID: UInt64, amount: UFix64, recipientAddress: Address): UFix64 {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/withdraw_unclaimed_protocol_fee.cdc",
+        [poolID, amount, recipientAddress],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Withdraw unclaimed protocol fee")
+
+    // Return the actual withdrawn amount
+    let feeInfo = getUnclaimedProtocolFee(poolID)
+    return amount // Simplified - actual amount may differ
+}
+
+/// Get the unclaimed protocol fee balance for a pool
+access(all)
+fun getUnclaimedProtocolFee(_ poolID: UInt64): UFix64 {
+    let scriptResult = _executeScript("../scripts/test/get_unclaimed_protocol_fee.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
+}
+
+/// Get protocol fee recipient address for a pool (nil if not set)
+access(all)
+fun getProtocolFeeRecipient(_ poolID: UInt64): Address? {
+    let scriptResult = _executeScript("../scripts/test/get_protocol_fee_recipient.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue as! Address?
+}
+
+// ============================================================================
+// BONUS WEIGHT MANAGEMENT HELPERS
+// ============================================================================
+
+/// Set bonus prize weight for a user (replaces existing)
+access(all)
+fun setBonusPrizeWeight(_ poolID: UInt64, receiverID: UInt64, weight: UFix64, reason: String) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/set_bonus_weight.cdc",
+        [poolID, receiverID, weight, reason],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Set bonus prize weight")
+}
+
+/// Add to existing bonus prize weight
+access(all)
+fun addBonusPrizeWeight(_ poolID: UInt64, receiverID: UInt64, additionalWeight: UFix64, reason: String) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/add_bonus_weight.cdc",
+        [poolID, receiverID, additionalWeight, reason],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Add bonus prize weight")
+}
+
+/// Remove all bonus weight from a user
+access(all)
+fun removeBonusPrizeWeight(_ poolID: UInt64, receiverID: UInt64) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/remove_bonus_weight.cdc",
+        [poolID, receiverID],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Remove bonus prize weight")
+}
+
+/// Get a user's bonus weight for a pool
+access(all)
+fun getBonusWeight(_ poolID: UInt64, receiverID: UInt64): UFix64 {
+    let scriptResult = _executeScript("../scripts/test/get_bonus_weight.cdc", [poolID, receiverID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
+}
+
+/// Get a user's receiver ID for a pool
+access(all)
+fun getReceiverID(_ userAddress: Address, _ poolID: UInt64): UInt64 {
+    let scriptResult = _executeScript("../scripts/test/get_receiver_id.cdc", [userAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UInt64
+}
+
+/// Get user's total weight (TWAB + bonus) in current round
+access(all)
+fun getUserTotalWeight(_ userAddress: Address, _ poolID: UInt64): UFix64 {
+    let scriptResult = _executeScript("../scripts/test/get_user_total_weight.cdc", [userAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
+}
+
+// ============================================================================
+// WINNER TRACKER HELPERS
+// ============================================================================
+
+/// Setup winner tracker on the deployer account
+access(all)
+fun setupWinnerTracker(maxSize: Int) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/setup_winner_tracker.cdc",
+        [maxSize],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Setup winner tracker")
+}
+
+/// Update pool's winner tracker capability
+access(all)
+fun updatePoolWinnerTracker(_ poolID: UInt64, trackerAddress: Address) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/update_pool_winner_tracker.cdc",
+        [poolID, trackerAddress],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Update pool winner tracker")
+}
+
+/// Clear pool's winner tracker (set to nil)
+access(all)
+fun clearPoolWinnerTracker(_ poolID: UInt64) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/test/clear_pool_winner_tracker.cdc",
+        [poolID],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Clear pool winner tracker")
+}
+
+/// Get recent winners from the tracker
+access(all)
+fun getRecentWinners(_ trackerAddress: Address, _ poolID: UInt64, limit: Int): [{String: AnyStruct}] {
+    let scriptResult = _executeScript("../scripts/test/get_recent_winners.cdc", [trackerAddress, poolID, limit])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! [{String: AnyStruct}]
+}
+
+/// Get total winner count from tracker
+access(all)
+fun getWinnerCount(_ trackerAddress: Address, _ poolID: UInt64): Int {
+    let scriptResult = _executeScript("../scripts/test/get_winner_count.cdc", [trackerAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! Int
+}
+
+/// Get NFT winner count from tracker
+access(all)
+fun getNFTWinnersCount(_ trackerAddress: Address, _ poolID: UInt64): Int {
+    let scriptResult = _executeScript("../scripts/test/get_nft_winners_count.cdc", [trackerAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! Int
+}
+
+/// Get the prize amount of the most recent winner for a pool
+access(all)
+fun getLastWinnerAmount(_ trackerAddress: Address, _ poolID: UInt64): UFix64 {
+    let scriptResult = _executeScript("../scripts/test/get_last_winner_amount.cdc", [trackerAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
+}
+
+/// Get the NFT IDs of the most recent winner for a pool
+access(all)
+fun getLastWinnerNFTIDs(_ trackerAddress: Address, _ poolID: UInt64): [UInt64] {
+    let scriptResult = _executeScript("../scripts/test/get_last_winner_nft_ids.cdc", [trackerAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! [UInt64]
+}
+
+/// Get the count of recent winners for a pool (up to the specified limit)
+access(all)
+fun getRecentWinnersCount(_ trackerAddress: Address, _ poolID: UInt64, limit: Int): Int {
+    let scriptResult = _executeScript("../scripts/test/get_recent_winners_count.cdc", [trackerAddress, poolID, limit])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! Int
+}
+
+/// Get the pool IDs from recent winners
+access(all)
+fun getRecentWinnerPoolIDs(_ trackerAddress: Address, _ poolID: UInt64, limit: Int): [UInt64] {
+    let scriptResult = _executeScript("../scripts/test/get_recent_winner_pool_ids.cdc", [trackerAddress, poolID, limit])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! [UInt64]
+}
+
