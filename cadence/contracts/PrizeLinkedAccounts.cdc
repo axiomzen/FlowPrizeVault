@@ -465,7 +465,41 @@ access(all) contract PrizeLinkedAccounts {
     /// @param poolID - Pool whose emergency config was updated
     /// @param adminUUID - UUID of the Admin resource updating the config (audit trail)
     access(all) event EmergencyConfigUpdated(poolID: UInt64, adminUUID: UInt64)
-    
+
+    /// Emitted when a yield connector migration is started.
+    /// @param poolID - Pool undergoing migration
+    /// @param oldConnectorType - Type identifier of the old connector
+    /// @param newConnectorType - Type identifier of the new connector
+    /// @param totalFundsToMigrate - Total funds that need to be migrated
+    /// @param adminUUID - UUID of the Admin resource performing the migration (audit trail)
+    /// @param timestamp - Block timestamp when migration started
+    access(all) event YieldConnectorMigrationStarted(
+        poolID: UInt64,
+        oldConnectorType: String,
+        newConnectorType: String,
+        totalFundsToMigrate: UFix64,
+        adminUUID: UInt64,
+        timestamp: UFix64
+    )
+
+    /// Emitted when a yield connector migration is completed.
+    /// @param poolID - Pool that completed migration
+    /// @param oldConnectorType - Type identifier of the old connector
+    /// @param newConnectorType - Type identifier of the new connector
+    /// @param fundsWithdrawn - Amount withdrawn from old connector
+    /// @param fundsDeposited - Amount deposited to new connector
+    /// @param adminUUID - UUID of the Admin resource performing the migration (audit trail)
+    /// @param timestamp - Block timestamp when migration completed
+    access(all) event YieldConnectorMigrationCompleted(
+        poolID: UInt64,
+        oldConnectorType: String,
+        newConnectorType: String,
+        fundsWithdrawn: UFix64,
+        fundsDeposited: UFix64,
+        adminUUID: UInt64,
+        timestamp: UFix64
+    )
+
     /// Emitted when a withdrawal fails (usually due to yield source liquidity issues).
     /// Multiple consecutive failures may trigger emergency mode.
     /// @param poolID - Pool where withdrawal failed
@@ -593,7 +627,27 @@ access(all) contract PrizeLinkedAccounts {
             self.minRecoveryHealth = minRecoveryHealth ?? 0.5
         }
     }
-    
+
+    /// Result of a yield connector migration operation.
+    /// Contains details about funds moved between connectors.
+    access(all) struct MigrationResult {
+        /// Amount withdrawn from the old connector
+        access(all) let fundsWithdrawn: UFix64
+        /// Amount deposited to the new connector
+        access(all) let fundsDeposited: UFix64
+        /// Type identifier of the old connector
+        access(all) let oldConnectorType: String
+        /// Type identifier of the new connector
+        access(all) let newConnectorType: String
+
+        init(fundsWithdrawn: UFix64, fundsDeposited: UFix64, oldConnectorType: String, newConnectorType: String) {
+            self.fundsWithdrawn = fundsWithdrawn
+            self.fundsDeposited = fundsDeposited
+            self.oldConnectorType = oldConnectorType
+            self.newConnectorType = newConnectorType
+        }
+    }
+
     /// Creates a default EmergencyConfig with sensible production defaults.
     /// - 24 hour max emergency duration
     /// - Auto-recovery enabled
@@ -1150,8 +1204,32 @@ access(all) contract PrizeLinkedAccounts {
                 totalReceivers: result["totalReceivers"] ?? 0,
                 adminUUID: self.uuid
             )
-            
+
             return result
+        }
+
+        /// Migrates a pool's yield connector to a new one.
+        ///
+        /// This operation atomically withdraws all funds from the old connector
+        /// and deposits them to the new connector.
+        ///
+        /// REQUIREMENTS:
+        /// - No active draw in progress
+        /// - Old connector must have full liquidity (no partial migrations)
+        /// - New connector must accept the same asset type
+        ///
+        /// @param poolID - ID of the pool to migrate
+        /// @param newConnector - New yield connector implementing Sink and Source
+        /// @return MigrationResult with details of funds transferred
+        access(CriticalOps) fun migratePoolYieldConnector(
+            poolID: UInt64,
+            newConnector: {DeFiActions.Sink, DeFiActions.Source}
+        ): MigrationResult {
+            let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
+            return poolRef.migrateYieldConnector(
+                newConnector: newConnector,
+                adminUUID: self.uuid
+            )
         }
 
     }
@@ -2544,8 +2622,8 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Yield source connection (implements both deposit and withdraw).
         /// Handles depositing funds to earn yield and withdrawing for prizes/redemptions.
-        /// Immutable after pool creation.
-        access(contract) let yieldConnector: {DeFiActions.Sink, DeFiActions.Source}
+        /// Can be migrated via admin's migratePoolYieldConnector.
+        access(contract) var yieldConnector: {DeFiActions.Sink, DeFiActions.Source}
         
         /// Strategy for distributing yield between rewards, prize, and protocol fee.
         /// Can be updated by admin with CriticalOps entitlement.
@@ -2620,7 +2698,13 @@ access(all) contract PrizeLinkedAccounts {
             }
             self.minimumDeposit = minimum
         }
-        
+
+        /// Updates the yield connector for migration.
+        /// @param connector - New yield connector (must implement Sink and Source)
+        access(contract) fun setYieldConnector(connector: {DeFiActions.Sink, DeFiActions.Source}) {
+            self.yieldConnector = connector
+        }
+
         /// Returns the distribution strategy name for display.
         access(all) view fun getDistributionStrategyName(): String {
             return self.distributionStrategy.getStrategyName()
@@ -4082,7 +4166,98 @@ access(all) contract PrizeLinkedAccounts {
                 absorbedByRewards: absorbedByRewards
             )
         }
-        
+
+        // ============================================================
+        // YIELD CONNECTOR MIGRATION
+        // ============================================================
+
+        /// Migrates all funds from the current yield connector to a new one.
+        ///
+        /// This operation is atomic - either all funds are successfully migrated
+        /// or the transaction reverts.
+        ///
+        /// PRECONDITIONS:
+        /// - No active draw in progress (pendingDrawRound must be nil)
+        ///
+        /// FAILS IF:
+        /// - Old connector doesn't have full liquidity
+        /// - New connector cannot accept the full deposit
+        /// - Asset types don't match
+        ///
+        /// @param newConnector - New yield connector to migrate to
+        /// @param adminUUID - UUID of admin performing migration (for audit trail)
+        /// @return MigrationResult with details of funds transferred
+        access(contract) fun migrateYieldConnector(
+            newConnector: {DeFiActions.Sink, DeFiActions.Source},
+            adminUUID: UInt64
+        ): MigrationResult {
+            pre {
+                self.pendingDrawRound == nil:
+                    "Cannot migrate during active draw"
+            }
+
+            let now = getCurrentBlock().timestamp
+            let oldConnectorType = self.config.yieldConnector.getType().identifier
+            let newConnectorType = newConnector.getType().identifier
+
+            // Validate asset type compatibility
+            assert(newConnector.getSinkType() == self.config.assetType,
+                message: "New connector sink type doesn't match pool asset type")
+            assert(newConnector.getSourceType() == self.config.assetType,
+                message: "New connector source type doesn't match pool asset type")
+
+            let totalAllocated = self.getTotalAllocatedFunds()
+
+            emit YieldConnectorMigrationStarted(
+                poolID: self.poolID,
+                oldConnectorType: oldConnectorType,
+                newConnectorType: newConnectorType,
+                totalFundsToMigrate: totalAllocated,
+                adminUUID: adminUUID,
+                timestamp: now
+            )
+
+            // Withdraw all funds - FAIL if not full liquidity
+            let withdrawnVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: totalAllocated)
+            let actualWithdrawn = withdrawnVault.balance
+
+            assert(actualWithdrawn >= totalAllocated,
+                message: "Insufficient liquidity in old connector. Available: "
+                    .concat(actualWithdrawn.toString())
+                    .concat(", Required: ")
+                    .concat(totalAllocated.toString()))
+
+            // Deposit to new connector
+            let beforeBalance = withdrawnVault.balance
+            newConnector.depositCapacity(from: &withdrawnVault as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
+            let actualDeposited = beforeBalance - withdrawnVault.balance
+
+            assert(withdrawnVault.balance == 0.0,
+                message: "New connector could not accept full deposit")
+
+            destroy withdrawnVault
+
+            // Update connector reference
+            self.config.setYieldConnector(connector: newConnector)
+
+            emit YieldConnectorMigrationCompleted(
+                poolID: self.poolID,
+                oldConnectorType: oldConnectorType,
+                newConnectorType: newConnectorType,
+                fundsWithdrawn: actualWithdrawn,
+                fundsDeposited: actualDeposited,
+                adminUUID: adminUUID,
+                timestamp: now
+            )
+
+            return MigrationResult(
+                fundsWithdrawn: actualWithdrawn,
+                fundsDeposited: actualDeposited,
+                oldConnectorType: oldConnectorType,
+                newConnectorType: newConnectorType
+            )
+        }
+
         // ============================================================
         // LOTTERY DRAW OPERATIONS
         // ============================================================
