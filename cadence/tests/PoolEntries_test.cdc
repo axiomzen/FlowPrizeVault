@@ -183,52 +183,35 @@ access(all) fun testEntriesDecreaseWithWithdrawal() {
     )
 }
 
-access(all) fun testEntriesDecreaseButRemainAfterFullWithdrawal() {
-    // Entries are based on TWAB (Time-Weighted Average Balance).
-    // Even after withdrawal, the user retains entries from their historical contribution.
-    // If deposited for half the interval, they should have ~50% of their entries remaining.
-    
+access(all) fun testEntriesZeroAfterFullWithdrawal() {
+    // After full withdrawal, entries should be ZERO.
+    // This is intentional security behavior:
+    // - Users must maintain deposits to have lottery entries
+    // - Prevents "risk-free lottery" where users withdraw but keep entries
+    // - The safety cap ensures weight never exceeds current shares
+
     let poolID = createTestPoolWithMediumInterval()
     let depositAmount: UFix64 = 100.0
-    
+
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
+
     // Wait for half the interval (30s of 60s)
     Test.moveTime(by: 30.0)
-    
+
     // Verify we have entries before withdrawal
     let entriesBefore = getUserEntries(user.address, poolID)
     Test.assert(entriesBefore > 0.0, message: "Should have entries before withdrawal")
-    
+
     // Withdraw everything
     withdrawFromPool(user, poolID: poolID, amount: depositAmount)
-    
-    // Entries should NOT be zero - user still has TWAB from time deposited
+
+    // Entries should be ZERO after full withdrawal
+    // User forfeits lottery eligibility when they remove their stake
     let entriesAfter = getUserEntries(user.address, poolID)
-    
-    // Entries should still be positive (historical contribution preserved)
-    Test.assert(
-        entriesAfter > 0.0,
-        message: "Entries should remain positive after withdrawal due to TWAB. Got: ".concat(entriesAfter.toString())
-    )
-    
-    // Entries should have decreased (no more future accumulation)
-    Test.assert(
-        entriesAfter < entriesBefore,
-        message: "Entries should decrease after withdrawal. Before: ".concat(entriesBefore.toString()).concat(", After: ").concat(entriesAfter.toString())
-    )
-    
-    // After withdrawing at halfway point, entries should be approximately half
-    // (100 balance * 30s) / 60s interval = 50 entries
-    let expectedEntries: UFix64 = 50.0
-    let tolerance: UFix64 = 5.0
-    let difference = entriesAfter > expectedEntries ? entriesAfter - expectedEntries : expectedEntries - entriesAfter
-    Test.assert(
-        difference < tolerance,
-        message: "After withdrawing at halfway, entries should be ~50, got: ".concat(entriesAfter.toString())
-    )
+
+    Test.assertEqual(0.0, entriesAfter)
 }
 
 // // ============================================================================

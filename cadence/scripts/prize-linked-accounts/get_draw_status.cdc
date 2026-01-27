@@ -50,6 +50,10 @@ access(all) struct DrawStatus {
     access(all) let batchProgress: BatchProgress?
     /// True if pool is in intermission (between rounds, activeRound is nil)
     access(all) let isInIntermission: Bool
+    /// Target end time for the current round (admin can modify before startDraw)
+    access(all) let targetEndTime: UFix64
+    /// Current block timestamp for reference
+    access(all) let currentTime: UFix64
 
     init(
         isDrawInProgress: Bool,
@@ -68,7 +72,9 @@ access(all) struct DrawStatus {
         isBatchComplete: Bool,
         isReadyForCompletion: Bool,
         batchProgress: BatchProgress?,
-        isInIntermission: Bool
+        isInIntermission: Bool,
+        targetEndTime: UFix64,
+        currentTime: UFix64
     ) {
         self.isDrawInProgress = isDrawInProgress
         self.canDrawNow = canDrawNow
@@ -87,6 +93,8 @@ access(all) struct DrawStatus {
         self.isReadyForCompletion = isReadyForCompletion
         self.batchProgress = batchProgress
         self.isInIntermission = isInIntermission
+        self.targetEndTime = targetEndTime
+        self.currentTime = currentTime
     }
 }
 
@@ -129,6 +137,8 @@ access(all) fun main(poolID: UInt64): DrawStatus {
         isBatchComplete: poolRef.isDrawBatchComplete(),
         isReadyForCompletion: poolRef.isReadyForDrawCompletion(),
         batchProgress: batchProgress,
-        isInIntermission: poolRef.isInIntermission()
+        isInIntermission: poolRef.isInIntermission(),
+        targetEndTime: poolRef.getCurrentRoundTargetEndTime(),
+        currentTime: getCurrentBlock().timestamp
     )
 }
