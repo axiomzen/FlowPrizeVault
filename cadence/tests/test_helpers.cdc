@@ -338,17 +338,6 @@ fun withdrawFromPool(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64
 }
 
 access(all)
-fun processRewards(_ poolID: UInt64) {
-    let deployerAccount = getDeployerAccount()
-    let processResult = _executeTransaction(
-        "../transactions/test/process_pool_rewards.cdc",
-        [poolID],
-        deployerAccount
-    )
-    assertTransactionSucceeded(processResult, context: "Process pool rewards")
-}
-
-access(all)
 fun fundPrizePool(_ poolID: UInt64, amount: UFix64) {
     let deployerAccount = getDeployerAccount()
     
@@ -777,18 +766,6 @@ fun updateDrawInterval(poolID: UInt64, newInterval: UFix64) {
 }
 
 access(all)
-fun updateDrawIntervalForFutureOnly(poolID: UInt64, newInterval: UFix64) {
-    // Only updates future rounds, not the current round
-    let deployerAccount = getDeployerAccount()
-    let result = _executeTransaction(
-        "../transactions/test/update_draw_interval.cdc",
-        [poolID, newInterval],
-        deployerAccount
-    )
-    assertTransactionSucceeded(result, context: "Update draw interval (future only)")
-}
-
-access(all)
 fun updateMinimumDeposit(poolID: UInt64, newMinimum: UFix64) {
     let deployerAccount = getDeployerAccount()
     let result = _executeTransaction(
@@ -1028,8 +1005,7 @@ fun fullAdminDelegateEnableEmergency(_ delegate: Test.TestAccount, poolID: UInt6
 // YIELD SOURCE SIMULATION HELPERS
 // ============================================================================
 
-// Vault prefix constants for different pool creation methods
-access(all) let VAULT_PREFIX_STANDARD: String = "testYieldVault_"
+// Vault prefix constant for pool creation methods
 access(all) let VAULT_PREFIX_DISTRIBUTION: String = "testYieldVaultDist_"
 
 access(all)
@@ -1151,12 +1127,6 @@ fun isWithinTolerance(_ actual: UFix64, _ expected: UFix64, _ tolerance: UFix64)
     return diff <= tolerance
 }
 
-/// Helper to get the UFix64 precision (smallest representable value)
-access(all)
-fun getUFix64Precision(): UFix64 {
-    return 0.00000001
-}
-
 // ============================================================================
 // EXTREME AMOUNT TESTING HELPERS (Minting)
 // ============================================================================
@@ -1180,10 +1150,10 @@ fun mintFlowToAccount(_ account: Test.TestAccount, amount: UFix64) {
 access(all)
 fun simulateExtremeYieldAppreciation(poolIndex: Int, amount: UFix64, vaultPrefix: String) {
     let deployerAccount = getDeployerAccount()
-    
+
     // Mint tokens instead of transferring from limited balance
     mintFlowToAccount(deployerAccount, amount: amount + 1.0)
-    
+
     let result = _executeTransaction(
         "../transactions/test/add_yield_to_pool_vault.cdc",
         [poolIndex, amount, vaultPrefix],
@@ -1271,13 +1241,6 @@ fun mintMockNFTWithUUID(recipient: Test.TestAccount, name: String, description: 
     let uuid = getMockNFTUUID(recipient.address, newID)
 
     return {"id": newID, "uuid": uuid}
-}
-
-/// Mint a MockNFT and return its ID (for backwards compatibility)
-access(all)
-fun mintMockNFT(recipient: Test.TestAccount, name: String, description: String): UInt64 {
-    let result = mintMockNFTWithUUID(recipient: recipient, name: name, description: description)
-    return result["id"]!
 }
 
 /// Setup a MockNFT collection for a user
@@ -1528,14 +1491,6 @@ fun getReceiverID(_ userAddress: Address, _ poolID: UInt64): UInt64 {
     return scriptResult.returnValue! as! UInt64
 }
 
-/// Get user's total weight (TWAB + bonus) in current round
-access(all)
-fun getUserTotalWeight(_ userAddress: Address, _ poolID: UInt64): UFix64 {
-    let scriptResult = _executeScript("../scripts/test/get_user_total_weight.cdc", [userAddress, poolID])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! UFix64
-}
-
 // ============================================================================
 // WINNER TRACKER HELPERS
 // ============================================================================
@@ -1630,5 +1585,41 @@ fun getRecentWinnerPoolIDs(_ trackerAddress: Address, _ poolID: UInt64, limit: I
     let scriptResult = _executeScript("../scripts/test/get_recent_winner_pool_ids.cdc", [trackerAddress, poolID, limit])
     Test.expect(scriptResult, Test.beSucceeded())
     return scriptResult.returnValue! as! [UInt64]
+}
+
+// ============================================================================
+// ROUND TARGET END TIME HELPERS
+// ============================================================================
+
+/// Update the current round's target end time (extend or shorten the round)
+access(all)
+fun updateRoundTargetEndTime(_ poolID: UInt64, newTargetEndTime: UFix64) {
+    let deployerAccount = getDeployerAccount()
+    let result = _executeTransaction(
+        "../transactions/prize-linked-accounts/update_round_target_end_time.cdc",
+        [poolID, newTargetEndTime],
+        deployerAccount
+    )
+    assertTransactionSucceeded(result, context: "Update round target end time")
+}
+
+/// Update round target end time and expect failure (for testing error cases)
+access(all)
+fun updateRoundTargetEndTimeExpectFailure(_ poolID: UInt64, newTargetEndTime: UFix64): Test.TransactionResult {
+    let deployerAccount = getDeployerAccount()
+    let txn = Test.Transaction(
+        code: Test.readFile("../transactions/prize-linked-accounts/update_round_target_end_time.cdc"),
+        authorizers: [deployerAccount.address],
+        signers: [deployerAccount],
+        arguments: [poolID, newTargetEndTime]
+    )
+    return Test.executeTransaction(txn)
+}
+
+/// Get the current round's target end time
+access(all)
+fun getRoundTargetEndTime(_ poolID: UInt64): UFix64 {
+    let status = getDrawStatus(poolID)
+    return status["targetEndTime"] as? UFix64 ?? 0.0
 }
 

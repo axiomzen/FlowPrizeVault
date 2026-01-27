@@ -389,34 +389,40 @@ access(all) fun testGapPeriodUserEntriesInEndedRound() {
     )
 }
 
-access(all) fun testGapPeriodDoesNotAffectPriorRoundEntries() {
+access(all) fun testGapPeriodGivesProportionalWeight() {
     let poolID = createTestPoolWithMediumInterval()
     let depositAmount: UFix64 = 100.0
-    
+
     // Setup user at start of round
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
+
     // Fund prize
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
-    
-    // Wait for round to end
-    Test.moveTime(by: 61.0)
-    
-    // Gap user joins during gap
+
+    // Wait for round to end (60s) plus some gap time (10s more)
+    Test.moveTime(by: 70.0)
+
+    // Gap user joins during gap - they get proportional weight for the short time
+    // until startDraw() is called
     let gapUser = Test.createAccount()
     setupUserWithFundsAndCollection(gapUser, amount: depositAmount + 10.0)
     depositToPool(gapUser, poolID: poolID, amount: depositAmount)
-    
+
+    // Wait a tiny bit more so gap user has some time in the round
+    Test.moveTime(by: 1.0)
+
     // Execute draw
     executeFullDraw(user, poolID: poolID)
-    
-    // The original user should have won (gapUser had 0 entries in round 1)
+
+    // The original user should have won (gapUser had tiny entries in round 1)
+    // Since gap user only had ~1 second vs original user's ~71 seconds,
+    // original user has ~99% of weight
     let userPrizes = getUserPrizes(user.address, poolID)
     Test.assertEqual(DEFAULT_PRIZE_AMOUNT, userPrizes["totalEarnedPrizes"]!)
-    
-    // Gap user should have 0 prizes (wasn't eligible in round 1)
+
+    // Gap user gets proportional weight but since it's so small, they still lose
     let gapUserPrizes = getUserPrizes(gapUser.address, poolID)
     Test.assertEqual(0.0, gapUserPrizes["totalEarnedPrizes"]!)
 }

@@ -243,7 +243,7 @@ access(all) fun testSponsorEarnsRewardsYield() {
     fundPrizePool(poolID, amount: 10.0)
     
     // Process rewards
-    processRewards(poolID)
+    processPoolRewards(poolID: poolID)
     
     // Sponsor should have earned rewards interest
     let sponsorBalance = getSponsorBalance(sponsor.address, poolID)
@@ -271,7 +271,7 @@ access(all) fun testSponsorAndRegularUserBothEarnYield() {
     
     // Simulate yield
     fundPrizePool(poolID, amount: 20.0)
-    processRewards(poolID)
+    processPoolRewards(poolID: poolID)
     
     // Both should have their deposits intact
     let sponsorBalance = getSponsorBalance(sponsor.address, poolID)

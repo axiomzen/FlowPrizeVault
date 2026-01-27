@@ -4,7 +4,7 @@ import "PrizeLinkedAccounts"
 access(all) fun main(poolID: UInt64): {String: AnyStruct} {
     let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)
         ?? panic("Pool not found")
-    
+
     return {
         "canDrawNow": poolRef.canDrawNow(),
         "isDrawInProgress": poolRef.isDrawInProgress(),
@@ -19,6 +19,8 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
         "isBatchComplete": poolRef.isDrawBatchComplete(),
         "isReadyForCompletion": poolRef.isReadyForDrawCompletion(),
         "batchProgress": poolRef.getDrawBatchProgress(),
-        "isInIntermission": poolRef.isInIntermission()
+        "isInIntermission": poolRef.isInIntermission(),
+        "targetEndTime": poolRef.getCurrentRoundTargetEndTime(),
+        "currentTime": getCurrentBlock().timestamp
     }
 }

@@ -62,31 +62,33 @@ access(all) fun testDepositOneSecondBeforeRoundEnd() {
 access(all) fun testDepositAfterRoundEnded() {
     let poolID = createTestPoolWithMediumInterval() // 60 second interval
     let depositAmount: UFix64 = 100.0
-    
+
     // Setup initial user first
     let existingUser = Test.createAccount()
     setupUserWithFundsAndCollection(existingUser, amount: depositAmount + 10.0)
     depositToPool(existingUser, poolID: poolID, amount: depositAmount)
-    
+
     // Wait for round to end
     Test.moveTime(by: 61.0)
-    
+
     // Fund prize
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
-    
+
     // Deposit after round has ended (gap period)
+    // Late user gets proportional weight from deposit time until startDraw()
     let lateUser = Test.createAccount()
     setupUserWithFundsAndCollection(lateUser, amount: depositAmount + 10.0)
     depositToPool(lateUser, poolID: poolID, amount: depositAmount)
-    
-    // Execute draw
+
+    // Execute draw immediately - late user has ~0 seconds of weight
     executeFullDraw(existingUser, poolID: poolID)
-    
-    // Late user should NOT have won the prize (0 entries in round 1)
+
+    // Late user has tiny proportional weight (deposit to startDraw = ~0 seconds)
+    // They won't win because existing user has ~61 seconds of weight
     let latePrizes = getUserPrizes(lateUser.address, poolID)
     Test.assertEqual(0.0, latePrizes["totalEarnedPrizes"]!)
-    
-    // Existing user should have won
+
+    // Existing user should have won (they have ~99%+ of total weight)
     let existingPrizes = getUserPrizes(existingUser.address, poolID)
     Test.assertEqual(DEFAULT_PRIZE_AMOUNT, existingPrizes["totalEarnedPrizes"]!)
 }
