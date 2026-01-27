@@ -1330,44 +1330,12 @@ access(all) contract PrizeLinkedAccounts {
     // ============================================================
     
     /// Represents a single prize round with NORMALIZED TWAB tracking.
-    /// 
-    /// Each round is a separate resource that tracks:
-    /// - Round timing (ID, start time, actual end time when finalized)
-    /// - User normalized TWAB (time-weighted average shares)
-    /// 
-    /// KEY CONCEPTS:
-    /// 
-    /// Normalized TWAB:
-    /// - Stores shares × (elapsed / roundDuration) = "average shares"
-    /// - Values are proportional to share balances (~TVL), bounded and predictable
-    /// - Maximum weight ≈ max shares held, regardless of round duration
-    /// - Winner probabilities are fair (all weights scaled equally)
-    /// - Supports unlimited TVL and any round duration within UFix64 limits
-    /// 
-    /// Example:
-    /// - User holds 1M shares for full 7-day round: weight = 1M
-    /// - User holds 1M shares for half the round: weight = 500K
-    /// - User deposits 1M at round end: weight ≈ 0
-    /// 
-    /// ADMIN BEHAVIOR:
-    /// - updatePoolDrawIntervalForFutureRounds(): Changes interval for future rounds only
-    /// - The current round's duration is immutable once created
-    /// - To change the prize window, wait until the next round
-    /// 
-    /// Round Lifecycle:
-    /// 1. Round created with startTime and duration (immutable)
-    /// 2. Active: deposits/withdrawals accumulate normalized weight
-    /// 3. Gap period: duration passed but startDraw() not called yet
-    ///    - Users depositing during gap have ZERO prize weight for this round
-    ///    - Their shares will count fully in the NEXT round
-    /// 4. Frozen: moved to pendingDrawRound, actualEndTime set
-    /// 5. Processing: finalizeTWAB() called for each user
-    /// 6. Destroyed: after completeDraw() distributes prizes
-    /// 
-    /// Gap Period Handling:
-    /// - Deposits after duration ends but before startDraw() have zero weight
-    /// - Weight is capped at round duration
-    /// - New round starts fresh with no inherited state
+    ///
+    /// TWAB uses a fixed TWAB_SCALE (1 year) for overflow protection, then normalizes
+    /// by actual duration at finalization to get "average shares".
+    /// Weight accumulation continues until startDraw() is called (actualEndTime).
+    ///
+    /// Round Lifecycle: Created → Active → Frozen → Processing → Destroyed
     
     access(all) resource Round {
         /// Unique identifier for this round (increments each draw).
@@ -1376,16 +1344,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Timestamp when this round started.
         access(all) let startTime: UFix64
 
-        /// Minimum time before startDraw() can be called.
-        /// Admin can update this to extend or shorten the round (before startDraw).
-        ///
-        /// This controls:
-        /// - When hasEnded() returns true (when startDraw() can be called)
-        /// - The target end time for this round
-        ///
-        /// Note: TWAB is normalized by ACTUAL elapsed time at finalization, not
-        /// by targetEndTime. This means extending/shortening the round doesn't
-        /// unfairly change existing users' prize odds - TWAB math adapts automatically.
+        /// Target end time for this round. Admin can adjust before startDraw().
         access(self) var targetEndTime: UFix64
 
         /// Fixed scale for TWAB accumulation (1 year in seconds = 31,536,000).
@@ -1461,9 +1420,6 @@ access(all) contract PrizeLinkedAccounts {
         /// of round duration or TVL. Final normalization to "average shares" happens
         /// in finalizeTWAB() using the actual elapsed time.
         ///
-        /// Elapsed time is clamped to the target end time, so weight accumulation
-        /// stops when the round target is reached (no weight for gap period time).
-        ///
         /// @param receiverID - User's receiver ID
         /// @param upToTime - Time to accumulate up to
         /// @param withShares - Shares to use for accumulation
@@ -1476,65 +1432,20 @@ access(all) contract PrizeLinkedAccounts {
 
             // Only accumulate if time has passed
             if upToTime > lastUpdate {
-                // Clamp to target end time - no weight accumulation during gap periods
-                let clampedEndTime = upToTime < self.targetEndTime ? upToTime : self.targetEndTime
-
-                if clampedEndTime > lastUpdate {
-                    let elapsed = clampedEndTime - lastUpdate
-
-                    // SCALED: divide by fixed TWAB_SCALE to keep values manageable
-                    let scaledPending = withShares * (elapsed / self.TWAB_SCALE)
-
-                    let current = self.userScaledTWAB[receiverID] ?? 0.0
-                    self.userScaledTWAB[receiverID] = current + scaledPending
-                }
+                let elapsed = upToTime - lastUpdate
+                let scaledPending = withShares * (elapsed / self.TWAB_SCALE)
+                let current = self.userScaledTWAB[receiverID] ?? 0.0
+                self.userScaledTWAB[receiverID] = current + scaledPending
                 self.userLastUpdateTime[receiverID] = upToTime
-            }
-        }
-        
-        /// Finalizes a user's TWAB for gap period handling.
-        /// Called when user interacts during gap period to lock in their TWAB.
-        ///
-        /// Accumulates up to the target end time (not beyond) since gap period
-        /// time doesn't count towards prize weight.
-        ///
-        /// @param receiverID - User's receiver ID
-        /// @param currentShares - User's current share balance
-        /// @param endTime - The effective end time for this round (typically targetEndTime)
-        access(contract) fun finalizeUserForGap(
-            receiverID: UInt64,
-            currentShares: UFix64,
-            endTime: UFix64
-        ) {
-            // Clamp endTime to targetEndTime - gap period doesn't count for weight
-            let clampedEndTime = endTime < self.targetEndTime ? endTime : self.targetEndTime
-
-            // If user already has data, accumulate up to clamped end time
-            if self.userLastUpdateTime[receiverID] != nil {
-                let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
-                self.accumulatePendingTWAB(receiverID: receiverID, upToTime: clampedEndTime, withShares: shares)
-            } else {
-                // First interaction during gap: they had currentShares for full round up to target
-                let effectiveDuration = clampedEndTime - self.startTime
-                // SCALED: use fixed TWAB_SCALE for accumulation
-                let scaledTWAB = currentShares * (effectiveDuration / self.TWAB_SCALE)
-
-                self.userScaledTWAB[receiverID] = scaledTWAB
-                self.userLastUpdateTime[receiverID] = endTime
-                self.userSharesAtLastUpdate[receiverID] = currentShares
             }
         }
         
         /// Calculates the finalized TWAB for a user at the actual round end.
         /// Called during processDrawBatch() to get each user's final weight.
         ///
-        /// Returns "average shares" (normalized by actual duration), NOT share-seconds.
+        /// Returns "average shares" (normalized by actual duration).
         /// For a user who held X shares for the entire round, returns X.
         /// For a user who held X shares for half the round, returns X/2.
-        ///
-        /// Uses ACTUAL elapsed time for normalization, which means:
-        /// - Admin extending targetEndTime doesn't change existing users' TWAB unfairly
-        /// - The math adapts automatically to the actual round duration
         ///
         /// @param receiverID - User's receiver ID
         /// @param currentShares - User's current share balance (for lazy users)
@@ -1550,31 +1461,21 @@ access(all) contract PrizeLinkedAccounts {
             let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
             let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
 
-            // Clamp round end time to target end time (no weight for gap period)
-            let clampedEndTime = roundEndTime < self.targetEndTime ? roundEndTime : self.targetEndTime
-
-            // Calculate pending scaled accumulation from last update to clamped end
             var scaledPending: UFix64 = 0.0
-            if clampedEndTime > lastUpdate {
-                let elapsed = clampedEndTime - lastUpdate
-                // SCALED: shares × (elapsed / TWAB_SCALE)
+            if roundEndTime > lastUpdate {
+                let elapsed = roundEndTime - lastUpdate
                 scaledPending = shares * (elapsed / self.TWAB_SCALE)
             }
 
             let totalScaled = accumulated + scaledPending
-
-            // Normalize by ACTUAL duration (from start to actual round end, clamped to target)
-            let actualDuration = clampedEndTime - self.startTime
+            let actualDuration = roundEndTime - self.startTime
             if actualDuration == 0.0 {
                 return 0.0
             }
 
-            // Final normalization: scaledTWAB × (TWAB_SCALE / actualDuration)
-            // This converts scaled values back to "average shares" for the actual round duration
             let normalizedWeight = totalScaled * (self.TWAB_SCALE / actualDuration)
 
-            // SAFETY CAP: Weight should never exceed shares (defense in depth)
-            // This invariant ensures fair prize distribution and prevents edge case bugs
+            // SAFETY: cap weight to shares
             if normalizedWeight > shares {
                 return shares
             }
@@ -1584,8 +1485,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns the current TWAB for a user (for view functions).
         /// Calculates accumulated + pending up to current time, normalized by elapsed time.
         ///
-        /// Returns "average shares" (normalized), NOT share-seconds.
-        /// Values are clamped to target end time to prevent inflation.
+        /// Returns "average shares" (normalized by elapsed time).
         ///
         /// @param receiverID - User's receiver ID
         /// @param currentShares - User's current share balance
@@ -1600,29 +1500,19 @@ access(all) contract PrizeLinkedAccounts {
             let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
             let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
 
-            // Clamp time to target end time - no weight during gap period
-            let clampedTime = atTime < self.targetEndTime ? atTime : self.targetEndTime
-
-            // Calculate pending scaled weight from last update to clamped time
             var scaledPending: UFix64 = 0.0
-            if clampedTime > lastUpdate {
-                let elapsed = clampedTime - lastUpdate
-                // SCALED: shares × (elapsed / TWAB_SCALE)
+            if atTime > lastUpdate {
+                let elapsed = atTime - lastUpdate
                 scaledPending = shares * (elapsed / self.TWAB_SCALE)
             }
 
             let totalScaled = accumulated + scaledPending
-
-            // Normalize by elapsed time from start
-            let elapsedFromStart = clampedTime - self.startTime
+            let elapsedFromStart = atTime - self.startTime
             if elapsedFromStart == 0.0 {
                 return 0.0
             }
 
-            // Final normalization: scaledTWAB × (TWAB_SCALE / elapsedFromStart)
             let normalizedWeight = totalScaled * (self.TWAB_SCALE / elapsedFromStart)
-
-            // SAFETY CAP: Weight should never exceed shares (defense in depth)
             if normalizedWeight > shares {
                 return shares
             }
@@ -1811,12 +1701,7 @@ access(all) contract PrizeLinkedAccounts {
             // Cap at totalAssets to prevent underflow
             let actualDecrease = amount > self.totalAssets ? self.totalAssets : amount
             
-            // Decrease total assets, which decreases share price for everyone
             self.totalAssets = self.totalAssets - actualDecrease
-            
-            // Note: We do NOT decrease totalDistributed - that's historical tracking
-            // Note: We do NOT burn shares - share price naturally adjusts
-            
             return actualDecrease
         }
         
@@ -3690,7 +3575,7 @@ access(all) contract PrizeLinkedAccounts {
             let newShares = oldShares + newSharesMinted
             
             // Update TWAB in the active round (if not in intermission)
-            // Gap period is treated as a natural extension of the round until startDraw() is called
+            // Round extends naturally until startDraw() is called - record at actual timestamp
             // During intermission (activeRound == nil): no TWAB recorded, user gets weight when next round starts
             if let round = &self.activeRound as &Round? {
                 round.recordShareChange(
@@ -3701,16 +3586,6 @@ access(all) contract PrizeLinkedAccounts {
                 )
             }
 
-            // Also finalize in pending draw round if one exists (user interacting after startDraw)
-            if let pendingRound = &self.pendingDrawRound as &Round? {
-                let pendingEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
-                pendingRound.finalizeUserForGap(
-                    receiverID: receiverID,
-                    currentShares: oldShares,
-                    endTime: pendingEndTime
-                )
-            }
-            
             // Update pool total
             self.allocatedRewards = self.allocatedRewards + amount
             
@@ -3956,16 +3831,6 @@ access(all) contract PrizeLinkedAccounts {
                 )
             }
 
-            // Also finalize in pending draw round if one exists
-            if let pendingRound = &self.pendingDrawRound as &Round? {
-                let pendingEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
-                pendingRound.finalizeUserForGap(
-                    receiverID: receiverID,
-                    currentShares: oldShares,
-                    endTime: pendingEndTime
-                )
-            }
-            
             // Update pool total
             self.allocatedRewards = self.allocatedRewards - actualWithdrawn
             
@@ -4211,11 +4076,10 @@ access(all) contract PrizeLinkedAccounts {
         /// - New round created → becomes activeRound
         /// - Gap interactors handled by lazy fallback in new round
         /// 
-        /// FAIRNESS: Uses cumulative share-seconds so:
+        /// FAIRNESS: Uses time-weighted shares so:
         /// - More shares = more prize weight
         /// - Longer deposits = more prize weight
         /// - Share-based TWAB is stable against price fluctuations
-        /// - Duration changes don't affect stored TWAB (calculated at finalization)
         access(contract) fun startDraw() {
             pre {
                 self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: \(self.emergencyState.rawValue)"
@@ -4318,7 +4182,7 @@ access(all) contract PrizeLinkedAccounts {
                 let shares = self.shareTracker.getUserShares(receiverID: receiverID)
                 
                 // Finalize TWAB using actual round end time
-                // Returns NORMALIZED weight (≈ average shares), not share-seconds
+                // Returns NORMALIZED weight (≈ average shares)
                 let twabStake = pendingRound.finalizeTWAB(
                     receiverID: receiverID, 
                     currentShares: shares,
@@ -4957,7 +4821,7 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Returns the user's current TWAB for the active round.
         /// @param receiverID - User's receiver ID
-        /// @return Current share-seconds (accumulated + pending up to now)
+        /// @return Current TWAB (accumulated + pending up to now)
         access(all) view fun getUserTimeWeightedShares(receiverID: UInt64): UFix64 {
             if let round = &self.activeRound as &Round? {
                 let shares = self.shareTracker.getUserShares(receiverID: receiverID)
