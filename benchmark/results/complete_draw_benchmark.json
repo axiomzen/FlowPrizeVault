@@ -1,0 +1,14 @@
+[
+  {
+    "winner_count": 100,
+    "user_count": 200,
+    "phases": {
+      "startPoolDraw": 133,
+      "processDrawBatch": 688,
+      "requestDrawRandomness": 19,
+      "completePoolDraw": 2149
+    },
+    "computation_per_winner": 21.49,
+    "exceeded_limit": false
+  }
+]

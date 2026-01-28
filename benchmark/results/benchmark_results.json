@@ -1,0 +1,48 @@
+[
+  {
+    "timestamp": "2026-01-22T14:07:16.273222",
+    "user_count": 100,
+    "batch_size": 100,
+    "total_computation": 436,
+    "total_memory": 30267621,
+    "total_tx_count": 4,
+    "phases": [
+      {
+        "phase_name": "startPoolDraw",
+        "total_computation": 90,
+        "total_memory": 14641999,
+        "tx_count": 1,
+        "avg_computation_per_tx": 90.0,
+        "items_processed": 0,
+        "computation_per_item": 0.0
+      },
+      {
+        "phase_name": "processDrawBatch",
+        "total_computation": 334,
+        "total_memory": 0,
+        "tx_count": 1,
+        "avg_computation_per_tx": 334.0,
+        "items_processed": 100,
+        "computation_per_item": 3.34
+      },
+      {
+        "phase_name": "requestDrawRandomness",
+        "total_computation": 8,
+        "total_memory": 9189956,
+        "tx_count": 1,
+        "avg_computation_per_tx": 8.0,
+        "items_processed": 0,
+        "computation_per_item": 0.0
+      },
+      {
+        "phase_name": "completePoolDraw",
+        "total_computation": 4,
+        "total_memory": 6435666,
+        "tx_count": 1,
+        "avg_computation_per_tx": 4.0,
+        "items_processed": 0,
+        "computation_per_item": 0.0
+      }
+    ]
+  }
+]

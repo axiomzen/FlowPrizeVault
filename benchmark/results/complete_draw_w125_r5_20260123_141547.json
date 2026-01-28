@@ -1,0 +1,92 @@
+[
+  {
+    "winner_count": 125,
+    "user_count": 175,
+    "pool_id": 0,
+    "run_number": 1,
+    "timestamp": "2026-01-23T14:14:54.716609",
+    "phases": {
+      "startPoolDraw": 129,
+      "processDrawBatch": 573,
+      "requestDrawRandomness": 20,
+      "completePoolDraw": 107
+    },
+    "profile_path": null,
+    "computation_per_winner": 0.856,
+    "tx_id": "a73ecccc83a363654a3125220e24486a9d7511eb39e1b36699e64c6daaf651d8",
+    "exceeded_limit": false,
+    "computation_level": "LOW"
+  },
+  {
+    "winner_count": 125,
+    "user_count": 175,
+    "pool_id": 1,
+    "run_number": 2,
+    "timestamp": "2026-01-23T14:15:05.388771",
+    "phases": {
+      "startPoolDraw": 121,
+      "processDrawBatch": 622,
+      "requestDrawRandomness": 45,
+      "completePoolDraw": 2404
+    },
+    "profile_path": null,
+    "computation_per_winner": 19.232,
+    "tx_id": "6d17e9989817994bf8522e01eb59992478eb1ff56856ca92d7f8d04b3dac696c",
+    "exceeded_limit": false,
+    "computation_level": "MEDIUM"
+  },
+  {
+    "winner_count": 125,
+    "user_count": 175,
+    "pool_id": 2,
+    "run_number": 3,
+    "timestamp": "2026-01-23T14:15:16.034833",
+    "phases": {
+      "startPoolDraw": 122,
+      "processDrawBatch": 611,
+      "requestDrawRandomness": 46,
+      "completePoolDraw": 2472
+    },
+    "profile_path": null,
+    "computation_per_winner": 19.776,
+    "tx_id": "4c37e26ab0f0987ced8503a2cc2292954d2cb3da5c0a2cd10321f18afc0a1357",
+    "exceeded_limit": false,
+    "computation_level": "MEDIUM"
+  },
+  {
+    "winner_count": 125,
+    "user_count": 175,
+    "pool_id": 3,
+    "run_number": 4,
+    "timestamp": "2026-01-23T14:15:26.605255",
+    "phases": {
+      "startPoolDraw": 130,
+      "processDrawBatch": 573,
+      "requestDrawRandomness": 45,
+      "completePoolDraw": 107
+    },
+    "profile_path": null,
+    "computation_per_winner": 0.856,
+    "tx_id": "3cfd2cd035f3537a8ee9d55a1a227c59d6b92a9a0f9c6bd48e5d8ec304f3ae85",
+    "exceeded_limit": false,
+    "computation_level": "LOW"
+  },
+  {
+    "winner_count": 125,
+    "user_count": 175,
+    "pool_id": 4,
+    "run_number": 5,
+    "timestamp": "2026-01-23T14:15:37.322170",
+    "phases": {
+      "startPoolDraw": 122,
+      "processDrawBatch": 622,
+      "requestDrawRandomness": 46,
+      "completePoolDraw": 2743
+    },
+    "profile_path": null,
+    "computation_per_winner": 21.944,
+    "tx_id": "2afb0f2077e058cee19a58f37c8decd9c45b1f84d7413d39f9662b5f5907f1fb",
+    "exceeded_limit": false,
+    "computation_level": "MEDIUM"
+  }
+]

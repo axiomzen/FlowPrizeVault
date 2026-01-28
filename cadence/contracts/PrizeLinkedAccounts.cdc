@@ -1366,6 +1366,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Key: receiverID, Value: timestamp of last update.
         access(self) var userLastUpdateTime: {UInt64: UFix64}
 
+
         /// User's shares at last update (for calculating pending accumulation).
         /// Key: receiverID, Value: shares balance at last update.
         access(self) var userSharesAtLastUpdate: {UInt64: UFix64}
@@ -1406,6 +1407,7 @@ access(all) contract PrizeLinkedAccounts {
         ) {
             // First, accumulate any pending scaled TWAB for old balance
             self.accumulatePendingTWAB(receiverID: receiverID, upToTime: atTime, withShares: oldShares)
+
 
             // Update shares snapshot for future accumulation
             self.userSharesAtLastUpdate[receiverID] = newShares
@@ -1560,6 +1562,7 @@ access(all) contract PrizeLinkedAccounts {
 
         /// Returns whether this round has reached its target end time.
         /// Used for "can we start a draw" check.
+        /// OPTIMIZATION: Uses pre-computed configuredEndTime.
         access(all) view fun hasEnded(): Bool {
             return getCurrentBlock().timestamp >= self.targetEndTime
         }
@@ -1571,14 +1574,17 @@ access(all) contract PrizeLinkedAccounts {
 
         /// Returns the target end time (same as getTargetEndTime for backward compatibility).
         /// Used for gap period detection.
+        /// OPTIMIZATION: Returns pre-computed value.
         access(all) view fun getConfiguredEndTime(): UFix64 {
             return self.targetEndTime
         }
+
 
         /// Returns the round ID.
         access(all) view fun getRoundID(): UInt64 {
             return self.roundID
         }
+
 
         /// Returns the round start time.
         access(all) view fun getStartTime(): UFix64 {
@@ -1596,14 +1602,10 @@ access(all) contract PrizeLinkedAccounts {
             return self.targetEndTime
         }
 
+
         /// Returns whether a user has been initialized in this round.
         access(all) view fun isUserInitialized(receiverID: UInt64): Bool {
             return self.userLastUpdateTime[receiverID] != nil
-        }
-
-        /// Returns the number of users with TWAB data.
-        access(all) view fun getInitializedUserCount(): Int {
-            return self.userLastUpdateTime.keys.length
         }
     }
     
@@ -2785,41 +2787,51 @@ access(all) contract PrizeLinkedAccounts {
             
             // Initialize PRNG
             let prg = self.createPRNG(seed: randomNumber)
-            
-            // Select winners without replacement
+
+            // OPTIMIZED: Binary search with rejection sampling O(k * log n) average
+            // Uses binary search for fast lookup, re-samples on collision
+            // More efficient than linear scan O(n * k) when k << n
             var winners: [UInt64] = []
             var selectedIndices: {Int: Bool} = {}
-            var remainingWeight = self.totalWeight
-            
+            let maxRetries = receiverCount * 3  // Safety limit to avoid infinite loops
+
             var selected = 0
-            while selected < actualCount && remainingWeight > 0.0 {
+            var retries = 0
+            while selected < actualCount && retries < maxRetries {
                 let rng = prg.nextUInt64()
                 let scaledRandom = UFix64(rng % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
-                let randomValue = scaledRandom * remainingWeight
-                
-                // Find winner skipping already-selected
-                var runningSum: UFix64 = 0.0
-                var selectedIdx = 0
-                
+                let randomValue = scaledRandom * self.totalWeight
+
+                // Use binary search to find candidate winner
+                let candidateIdx = self.findWinnerIndex(randomValue: randomValue)
+
+                // Check if already selected (rejection sampling)
+                if selectedIndices[candidateIdx] != nil {
+                    retries = retries + 1
+                    continue
+                }
+
+                // Accept this winner
+                winners.append(self.receiverIDs[candidateIdx])
+                selectedIndices[candidateIdx] = true
+                selected = selected + 1
+                retries = 0  // Reset retry counter on success
+            }
+
+            // Fallback: if we hit max retries (very unlikely), fill remaining with unselected
+            if selected < actualCount {
                 for i in InclusiveRange(0, receiverCount - 1) {
-                    if selectedIndices[i] != nil {
-                        continue
-                    }
-                    let weight = self.getWeight(at: i)
-                    runningSum = runningSum + weight
-                    if randomValue < runningSum {
-                        selectedIdx = i
+                    if selected >= actualCount {
                         break
                     }
+                    if selectedIndices[i] == nil {
+                        winners.append(self.receiverIDs[i])
+                        selectedIndices[i] = true
+                        selected = selected + 1
+                    }
                 }
-                
-                winners.append(self.receiverIDs[selectedIdx])
-                let selectedWeight = self.getWeight(at: selectedIdx)
-                selectedIndices[selectedIdx] = true
-                remainingWeight = remainingWeight - selectedWeight
-                selected = selected + 1
             }
-            
+
             return winners
         }
         

@@ -1,0 +1,56 @@
+[
+  {
+    "winner_count": 50,
+    "user_count": 100,
+    "pool_id": 0,
+    "run_number": 1,
+    "timestamp": "2026-01-23T14:14:06.755730",
+    "phases": {
+      "startPoolDraw": 90,
+      "processDrawBatch": 311,
+      "requestDrawRandomness": 20,
+      "completePoolDraw": 76
+    },
+    "profile_path": null,
+    "computation_per_winner": 1.52,
+    "tx_id": "42a85e07622b8290c983cc366165e652190b6cc03763ab26b5b39deed0203a4a",
+    "exceeded_limit": false,
+    "computation_level": "LOW"
+  },
+  {
+    "winner_count": 50,
+    "user_count": 100,
+    "pool_id": 1,
+    "run_number": 2,
+    "timestamp": "2026-01-23T14:14:16.571325",
+    "phases": {
+      "startPoolDraw": 89,
+      "processDrawBatch": 333,
+      "requestDrawRandomness": 44,
+      "completePoolDraw": 76
+    },
+    "profile_path": null,
+    "computation_per_winner": 1.52,
+    "tx_id": "ea0bb5cefa46ff48a83c7c11e2b2905c41fb1d287f93ba4e1e73fdce521a601f",
+    "exceeded_limit": false,
+    "computation_level": "LOW"
+  },
+  {
+    "winner_count": 50,
+    "user_count": 100,
+    "pool_id": 2,
+    "run_number": 3,
+    "timestamp": "2026-01-23T14:14:26.313705",
+    "phases": {
+      "startPoolDraw": 81,
+      "processDrawBatch": 382,
+      "requestDrawRandomness": 44,
+      "completePoolDraw": 2298
+    },
+    "profile_path": null,
+    "computation_per_winner": 45.96,
+    "tx_id": "1c627597f48da072083e78a33f0360fccc335ea9a06f04c4501682139a757592",
+    "exceeded_limit": false,
+    "computation_level": "MEDIUM"
+  }
+]
