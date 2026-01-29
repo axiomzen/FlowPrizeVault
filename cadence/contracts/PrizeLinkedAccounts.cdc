@@ -97,6 +97,9 @@ access(all) contract PrizeLinkedAccounts {
     /// This provides a safety margin for yield accrual and weight calculations.
     access(all) let SAFE_MAX_TVL: UFix64
 
+    /// Maximum bonus weight that can be assigned to a single user for promotional purposes.
+    access(all) let MAX_BONUS_WEIGHT_PER_USER: UFix64
+
     // ============================================================
     // STORAGE PATHS
     // ============================================================
@@ -365,7 +368,8 @@ access(all) contract PrizeLinkedAccounts {
     /// @param reason - Human-readable explanation for the bonus (e.g., "referral", "promotion")
     /// @param adminUUID - UUID of the Admin resource setting the bonus (audit trail)
     /// @param timestamp - Block timestamp when the bonus was set
-    access(all) event BonusPrizeWeightSet(poolID: UInt64, receiverID: UInt64, bonusWeight: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64)
+    /// @param ownerAddress - Address of the user receiving the bonus (for dashboard tracking)
+    access(all) event BonusPrizeWeightSet(poolID: UInt64, receiverID: UInt64, bonusWeight: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64, ownerAddress: Address?)
     
     /// Emitted when additional bonus weight is added to a user's existing bonus.
     /// @param poolID - Pool where bonus is being added
@@ -375,7 +379,8 @@ access(all) contract PrizeLinkedAccounts {
     /// @param reason - Human-readable explanation for the bonus addition
     /// @param adminUUID - UUID of the Admin resource adding the bonus (audit trail)
     /// @param timestamp - Block timestamp when the bonus was added
-    access(all) event BonusPrizeWeightAdded(poolID: UInt64, receiverID: UInt64, additionalWeight: UFix64, newTotalBonus: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64)
+    /// @param ownerAddress - Address of the user receiving the bonus (for dashboard tracking)
+    access(all) event BonusPrizeWeightAdded(poolID: UInt64, receiverID: UInt64, additionalWeight: UFix64, newTotalBonus: UFix64, reason: String, adminUUID: UInt64, timestamp: UFix64, ownerAddress: Address?)
     
     /// Emitted when a user's bonus prize weight is completely removed.
     /// @param poolID - Pool where bonus is being removed
@@ -383,7 +388,8 @@ access(all) contract PrizeLinkedAccounts {
     /// @param previousBonus - Bonus weight that was removed
     /// @param adminUUID - UUID of the Admin resource removing the bonus (audit trail)
     /// @param timestamp - Block timestamp when the bonus was removed
-    access(all) event BonusPrizeWeightRemoved(poolID: UInt64, receiverID: UInt64, previousBonus: UFix64, adminUUID: UInt64, timestamp: UFix64)
+    /// @param ownerAddress - Address of the user losing the bonus (for dashboard tracking)
+    access(all) event BonusPrizeWeightRemoved(poolID: UInt64, receiverID: UInt64, previousBonus: UFix64, adminUUID: UInt64, timestamp: UFix64, ownerAddress: Address?)
     
     // ============================================================
     // EVENTS - NFT Prize Management
@@ -402,7 +408,8 @@ access(all) contract PrizeLinkedAccounts {
     /// @param nftID - UUID of the awarded NFT
     /// @param nftType - Type identifier of the NFT
     /// @param round - Draw round number when the NFT was awarded
-    access(all) event NFTPrizeAwarded(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String, round: UInt64)
+    /// @param ownerAddress - Address of the winner (for dashboard tracking)
+    access(all) event NFTPrizeAwarded(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String, round: UInt64, ownerAddress: Address?)
     
     /// Emitted when an NFT is stored in pending claims for a winner.
     /// NFTs are stored rather than directly transferred since we don't have winner's collection reference.
@@ -411,14 +418,16 @@ access(all) contract PrizeLinkedAccounts {
     /// @param nftID - UUID of the stored NFT
     /// @param nftType - Type identifier of the NFT
     /// @param reason - Explanation for why NFT is pending (e.g., "prize_win")
-    access(all) event NFTPrizeStored(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String, reason: String)
+    /// @param ownerAddress - Address of the winner (for dashboard tracking)
+    access(all) event NFTPrizeStored(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String, reason: String, ownerAddress: Address?)
     
     /// Emitted when a winner claims their pending NFT prize.
     /// @param poolID - Pool from which NFT is claimed
     /// @param receiverID - UUID of the claimant's PoolPositionCollection
     /// @param nftID - UUID of the claimed NFT
     /// @param nftType - Type identifier of the NFT
-    access(all) event NFTPrizeClaimed(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String)
+    /// @param ownerAddress - Address of the claimant (for dashboard tracking)
+    access(all) event NFTPrizeClaimed(poolID: UInt64, receiverID: UInt64, nftID: UInt64, nftType: String, ownerAddress: Address?)
     
     /// Emitted when an admin withdraws an NFT prize (before it's awarded).
     /// @param poolID - Pool from which NFT is withdrawn
@@ -494,7 +503,8 @@ access(all) contract PrizeLinkedAccounts {
     /// @param amount - Amount the user attempted to withdraw
     /// @param consecutiveFailures - Running count of consecutive withdrawal failures
     /// @param yieldAvailable - Amount currently available in yield source
-    access(all) event WithdrawalFailure(poolID: UInt64, receiverID: UInt64, amount: UFix64, consecutiveFailures: Int, yieldAvailable: UFix64)
+    /// @param ownerAddress - Address of the user experiencing the failure (for dashboard tracking)
+    access(all) event WithdrawalFailure(poolID: UInt64, receiverID: UInt64, amount: UFix64, consecutiveFailures: Int, yieldAvailable: UFix64, ownerAddress: Address?)
     
     // ============================================================
     // EVENTS - Direct Funding
@@ -2676,8 +2686,15 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Adds a receiver with their weight. Builds cumulative sum on the fly.
         /// Only adds if weight > 0.
+        /// Includes overflow protection to prevent draw DoS at high weight accumulation.
         access(contract) fun addEntry(receiverID: UInt64, weight: UFix64) {
             if weight > 0.0 {
+                // Overflow protection: ensure addition won't exceed safe threshold
+                assert(
+                    self.totalWeight + weight <= PrizeLinkedAccounts.WEIGHT_WARNING_THRESHOLD,
+                    message: "Total weight would exceed safe threshold. Current: \(self.totalWeight), adding: \(weight)"
+                )
+
                 self.receiverIDs.append(receiverID)
                 self.totalWeight = self.totalWeight + weight
                 self.cumulativeWeights.append(self.totalWeight)
@@ -3771,7 +3788,8 @@ access(all) contract PrizeLinkedAccounts {
                     receiverID: receiverID, 
                     amount: amount,
                     consecutiveFailures: newFailureCount, 
-                    yieldAvailable: yieldAvailable
+                    yieldAvailable: yieldAvailable,
+                    ownerAddress: ownerAddress
                 )
                 
                 // Update failure count and check for emergency trigger
@@ -3799,7 +3817,8 @@ access(all) contract PrizeLinkedAccounts {
                     receiverID: receiverID, 
                     amount: amount,
                     consecutiveFailures: newFailureCount, 
-                    yieldAvailable: yieldAvailable
+                    yieldAvailable: yieldAvailable,
+                    ownerAddress: ownerAddress
                 )
                 
                 if self.emergencyState == PoolEmergencyState.Normal {
@@ -4484,7 +4503,8 @@ access(all) contract PrizeLinkedAccounts {
                         receiverID: winnerID,
                         nftID: nftID,
                         nftType: nftType,
-                        reason: "Prize win - round \(currentRound)"
+                        reason: "Prize win - round \(currentRound)",
+                        ownerAddress: self.getReceiverOwnerAddress(receiverID: winnerID)
                     )
                     
                     emit NFTPrizeAwarded(
@@ -4492,7 +4512,8 @@ access(all) contract PrizeLinkedAccounts {
                         receiverID: winnerID,
                         nftID: nftID,
                         nftType: nftType,
-                        round: currentRound
+                        round: currentRound,
+                        ownerAddress: self.getReceiverOwnerAddress(receiverID: winnerID)
                     )
                 }
                 
@@ -4668,6 +4689,10 @@ access(all) contract PrizeLinkedAccounts {
         /// @param reason - Reason for bonus
         /// @param adminUUID - Admin performing the action
         access(contract) fun setBonusWeight(receiverID: UInt64, bonusWeight: UFix64, reason: String, adminUUID: UInt64) {
+            pre {
+                bonusWeight <= PrizeLinkedAccounts.MAX_BONUS_WEIGHT_PER_USER:
+                    "Bonus weight exceeds maximum. Max: \(PrizeLinkedAccounts.MAX_BONUS_WEIGHT_PER_USER), got: \(bonusWeight)"
+            }
             let timestamp = getCurrentBlock().timestamp
             self.receiverBonusWeights[receiverID] = bonusWeight
             
@@ -4677,7 +4702,8 @@ access(all) contract PrizeLinkedAccounts {
                 bonusWeight: bonusWeight,
                 reason: reason,
                 adminUUID: adminUUID,
-                timestamp: timestamp
+                timestamp: timestamp,
+                ownerAddress: self.getReceiverOwnerAddress(receiverID: receiverID)
             )
         }
         
@@ -4690,7 +4716,13 @@ access(all) contract PrizeLinkedAccounts {
             let timestamp = getCurrentBlock().timestamp
             let currentBonus = self.receiverBonusWeights[receiverID] ?? 0.0
             let newTotalBonus = currentBonus + additionalWeight
-            
+
+            // Validate total bonus won't exceed cap
+            assert(
+                newTotalBonus <= PrizeLinkedAccounts.MAX_BONUS_WEIGHT_PER_USER,
+                message: "Total bonus would exceed maximum. Max: ".concat(PrizeLinkedAccounts.MAX_BONUS_WEIGHT_PER_USER.toString()).concat(", would be: ").concat(newTotalBonus.toString())
+            )
+
             self.receiverBonusWeights[receiverID] = newTotalBonus
             
             emit BonusPrizeWeightAdded(
@@ -4700,7 +4732,8 @@ access(all) contract PrizeLinkedAccounts {
                 newTotalBonus: newTotalBonus,
                 reason: reason,
                 adminUUID: adminUUID,
-                timestamp: timestamp
+                timestamp: timestamp,
+                ownerAddress: self.getReceiverOwnerAddress(receiverID: receiverID)
             )
         }
         
@@ -4718,7 +4751,8 @@ access(all) contract PrizeLinkedAccounts {
                 receiverID: receiverID,
                 previousBonus: previousBonus,
                 adminUUID: adminUUID,
-                timestamp: timestamp
+                timestamp: timestamp,
+                ownerAddress: self.getReceiverOwnerAddress(receiverID: receiverID)
             )
         }
         
@@ -4787,7 +4821,8 @@ access(all) contract PrizeLinkedAccounts {
                 poolID: self.poolID,
                 receiverID: receiverID,
                 nftID: nft.uuid,
-                nftType: nftType
+                nftType: nftType,
+                ownerAddress: self.getReceiverOwnerAddress(receiverID: receiverID)
             )
             
             return <- nft
@@ -5075,7 +5110,18 @@ access(all) contract PrizeLinkedAccounts {
         }
         
         /// Set protocol fee recipient for forwarding at draw time.
+        /// Validates that the receiver accepts the pool's asset type to prevent draw failures.
         access(contract) fun setProtocolFeeRecipient(cap: Capability<&{FungibleToken.Receiver}>?) {
+            // Validate vault type compatibility if capability is provided
+            if let recipientCap = cap {
+                if let receiverRef = recipientCap.borrow() {
+                    // Check if receiver accepts this pool's vault type
+                    assert(
+                        receiverRef.isSupportedVaultType(type: self.config.assetType),
+                        message: "Protocol fee recipient does not accept this pool's asset type. Pool asset type: \(self.config.assetType.identifier), recipient address: \(recipientCap.address)"
+                    )
+                }
+            }
             self.protocolFeeRecipientCap = cap
         }
 
@@ -5754,6 +5800,10 @@ access(all) contract PrizeLinkedAccounts {
         // Maximum TVL per pool (80% of UFIX64_MAX ≈ 147 billion)
         // Provides safety margin for yield accrual and prevents overflow
         self.SAFE_MAX_TVL = 147500000000.0
+
+        // Maximum bonus weight per user (10% of SAFE_MAX_TVL ≈ 14.75 billion)
+        // Prevents overflow when combined with TWAB during draw processing
+        self.MAX_BONUS_WEIGHT_PER_USER = 14750000000.0
 
         // Storage paths for user collections
         self.PoolPositionCollectionStoragePath = /storage/PrizeLinkedAccountsCollection
