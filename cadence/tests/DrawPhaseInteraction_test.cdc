@@ -42,7 +42,6 @@ access(all) fun testDepositDuringPhase1StartDraw() {
     
     // Complete the draw
     processAllDrawBatches(existingUser, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(existingUser, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(existingUser, poolID: poolID)
     
@@ -91,7 +90,6 @@ access(all) fun testDepositDuringPhase2BatchProcessing() {
     
     // Complete batch processing and draw
     processAllDrawBatches(users[0], poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(users[0], poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(users[0], poolID: poolID)
     
@@ -113,12 +111,11 @@ access(all) fun testDepositDuringPhase3Randomness() {
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
-    // Phases 1-3
+    // Phases 1-2 (randomness requested during startDraw)
     startDraw(existingUser, poolID: poolID)
     processAllDrawBatches(existingUser, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(existingUser, poolID: poolID)
     
-    // New user deposits after randomness requested (waiting for completion)
+    // New user deposits after batch processing (waiting for completion)
     let newUser = Test.createAccount()
     setupUserWithFundsAndCollection(newUser, amount: depositAmount + 10.0)
     depositToPool(newUser, poolID: poolID, amount: depositAmount)
@@ -171,7 +168,6 @@ access(all) fun testWithdrawDuringPhase1StartDraw() {
     
     // Complete the draw
     processAllDrawBatches(user1, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(user1, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(user1, poolID: poolID)
     
@@ -217,7 +213,6 @@ access(all) fun testWithdrawDuringPhase2BatchProcessing() {
     
     // Complete batch and draw
     processAllDrawBatches(users[0], poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(users[0], poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(users[0], poolID: poolID)
     
@@ -247,12 +242,11 @@ access(all) fun testWithdrawDuringPhase3Randomness() {
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
-    // Phases 1-3
+    // Phases 1-2 (randomness requested during startDraw)
     startDraw(user1, poolID: poolID)
     processAllDrawBatches(user1, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(user1, poolID: poolID)
     
-    // User2 withdraws after randomness requested
+    // User2 withdraws after batch processing complete
     withdrawFromPool(user2, poolID: poolID, amount: 50.0)
     
     // Complete draw
@@ -294,7 +288,6 @@ access(all) fun testNewUserJoinsDuringDraw() {
     
     // Complete draw
     processAllDrawBatches(existingUser, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(existingUser, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(existingUser, poolID: poolID)
     
@@ -340,7 +333,6 @@ access(all) fun testUserLeavesCompletelyDuringDraw() {
     
     // Complete draw
     processAllDrawBatches(stayingUser, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(stayingUser, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(stayingUser, poolID: poolID)
     
@@ -392,7 +384,6 @@ access(all) fun testUserNotAffectedByOthersDuringDraw() {
     
     // Complete draw
     processAllDrawBatches(user1, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(user1, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(user1, poolID: poolID)
     
@@ -426,7 +417,7 @@ access(all) fun testDifferentUsersDifferentPhases() {
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
-    // Phase 1: Start draw, user1 adds more
+    // Phase 1: Start draw (includes randomness request), user1 adds more
     startDraw(user1, poolID: poolID)
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     
@@ -435,11 +426,10 @@ access(all) fun testDifferentUsersDifferentPhases() {
     withdrawFromPool(user2, poolID: poolID, amount: 50.0)
     processAllDrawBatches(user1, poolID: poolID, batchSize: 1000)
     
-    // Phase 3: Request randomness, user1 withdraws
-    requestDrawRandomness(user1, poolID: poolID)
+    // After batch processing, user1 withdraws
     withdrawFromPool(user1, poolID: poolID, amount: 50.0)
     
-    // Phase 4: Complete draw
+    // Phase 3: Complete draw
     commitBlocksForRandomness()
     completeDraw(user1, poolID: poolID)
     
@@ -483,7 +473,6 @@ access(all) fun testMultipleDepositsFromSameUserDuringDraw() {
     depositToPool(user, poolID: poolID, amount: depositAmount)
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    requestDrawRandomness(user, poolID: poolID)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
     // Complete draw
@@ -528,7 +517,6 @@ access(all) fun testMultipleWithdrawalsFromSameUserDuringDraw() {
     withdrawFromPool(user, poolID: poolID, amount: withdrawAmount)
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
     withdrawFromPool(user, poolID: poolID, amount: withdrawAmount)
-    requestDrawRandomness(user, poolID: poolID)
     withdrawFromPool(user, poolID: poolID, amount: withdrawAmount)
     
     // Complete draw
@@ -583,7 +571,6 @@ access(all) fun testDrawCompletesWithOnlyOriginalParticipants() {
     setupUserWithFundsAndCollection(lateUser2, amount: depositAmount + 10.0)
     depositToPool(lateUser2, poolID: poolID, amount: depositAmount)
     
-    requestDrawRandomness(user1, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(user1, poolID: poolID)
     

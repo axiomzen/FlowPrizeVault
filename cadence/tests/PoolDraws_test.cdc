@@ -73,16 +73,16 @@ access(all) fun testStartDrawSetsBatchInProgressFlag() {
     // Start draw (this only initializes batch processing, doesn't request randomness yet)
     startDraw(participant, poolID: poolID)
     
-    // Verify batch processing is in progress (but not "draw in progress" which means randomness requested)
+    // Verify draw is in progress (randomness requested during startDraw)
     let drawStatus = getDrawStatus(poolID)
     let isBatchInProgress = drawStatus["isBatchInProgress"]! as! Bool
     let isPendingDrawInProgress = drawStatus["isPendingDrawInProgress"]! as! Bool
     Test.assert(isBatchInProgress, message: "Batch processing should be in progress after startDraw")
     Test.assert(isPendingDrawInProgress, message: "Pending draw round should exist after startDraw")
     
-    // isDrawInProgress is only true after requestDrawRandomness
+    // isDrawInProgress is true after startDraw (randomness is requested during startDraw)
     let isDrawInProgress = drawStatus["isDrawInProgress"]! as! Bool
-    Test.assert(!isDrawInProgress, message: "Draw should not be in progress until randomness is requested")
+    Test.assert(isDrawInProgress, message: "Draw should be in progress after startDraw")
 }
 
 access(all) fun testCompletePrizeDraw() {

@@ -185,7 +185,6 @@ access(all) fun testSafeOperationBelowThreshold() {
     let deployerAccount = getDeployerAccount()
     startDraw(deployerAccount, poolID: poolID)
     processDrawBatch(deployerAccount, poolID: poolID, limit: 1000)
-    requestDrawRandomness(deployerAccount, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(deployerAccount, poolID: poolID)
     

@@ -192,12 +192,6 @@ access(all) contract PrizeLinkedAccounts {
     // EVENTS - Prize/Draw
     // ============================================================
     
-    /// Emitted when a prize draw is committed (randomness requested).
-    /// @param poolID - Pool starting the draw
-    /// @param prizeAmount - Total prize pool amount for this draw
-    /// @param commitBlock - Block height at which randomness was requested
-    access(all) event PrizeDrawCommitted(poolID: UInt64, prizeAmount: UFix64, commitBlock: UInt64)
-    
     /// Emitted when prizes are awarded to winners.
     /// @param poolID - Pool awarding prizes
     /// @param winners - Array of winner receiverIDs
@@ -945,12 +939,12 @@ access(all) contract PrizeLinkedAccounts {
         }
         
         /// Set the protocol fee recipient for automatic forwarding.
-        /// Once set, protocol fee is auto-forwarded during requestDrawRandomness().
+        /// Once set, protocol fee is auto-forwarded when round ends.
         /// Pass nil to disable auto-forwarding (funds stored in unclaimedProtocolFeeVault).
         ///
         /// IMPORTANT: The recipient MUST accept the same vault type as the pool's asset.
         /// For example, if the pool uses FLOW tokens, the recipient must be a FLOW receiver.
-        /// A type mismatch will cause requestDrawRandomness() to fail. If this happens,
+        /// A type mismatch will cause startDraw() to fail. If this happens,
         /// clear the recipient (set to nil) and retry the draw - funds will go to
         /// unclaimedProtocolFeeVault for manual withdrawal.
         ///
@@ -1088,9 +1082,10 @@ access(all) contract PrizeLinkedAccounts {
         // BATCHED DRAW OPERATIONS
         // ============================================================
         // Breaks draw into multiple transactions to avoid gas limits for large pools.
-        // Flow: startPoolDraw() → processPoolDrawBatch() (repeat) → requestPoolDrawRandomness() → completePoolDraw()
+        // Flow: startPoolDraw() → processPoolDrawBatch() (repeat) → completePoolDraw()
+        // Note: Randomness is requested during startPoolDraw() and fulfilled during completePoolDraw().
 
-        /// Starts a prize draw for a pool (Phase 1 of 4).
+        /// Starts a prize draw for a pool (Phase 1 of 3).
         /// 
         /// This instantly transitions rounds and initializes batch processing.
         /// Users can continue depositing/withdrawing immediately.
@@ -1101,7 +1096,7 @@ access(all) contract PrizeLinkedAccounts {
             poolRef.startDraw()
         }
         
-        /// Processes a batch of receivers for weight capture (Phase 2 of 4).
+        /// Processes a batch of receivers for weight capture (Phase 2 of 3).
         /// 
         /// Call repeatedly until return value is 0 (or isDrawBatchComplete()).
         /// Each call processes up to `limit` receivers.
@@ -1114,21 +1109,15 @@ access(all) contract PrizeLinkedAccounts {
             return poolRef.processDrawBatch(limit: limit)
         }
         
-        /// Requests randomness after batch processing complete (Phase 3 of 4).
-        /// 
-        /// Materializes pending yield, captures final weights, and commits to randomness.
-        /// Must wait until next block before completeDraw().
-        /// 
-        /// @param poolID - ID of the pool
-        access(CriticalOps) fun requestPoolDrawRandomness(poolID: UInt64) {
-            let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
-            poolRef.requestDrawRandomness()
-        }
-
-        /// Completes a prize draw for a pool (Phase 4 of 4).
+        /// Completes a prize draw for a pool (Phase 3 of 3).
         /// 
         /// Fulfills randomness request, selects winners, and distributes prizes.
         /// Prizes are auto-compounded into winners' deposits.
+        /// 
+        /// PREREQUISITES:
+        /// - startPoolDraw() must have been called
+        /// - processPoolDrawBatch() must have been called until complete
+        /// - At least 1 block must have passed since startPoolDraw()
         /// 
         /// @param poolID - ID of the pool to complete draw for
         access(CriticalOps) fun completePoolDraw(poolID: UInt64) {
@@ -1395,23 +1384,32 @@ access(all) contract PrizeLinkedAccounts {
         /// 1. Accumulate pending scaled share-time for old balance
         /// 2. Update shares snapshot and timestamp for future accumulation
         ///
+        /// If the round has ended (actualEndTime is set), the timestamp is capped
+        /// at actualEndTime. This ensures deposits during draw processing get fair
+        /// weight - new shares added after round end contribute zero weight.
+        ///
         /// @param receiverID - User's receiver ID
         /// @param oldShares - Shares BEFORE the operation
         /// @param newShares - Shares AFTER the operation
-        /// @param atTime - Current timestamp
+        /// @param atTime - Current timestamp (will be capped at actualEndTime if round ended)
         access(contract) fun recordShareChange(
             receiverID: UInt64,
             oldShares: UFix64,
             newShares: UFix64,
             atTime: UFix64
         ) {
-            // First, accumulate any pending scaled TWAB for old balance
-            self.accumulatePendingTWAB(receiverID: receiverID, upToTime: atTime, withShares: oldShares)
+            // Cap time at actualEndTime if round has ended
+            // This ensures deposits during draw processing get weight only up to round end
+            let effectiveTime = self.actualEndTime != nil && atTime > self.actualEndTime!
+                ? self.actualEndTime!
+                : atTime
 
+            // First, accumulate any pending scaled TWAB for old balance
+            self.accumulatePendingTWAB(receiverID: receiverID, upToTime: effectiveTime, withShares: oldShares)
 
             // Update shares snapshot for future accumulation
             self.userSharesAtLastUpdate[receiverID] = newShares
-            self.userLastUpdateTime[receiverID] = atTime
+            self.userLastUpdateTime[receiverID] = effectiveTime
         }
 
         /// Accumulates SCALED pending weight from lastUpdateTime to upToTime.
@@ -1522,7 +1520,7 @@ access(all) contract PrizeLinkedAccounts {
         }
 
         /// Sets the actual end time when the round is finalized.
-        /// Called by startDraw() when moving this round to pendingDrawRound.
+        /// Called by startDraw() to mark the round for draw processing.
         ///
         /// @param endTime - The actual end time
         access(contract) fun setActualEndTime(_ endTime: UFix64) {
@@ -3035,13 +3033,11 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Current active round for TWAB accumulation.
         /// Deposits and withdrawals accumulate TWAB in this round.
+        /// During draw processing, this round has actualEndTime set and is being finalized.
         /// nil indicates the pool is in intermission (between rounds).
+        /// Destroyed at completeDraw(), recreated at startNextRound().
         access(self) var activeRound: @Round?
-        
-        /// Round that has ended and is being processed for the prize draw.
-        /// Created during startDraw(), destroyed during completeDraw().
-        access(self) var pendingDrawRound: @Round?
-        
+
         /// ID of the last completed round (for intermission state queries).
         /// Updated when completeDraw() finishes, used by getCurrentRoundID() during intermission.
         access(self) var lastCompletedRoundID: UInt64
@@ -3108,7 +3104,6 @@ access(all) contract PrizeLinkedAccounts {
                 startTime: now,
                 targetEndTime: now + config.drawIntervalSeconds
             )
-            self.pendingDrawRound <- nil
             self.lastCompletedRoundID = 0
             
             // Initialize selection data (nil = no batch in progress)
@@ -3586,15 +3581,13 @@ access(all) contract PrizeLinkedAccounts {
             let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: amount)
             let newShares = oldShares + newSharesMinted
             
-            // Update TWAB in the active round (if not in intermission)
-            // Round extends naturally until startDraw() is called - record at actual timestamp
-            // During intermission (activeRound == nil): no TWAB recorded, user gets weight when next round starts
+            // Update TWAB in the active round (if exists)
             if let round = &self.activeRound as &Round? {
                 round.recordShareChange(
                     receiverID: receiverID,
                     oldShares: oldShares,
                     newShares: newShares,
-                    atTime: now
+                    atTime: now 
                 )
             }
 
@@ -3831,15 +3824,13 @@ access(all) contract PrizeLinkedAccounts {
             // Get new shares AFTER the withdrawal
             let newShares = self.shareTracker.getUserShares(receiverID: receiverID)
             
-            // Update TWAB in the active round (if not in intermission)
-            // Round extends naturally until startDraw() is called - record at actual timestamp
-            // During intermission (activeRound == nil): no TWAB recorded
+            // Update TWAB in the active round (if exists)
             if let round = &self.activeRound as &Round? {
                 round.recordShareChange(
                     receiverID: receiverID,
                     oldShares: oldShares,
                     newShares: newShares,
-                    atTime: now
+                    atTime: now 
                 )
             }
 
@@ -4070,33 +4061,22 @@ access(all) contract PrizeLinkedAccounts {
         // LOTTERY DRAW OPERATIONS
         // ============================================================
         
-        /// Starts a prize draw (Phase 1 of 4 - Batched Draw Process).
+        /// Starts a prize draw (Phase 1 of 3 - Batched Draw Process).
         /// 
         /// FLOW:
         /// 1. Validate state (Normal, no active draw, round has ended)
-        /// 2. Move ended round to pendingDrawRound
+        /// 2. Set actualEndTime on activeRound (marks it for finalization)
         /// 3. Initialize batch capture state with receiver snapshot
-        /// 4. Emit DrawBatchStarted event
+        /// 4. Materialize yield and request randomness
+        /// 5. Emit DrawBatchStarted and randomness events
         ///
         /// NEXT STEPS:
         /// - Call processDrawBatch() repeatedly to capture TWAB weights
-        /// - When batch complete, call requestDrawRandomness()
-        /// - When randomness available, call completeDraw()
         /// 
-        /// ROUND TRANSITION:
-        /// - Active round (ended) → pendingDrawRound (for prize processing)
-        /// - New round created → becomes activeRound
-        /// - Gap interactors handled by lazy fallback in new round
-        /// 
-        /// FAIRNESS: Uses time-weighted shares so:
-        /// - More shares = more prize weight
-        /// - Longer deposits = more prize weight
-        /// - Share-based TWAB is stable against price fluctuations
         access(contract) fun startDraw() {
             pre {
                 self.emergencyState == PoolEmergencyState.Normal: "Draws disabled - pool state: \(self.emergencyState.rawValue)"
                 self.pendingDrawReceipt == nil: "Draw already in progress"
-                self.pendingDrawRound == nil: "Previous draw not completed"
                 self.activeRound != nil: "Pool is in intermission - call startNextRound first"
             }
 
@@ -4110,21 +4090,14 @@ access(all) contract PrizeLinkedAccounts {
 
             let now = getCurrentBlock().timestamp
 
-            // Get the current round's info before transitioning
+            // Get the current round's info
             // Reference is safe - we validated activeRound != nil in precondition
             let activeRoundRef = (&self.activeRound as &Round?)!
             let endedRoundID = activeRoundRef.getRoundID()
 
-            // Set the actual end time on the ending round
+            // Set the actual end time on the round being finalized
             // This is the moment we're finalizing - used for TWAB calculations
             activeRoundRef.setActualEndTime(now)
-
-            // Move the active round out (entering intermission)
-            // The swap operator with optional resources: move out existing, put nil in
-            var nilRound: @Round? <- nil
-            self.activeRound <-> nilRound
-            let endedRound <- nilRound!  // Safe to unwrap - we validated not nil
-            self.pendingDrawRound <-! endedRound
 
             // Create selection data resource for batch processing
             // Snapshot the current receiver count - only these users will be processed
@@ -4135,6 +4108,54 @@ access(all) contract PrizeLinkedAccounts {
 
             // Update last draw timestamp (draw initiated, even though batch processing pending)
             self.lastDrawTimestamp = now
+            
+            // Materialize pending prize funds from yield source
+            if self.allocatedPrizeYield > 0.0 {
+                let prizeVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedPrizeYield)
+                let actualWithdrawn = prizeVault.balance
+                self.prizeDistributor.fundPrizePool(vault: <- prizeVault)
+                self.allocatedPrizeYield = self.allocatedPrizeYield - actualWithdrawn
+            }
+            
+            // Materialize pending protocol fee from yield source
+            if self.allocatedProtocolFee > 0.0 {
+                let protocolVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedProtocolFee)
+                let actualWithdrawn = protocolVault.balance
+                self.allocatedProtocolFee = self.allocatedProtocolFee - actualWithdrawn
+                
+                // Forward to recipient if configured, otherwise store in unclaimed vault
+                if let cap = self.protocolFeeRecipientCap {
+                    if let recipientRef = cap.borrow() {
+                        let forwardedAmount = protocolVault.balance
+                        recipientRef.deposit(from: <- protocolVault)
+                        self.totalProtocolFeeForwarded = self.totalProtocolFeeForwarded + forwardedAmount
+                        emit ProtocolFeeForwarded(
+                            poolID: self.poolID,
+                            amount: forwardedAmount,
+                            recipient: cap.address
+                        )
+                    } else {
+                        // Recipient capability invalid - store in unclaimed vault
+                        self.unclaimedProtocolFeeVault.deposit(from: <- protocolVault)
+                    }
+                } else {
+                    // No recipient configured - store in unclaimed vault for admin withdrawal
+                    self.unclaimedProtocolFeeVault.deposit(from: <- protocolVault)
+                }
+            }
+            
+            let prizeAmount = self.prizeDistributor.getPrizePoolBalance()
+            assert(prizeAmount > 0.0, message: "No prize pool funds")
+            
+            // Request randomness now - will be fulfilled in completeDraw() after batch processing
+            let randomRequest <- self.randomConsumer.requestRandomness()
+            let receipt <- create PrizeDrawReceipt(
+                prizeAmount: prizeAmount,
+                request: <- randomRequest
+            )
+            
+            let commitBlock = receipt.getRequestBlock() ?? 0
+            self.pendingDrawReceipt <-! receipt
 
             // Emit draw started event (weights will be captured via batch processing)
             emit DrawBatchStarted(
@@ -4143,16 +4164,24 @@ access(all) contract PrizeLinkedAccounts {
                 newRoundID: 0,  // No new round created yet - pool enters intermission
                 totalReceivers: self.registeredReceiverList.length
             )
+            
+            // Emit randomness committed event
+            emit DrawRandomnessRequested(
+                poolID: self.poolID,
+                totalWeight: 0.0,  // Not known yet - weights captured during batch processing
+                prizeAmount: prizeAmount,
+                commitBlock: commitBlock
+            )
         }
         
-        /// Processes a batch of receivers for weight capture (Phase 2 of 4).
+        /// Processes a batch of receivers for weight capture (Phase 2 of 3).
         /// 
         /// Call this repeatedly until isDrawBatchComplete() returns true.
         /// Iterates directly over registeredReceiverList using selection data cursor.
         /// 
         /// FLOW:
         /// 1. Get current shares for each receiver in batch
-        /// 2. Calculate TWAB from pendingDrawRound
+        /// 2. Calculate TWAB from activeRound (which has actualEndTime set)
         /// 3. Add bonus weights (scaled by round duration)
         /// 4. Build cumulative weight sums in pendingSelectionData (for binary search)
         /// 
@@ -4161,23 +4190,25 @@ access(all) contract PrizeLinkedAccounts {
         access(contract) fun processDrawBatch(limit: Int): Int {
             pre {
                 limit >= 0: "Batch limit cannot be negative"
-                self.pendingDrawRound != nil: "No draw in progress"
-                self.pendingDrawReceipt == nil: "Randomness already requested"
+                self.activeRound != nil: "No draw in progress"
+                self.pendingDrawReceipt != nil: "No draw receipt - call startDraw first"
                 self.pendingSelectionData != nil: "No selection data"
                 !self.isBatchComplete(): "Batch processing already complete"
             }
-            
+
             // Get reference to selection data
             let selectionDataRef = (&self.pendingSelectionData as &BatchSelectionData?)!
             let selectionData = selectionDataRef
-            
+
             let startCursor = selectionData.getCursor()
-            
-            // Get the pending round reference (we know it's not nil from precondition)
-            let pendingRound = (&self.pendingDrawRound as &Round?)!
+
+            // Get the active round reference
+            let activeRoundRef = (&self.activeRound as &Round?)!
             
             // Get the actual end time set by startDraw() - this is when we finalized the round
-            let roundEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
+            // This must exist since startDraw() sets it - if nil, the state is corrupted
+            let roundEndTime = activeRoundRef.getActualEndTime() 
+                ?? panic("Corrupted state: actualEndTime not set. startDraw() must be called first.")
             
             // Use snapshot count - only process users who existed at startDraw time
             let snapshotCount = selectionData.getSnapshotReceiverCount()
@@ -4195,7 +4226,7 @@ access(all) contract PrizeLinkedAccounts {
                 
                 // Finalize TWAB using actual round end time
                 // Returns NORMALIZED weight (≈ average shares)
-                let twabStake = pendingRound.finalizeTWAB(
+                let twabStake = activeRoundRef.finalizeTWAB(
                     receiverID: receiverID, 
                     currentShares: shares,
                     roundEndTime: roundEndTime
@@ -4241,98 +4272,15 @@ access(all) contract PrizeLinkedAccounts {
             return remaining
         }
         
-        /// Requests randomness after batch processing is complete (Phase 3 of 4).
+        /// Completes a prize draw (Phase 3 of 3).
+        /// 
+        /// PREREQUISITES:
+        /// - startDraw() must have been called (randomness requested, yield materialized)
+        /// - processDrawBatch() must have been called until batch is complete
+        /// - At least 1 block must have passed since startDraw() for randomness fulfillment
         /// 
         /// FLOW:
-        /// 1. Validate batch processing is complete
-        /// 2. Materialize pending yield from yield source
-        /// 3. Request randomness from Flow's RandomConsumer
-        /// 4. Create PrizeDrawReceipt with request
-        /// 
-        /// NOTE: Selection data (user weights) stays in pendingSelectionData resource
-        /// until completeDraw(), where it's accessed via reference for zero-copy
-        /// winner selection.
-        /// 
-        /// Must call completeDraw() after randomness is available (next block).
-        access(contract) fun requestDrawRandomness() {
-            pre {
-                self.pendingDrawRound != nil: "No draw in progress"
-                self.pendingSelectionData != nil: "No selection data"
-                self.isBatchComplete(): "Batch processing not complete"
-                self.pendingDrawReceipt == nil: "Randomness already requested"
-            }
-            
-            // Materialize pending prize funds from yield source
-            if self.allocatedPrizeYield > 0.0 {
-                let prizeVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedPrizeYield)
-                let actualWithdrawn = prizeVault.balance
-                self.prizeDistributor.fundPrizePool(vault: <- prizeVault)
-                self.allocatedPrizeYield = self.allocatedPrizeYield - actualWithdrawn
-            }
-            
-            // Materialize pending protocol fee from yield source
-            if self.allocatedProtocolFee > 0.0 {
-                let protocolVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedProtocolFee)
-                let actualWithdrawn = protocolVault.balance
-                self.allocatedProtocolFee = self.allocatedProtocolFee - actualWithdrawn
-                
-                // Forward to recipient if configured, otherwise store in unclaimed vault
-                if let cap = self.protocolFeeRecipientCap {
-                    if let recipientRef = cap.borrow() {
-                        let forwardedAmount = protocolVault.balance
-                        recipientRef.deposit(from: <- protocolVault)
-                        self.totalProtocolFeeForwarded = self.totalProtocolFeeForwarded + forwardedAmount
-                        emit ProtocolFeeForwarded(
-                            poolID: self.poolID,
-                            amount: forwardedAmount,
-                            recipient: cap.address
-                        )
-                    } else {
-                        // Recipient capability invalid - store in unclaimed vault
-                        self.unclaimedProtocolFeeVault.deposit(from: <- protocolVault)
-                    }
-                } else {
-                    // No recipient configured - store in unclaimed vault for admin withdrawal
-                    self.unclaimedProtocolFeeVault.deposit(from: <- protocolVault)
-                }
-            }
-            
-            // Get total weight for event (read via reference, no copy)
-            let selectionDataRef = &self.pendingSelectionData as &BatchSelectionData?
-            let totalWeight = selectionDataRef?.getTotalWeight() ?? 0.0
-            
-            let prizeAmount = self.prizeDistributor.getPrizePoolBalance()
-            assert(prizeAmount > 0.0, message: "No prize pool funds")
-            
-            // Request randomness (selection data stays in resource until completeDraw)
-            let randomRequest <- self.randomConsumer.requestRandomness()
-            let receipt <- create PrizeDrawReceipt(
-                prizeAmount: prizeAmount,
-                request: <- randomRequest
-            )
-            
-            let commitBlock = receipt.getRequestBlock() ?? 0
-            emit DrawRandomnessRequested(
-                poolID: self.poolID,
-                totalWeight: totalWeight,
-                prizeAmount: prizeAmount,
-                commitBlock: commitBlock
-            )
-            
-            // Also emit the legacy event for backwards compatibility
-            emit PrizeDrawCommitted(
-                poolID: self.poolID,
-                prizeAmount: prizeAmount,
-                commitBlock: commitBlock
-            )
-            
-            self.pendingDrawReceipt <-! receipt
-        }
-        
-        /// Completes a prize draw (Phase 4 of 4).
-        /// 
-        /// FLOW:
-        /// 1. Consume PrizeDrawReceipt (must have been created by requestDrawRandomness)
+        /// 1. Consume PrizeDrawReceipt (created by startDraw)
         /// 2. Fulfill randomness request (secure on-chain random from previous block)
         /// 3. Apply winner selection strategy with captured weights
         /// 4. For each winner:
@@ -4342,7 +4290,7 @@ access(all) contract PrizeLinkedAccounts {
         ///    d. Award any NFT prizes (stored for claiming)
         /// 5. Record winners in tracker (if configured)
         /// 6. Emit PrizesAwarded event
-        /// 7. Destroy pendingDrawRound (cleanup)
+        /// 7. Destroy activeRound (cleanup, pool enters intermission)
         /// 
         /// TWAB: Prize deposits accumulate TWAB in the active round,
         /// giving winners credit for their new shares going forward.
@@ -4351,8 +4299,9 @@ access(all) contract PrizeLinkedAccounts {
         /// Winners can withdraw their increased balance at any time.
         access(contract) fun completeDraw() {
             pre {
-                self.pendingDrawReceipt != nil: "No draw in progress"
+                self.pendingDrawReceipt != nil: "No draw in progress - call startDraw first"
                 self.pendingSelectionData != nil: "No selection data"
+                self.isBatchComplete(): "Batch processing not complete - call processDrawBatch until complete"
             }
             
             // Extract and consume the pending receipt
@@ -4399,9 +4348,9 @@ access(all) contract PrizeLinkedAccounts {
                     amounts: [],
                     round: self.prizeDistributor.getPrizeRound()
                 )
-                // Still need to clean up the pending draw round
+                // Still need to clean up the active round
                 // Store the completed round ID before destroying for intermission state queries
-                let usedRound <- self.pendingDrawRound <- nil
+                let usedRound <- self.activeRound <- nil
                 let completedRoundID = usedRound?.getRoundID() ?? 0
                 self.lastCompletedRoundID = completedRoundID
                 destroy usedRound
@@ -4528,9 +4477,9 @@ access(all) contract PrizeLinkedAccounts {
                 round: currentRound
             )
             
-            // Destroy the pending draw round - its TWAB data has been used
+            // Destroy the active round - its TWAB data has been used
             // Store the completed round ID before destroying for intermission state queries
-            let usedRound <- self.pendingDrawRound <- nil
+            let usedRound <- self.activeRound <- nil
             let completedRoundID = usedRound?.getRoundID() ?? 0
             self.lastCompletedRoundID = completedRoundID
             destroy usedRound
@@ -4550,13 +4499,12 @@ access(all) contract PrizeLinkedAccounts {
         /// 
         /// PRECONDITIONS:
         /// - Pool must be in intermission (activeRound == nil)
-        /// - No pending draw in progress
-        /// 
+        /// - No pending draw receipt (randomness request completed)
+        ///
         /// EMITS: IntermissionEnded
         access(contract) fun startNextRound() {
             pre {
                 self.activeRound == nil: "Pool is not in intermission"
-                self.pendingDrawRound == nil: "Pending draw not completed"
                 self.pendingDrawReceipt == nil: "Pending randomness request not completed"
             }
 
@@ -4889,22 +4837,49 @@ access(all) contract PrizeLinkedAccounts {
         access(all) view fun isRoundEnded(): Bool {
             return self.activeRound?.hasEnded() ?? true
         }
-        
-        /// Returns whether the pool is in intermission (between rounds).
-        /// During intermission, deposits/withdrawals are allowed but draws cannot start.
-        /// Call startNextRound() to exit intermission and begin a new round.
+
+        // ============================================================
+        // POOL STATE MACHINE
+        // ============================================================
+        //
+        // State 1: ROUND_ACTIVE    - Round in progress, timer hasn't expired
+        // State 2: AWAITING_DRAW   - Round ended, waiting for admin to start draw
+        // State 3: DRAW_PROCESSING - Draw ceremony in progress (phases 1-3)
+        // State 4: INTERMISSION    - Draw complete, waiting for next round to start
+        //
+        // Transition: ROUND_ACTIVE → AWAITING_DRAW → DRAW_PROCESSING → INTERMISSION → ROUND_ACTIVE
+        // ============================================================
+
+        /// STATE 1: Returns whether a round is actively in progress (timer hasn't expired).
+        /// Use this to show countdown timers and "round in progress" UI.
+        access(all) view fun isRoundActive(): Bool {
+            if let round = &self.activeRound as &Round? {
+                return !round.hasEnded()
+            }
+            return false
+        }
+
+        /// STATE 2: Returns whether the round has ended and is waiting for draw to start.
+        /// This is the window where an admin needs to call startDraw().
+        /// Use this to show "Draw available" or "Waiting for draw" UI.
+        access(all) view fun isAwaitingDraw(): Bool {
+            if let round = &self.activeRound as &Round? {
+                return round.hasEnded() && self.pendingDrawReceipt == nil
+            }
+            return false
+        }
+
+        /// STATE 3: Returns whether a draw is being processed.
+        /// This covers all draw phases: batch processing and winner selection.
+        /// Use this to show "Draw in progress" with batch progress UI.
+        access(all) view fun isDrawInProgress(): Bool {
+            return self.pendingDrawReceipt != nil
+        }
+
+        /// STATE 4: Returns whether the pool is in true intermission.
+        /// Intermission = draw completed, no active round, waiting for startNextRound().
         access(all) view fun isInIntermission(): Bool {
-            return self.activeRound == nil
-        }
-        
-        /// Returns whether there's a pending draw round being processed.
-        access(all) view fun isPendingDrawInProgress(): Bool {
-            return self.pendingDrawRound != nil
-        }
-        
-        /// Returns the pending draw round ID if one exists.
-        access(all) view fun getPendingDrawRoundID(): UInt64? {
-            return self.pendingDrawRound?.getRoundID()
+            return self.activeRound == nil && self.pendingDrawReceipt == nil
         }
         
         /// Returns whether batch processing is complete (cursor has reached snapshot count).
@@ -4917,19 +4892,21 @@ access(all) contract PrizeLinkedAccounts {
             return true  // No batch in progress = considered complete
         }
         
-        /// Returns whether batch processing is in progress (after startDraw, before requestDrawRandomness).
+        /// Returns whether batch processing is in progress (after startDraw, before batch complete).
         access(all) view fun isDrawBatchInProgress(): Bool {
-            return self.pendingDrawRound != nil && self.pendingDrawReceipt == nil && self.pendingSelectionData != nil && !self.isBatchComplete()
+            return self.pendingDrawReceipt != nil && self.pendingSelectionData != nil && !self.isBatchComplete()
         }
         
-        /// Returns whether batch processing is complete and ready for randomness request.
+        /// Returns whether batch processing is complete and ready for completeDraw.
+        /// Batch processing must finish before completeDraw can be called.
         access(all) view fun isDrawBatchComplete(): Bool {
-            return self.pendingSelectionData != nil && self.isBatchComplete() && self.pendingDrawRound != nil
+            return self.pendingSelectionData != nil && self.isBatchComplete() && self.pendingDrawReceipt != nil
         }
         
-        /// Returns whether the draw is ready to complete (randomness has been requested).
+        /// Returns whether the draw is ready to complete.
+        /// Requires: randomness requested (in startDraw) AND batch processing complete.
         access(all) view fun isReadyForDrawCompletion(): Bool {
-            return self.pendingDrawReceipt != nil
+            return self.pendingDrawReceipt != nil && self.isBatchComplete()
         }
         
         /// Returns batch processing progress information.
@@ -4991,10 +4968,6 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns the total number of sponsors in this pool.
         access(all) view fun getSponsorCount(): Int {
             return self.sponsorReceivers.keys.length
-        }
-        
-        access(all) view fun isDrawInProgress(): Bool {
-            return self.pendingDrawReceipt != nil
         }
         
         access(all) view fun getConfig(): PoolConfig {
@@ -5616,7 +5589,7 @@ access(all) contract PrizeLinkedAccounts {
         return <- create SponsorPositionCollection()
     }
 
-    /// Starts a prize draw for a pool (Phase 1 of 4). PERMISSIONLESS.
+    /// Starts a prize draw for a pool (Phase 1 of 3). PERMISSIONLESS.
     ///
     /// Anyone can call this when the round has ended and no draw is in progress.
     /// This ensures draws cannot stall if admin is unavailable.
@@ -5632,14 +5605,13 @@ access(all) contract PrizeLinkedAccounts {
         poolRef.startDraw()
     }
 
-    /// Processes a batch of receivers for weight capture (Phase 2 of 4). PERMISSIONLESS.
+    /// Processes a batch of receivers for weight capture (Phase 2 of 3). PERMISSIONLESS.
     ///
     /// Anyone can call this to advance batch processing.
     /// Call repeatedly until return value is 0 (or isDrawBatchComplete()).
     ///
     /// Preconditions (enforced internally):
-    /// - Draw must be in progress (pendingDrawRound != nil)
-    /// - Randomness not yet requested
+    /// - Draw must be in progress
     /// - Batch processing not complete
     ///
     /// @param poolID - ID of the pool
@@ -5650,32 +5622,17 @@ access(all) contract PrizeLinkedAccounts {
         return poolRef.processDrawBatch(limit: limit)
     }
 
-    /// Requests randomness after batch processing complete (Phase 3 of 4). PERMISSIONLESS.
+    /// Completes a prize draw for a pool (Phase 3 of 3). PERMISSIONLESS.
     ///
-    /// Anyone can call this when batch processing is complete.
-    /// Materializes pending yield, captures final weights, and commits to randomness.
-    /// Must wait until next block before completeDraw().
-    ///
-    /// Preconditions (enforced internally):
-    /// - Draw in progress
-    /// - Batch processing complete
-    /// - Randomness not yet requested
-    ///
-    /// @param poolID - ID of the pool
-    access(all) fun requestDrawRandomness(poolID: UInt64) {
-        let poolRef = self.getPoolInternal(poolID)
-        poolRef.requestDrawRandomness()
-    }
-
-    /// Completes a prize draw for a pool (Phase 4 of 4). PERMISSIONLESS.
-    ///
-    /// Anyone can call this after randomness is ready (next block after request).
+    /// Anyone can call this after batch processing is complete and at least 1 block
+    /// has passed since startDraw() (for randomness fulfillment).
     /// Fulfills randomness request, selects winners, and distributes prizes.
     /// Prizes are auto-compounded into winners' deposits.
     ///
     /// Preconditions (enforced internally):
-    /// - Randomness must have been requested
-    /// - Must be in a different block than requestDrawRandomness()
+    /// - startDraw() must have been called (randomness already requested)
+    /// - Batch processing must be complete
+    /// - Must be in a different block than startDraw()
     ///
     /// @param poolID - ID of the pool to complete draw for
     access(all) fun completeDraw(poolID: UInt64) {
@@ -5726,7 +5683,43 @@ access(all) contract PrizeLinkedAccounts {
         }
         return 0.0
     }
-    
+
+    // ============================================================
+    // POOL STATE MACHINE (Contract-level convenience functions)
+    // ============================================================
+
+    /// STATE 1: Returns whether a round is actively in progress (timer hasn't expired).
+    access(all) view fun isRoundActive(poolID: UInt64): Bool {
+        if let poolRef = self.borrowPool(poolID: poolID) {
+            return poolRef.isRoundActive()
+        }
+        return false
+    }
+
+    /// STATE 2: Returns whether the round has ended and is waiting for draw to start.
+    access(all) view fun isAwaitingDraw(poolID: UInt64): Bool {
+        if let poolRef = self.borrowPool(poolID: poolID) {
+            return poolRef.isAwaitingDraw()
+        }
+        return false
+    }
+
+    /// STATE 3: Returns whether a draw is being processed.
+    access(all) view fun isDrawInProgress(poolID: UInt64): Bool {
+        if let poolRef = self.borrowPool(poolID: poolID) {
+            return poolRef.isDrawInProgress()
+        }
+        return false
+    }
+
+    /// STATE 4: Returns whether the pool is in intermission (between rounds).
+    access(all) view fun isInIntermission(poolID: UInt64): Bool {
+        if let poolRef = self.borrowPool(poolID: poolID) {
+            return poolRef.isInIntermission()
+        }
+        return false
+    }
+
     // ============================================================
     // CONTRACT INITIALIZATION
     // ============================================================

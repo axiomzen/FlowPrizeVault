@@ -258,7 +258,6 @@ access(all) fun testManySmallBatches() {
     Test.assertEqual(true, status["isBatchComplete"]! as! Bool)
     
     // Complete the draw
-    requestDrawRandomness(users[0], poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(users[0], poolID: poolID)
     
@@ -414,7 +413,7 @@ access(all) fun testBatchStateAfterProcessing() {
     // Check state after processing
     let statusAfter = getDrawStatus(poolID)
     Test.assertEqual(true, statusAfter["isBatchComplete"]! as! Bool)
-    Test.assertEqual(false, statusAfter["isDrawInProgress"]! as! Bool) // Not until randomness requested
+    Test.assertEqual(true, statusAfter["isDrawInProgress"]! as! Bool) // Randomness requested in startDraw
 }
 
 access(all) fun testBatchStateAfterRandomnessRequest() {
@@ -429,12 +428,11 @@ access(all) fun testBatchStateAfterRandomnessRequest() {
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
-    // Start draw, process, and request randomness
+    // Start draw (includes randomness request), process batches
     startDraw(user, poolID: poolID)
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(user, poolID: poolID)
     
-    // Check state after randomness request
+    // Check state after batch processing complete
     let statusAfter = getDrawStatus(poolID)
     Test.assertEqual(true, statusAfter["isDrawInProgress"]! as! Bool)
     Test.assertEqual(true, statusAfter["isReadyForCompletion"]! as! Bool)
@@ -514,7 +512,6 @@ access(all) fun testResumeBatchAfterUserDeposit() {
     Test.assertEqual(true, status["isBatchComplete"]! as! Bool)
     
     // Complete draw
-    requestDrawRandomness(users[0], poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(users[0], poolID: poolID)
     
@@ -556,7 +553,6 @@ access(all) fun testResumeBatchAfterUserWithdrawal() {
     Test.assertEqual(true, status["isBatchComplete"]! as! Bool)
     
     // Complete draw
-    requestDrawRandomness(users[0], poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(users[0], poolID: poolID)
     

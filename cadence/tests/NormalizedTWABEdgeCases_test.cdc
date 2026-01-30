@@ -122,15 +122,12 @@ access(all) fun testLateStartDrawUsesCappedWeights() {
     // User B deposited after round ended (gap period) - for THIS round, 
     // they participate but joined late so get minimal/zero weight
     
-    // Complete the draw
-    let randomnessSuccess = tryRequestDrawRandomness(poolID)
-    Test.assert(randomnessSuccess, message: "Randomness request should succeed")
-    
-    Test.moveTime(by: 1.0)
-    
+    // Complete the draw (randomness already requested in startDraw)
+    commitBlocksForRandomness()
+
     let completeSuccess = tryCompleteDraw(poolID)
     Test.assert(completeSuccess, message: "Complete draw should succeed")
-    
+
     log("✓ Late startDraw completed with capped weights")
 }
 
@@ -249,15 +246,12 @@ access(all) fun testGhostUserWithdrawDuringBatchGetsZeroWeight() {
     let batchSuccess = tryProcessDrawBatch(poolID, limit: 1000)
     Test.assert(batchSuccess, message: "Batch should succeed despite ghost user")
     
-    // Complete the draw successfully
-    let randomnessSuccess = tryRequestDrawRandomness(poolID)
-    Test.assert(randomnessSuccess, message: "Randomness should succeed")
-    
-    Test.moveTime(by: 1.0)
-    
+    // Complete the draw (randomness already requested in startDraw)
+    commitBlocksForRandomness()
+
     let completeSuccess = tryCompleteDraw(poolID)
     Test.assert(completeSuccess, message: "Complete draw should succeed")
-    
+
     log("✓ Ghost user (withdrew to 0 during batch) handled correctly")
 }
 
@@ -290,16 +284,13 @@ access(all) fun testGhostUserCannotWinPrize() {
     
     // The user had shares for the full round, so they have weight and can win
     // This is correct behavior - TWAB is calculated based on historical shares
-    
-    // Complete the draw
-    let randomnessSuccess = tryRequestDrawRandomness(poolID)
-    Test.assert(randomnessSuccess, message: "Randomness should succeed")
-    
-    Test.moveTime(by: 1.0)
-    
+
+    // Complete the draw (randomness already requested in startDraw)
+    commitBlocksForRandomness()
+
     let completeSuccess = tryCompleteDraw(poolID)
     Test.assert(completeSuccess, message: "Complete draw should succeed")
-    
+
     log("✓ Ghost user with historical TWAB can still win (correct behavior)")
 }
 
@@ -343,16 +334,13 @@ access(all) fun testReDepositDuringBatchNotEligibleForCurrentDraw() {
     
     // Only User A should have weight (was in snapshot)
     // User B deposited after snapshot, so excluded from this draw
-    
-    // Complete the draw
-    let randomnessSuccess = tryRequestDrawRandomness(poolID)
-    Test.assert(randomnessSuccess, message: "Randomness should succeed")
-    
-    Test.moveTime(by: 1.0)
-    
+
+    // Complete the draw (randomness already requested in startDraw)
+    commitBlocksForRandomness()
+
     let completeSuccess = tryCompleteDraw(poolID)
     Test.assert(completeSuccess, message: "Complete draw should succeed")
-    
+
     // Start next round to exit intermission
     startNextRound(userA, poolID: poolID)
     
@@ -394,16 +382,13 @@ access(all) fun testWithdrawAndReDepositDuringBatch() {
     
     // The user's TWAB for the CURRENT draw uses their historical shares
     // They had 100 shares for the round before withdrawing
-    
-    // Complete the draw
-    let randomnessSuccess = tryRequestDrawRandomness(poolID)
-    Test.assert(randomnessSuccess, message: "Randomness should succeed")
-    
-    Test.moveTime(by: 1.0)
-    
+
+    // Complete the draw (randomness already requested in startDraw)
+    commitBlocksForRandomness()
+
     let completeSuccess = tryCompleteDraw(poolID)
     Test.assert(completeSuccess, message: "Complete draw should succeed")
-    
+
     log("✓ Withdraw and re-deposit during batch handled correctly")
 }
 
@@ -426,16 +411,6 @@ access(all) fun tryProcessDrawBatch(_ poolID: UInt64, limit: Int): Bool {
     let result = _executeTransaction(
         "../transactions/test/process_draw_batch.cdc",
         [poolID, limit],
-        deployerAccount
-    )
-    return result.error == nil
-}
-
-access(all) fun tryRequestDrawRandomness(_ poolID: UInt64): Bool {
-    let deployerAccount = getDeployerAccount()
-    let result = _executeTransaction(
-        "../transactions/test/request_draw_randomness.cdc",
-        [poolID],
         deployerAccount
     )
     return result.error == nil

@@ -259,7 +259,7 @@ access(all) fun testNewUserOnlyInGap() {
     setupUserWithFundsAndCollection(gapOnlyUser, amount: depositAmount + 10.0)
     depositToPool(gapOnlyUser, poolID: poolID, amount: depositAmount)
     
-    // Execute draw (round1User should be in pendingDrawRound, gapOnlyUser should get lazy fallback)
+    // Execute draw (round1User's TWAB finalized from activeRound, gapOnlyUser should get lazy fallback)
     executeFullDraw(round1User, poolID: poolID)
     
     // Verify gap-only user has entries in new round (via lazy fallback)
