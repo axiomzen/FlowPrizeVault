@@ -357,7 +357,8 @@ fun fundPrizePool(_ poolID: UInt64, amount: UFix64) {
 // Note: Draw operations are admin-only. The account parameter is kept for
 // backward compatibility but the deployer account is always used as the signer.
 // 
-// Draw flow: startDraw() → processDrawBatch() (repeat) → requestDrawRandomness() → completeDraw()
+// Draw flow (3 phases): startDraw() → processDrawBatch() (repeat) → completeDraw()
+// Note: Randomness is requested during startDraw() and fulfilled during completeDraw().
 // ============================================================================
 
 access(all)
@@ -405,18 +406,6 @@ fun processAllDrawBatches(_ account: Test.TestAccount, poolID: UInt64, batchSize
 }
 
 access(all)
-fun requestDrawRandomness(_ account: Test.TestAccount, poolID: UInt64) {
-    // Draws are admin-only, so we always use the deployer account
-    let deployerAccount = getDeployerAccount()
-    let randomnessResult = _executeTransaction(
-        "../transactions/test/request_draw_randomness.cdc",
-        [poolID],
-        deployerAccount
-    )
-    assertTransactionSucceeded(randomnessResult, context: "Request draw randomness")
-}
-
-access(all)
 fun completeDraw(_ account: Test.TestAccount, poolID: UInt64) {
     // Draws are admin-only, so we always use the deployer account
     let deployerAccount = getDeployerAccount()
@@ -450,23 +439,69 @@ fun startNextRound(_ account: Test.TestAccount, poolID: UInt64) {
 access(all)
 fun isInIntermission(_ poolID: UInt64): Bool {
     let drawStatus = getDrawStatus(poolID)
-    return drawStatus["isInIntermission"] as? Bool ?? false
+    return drawStatus["isIntermission"] as? Bool ?? false
+}
+
+// ============================================================================
+// POOL STATE MACHINE HELPERS
+// ============================================================================
+
+/// Returns the current pool state as a string: "ROUND_ACTIVE", "AWAITING_DRAW", "DRAW_PROCESSING", "INTERMISSION"
+access(all)
+fun getPoolState(_ poolID: UInt64): String {
+    let drawStatus = getDrawStatus(poolID)
+    return drawStatus["poolState"] as? String ?? "UNKNOWN"
+}
+
+/// STATE 1: Round in progress, timer hasn't expired
+access(all)
+fun isRoundActive(_ poolID: UInt64): Bool {
+    let drawStatus = getDrawStatus(poolID)
+    return drawStatus["isRoundActive"] as? Bool ?? false
+}
+
+/// STATE 2: Round ended, waiting for startDraw()
+access(all)
+fun isAwaitingDraw(_ poolID: UInt64): Bool {
+    let drawStatus = getDrawStatus(poolID)
+    return drawStatus["isAwaitingDraw"] as? Bool ?? false
+}
+
+/// STATE 3: Draw ceremony in progress
+access(all)
+fun isDrawInProgress(_ poolID: UInt64): Bool {
+    let drawStatus = getDrawStatus(poolID)
+    return drawStatus["isDrawProcessing"] as? Bool ?? false  // Key name kept for backwards compat
+}
+
+/// Asserts exactly one of the 4 states is true (mutual exclusivity check)
+access(all)
+fun assertExactlyOneStateTrue(_ poolID: UInt64, context: String) {
+    let roundActive = isRoundActive(poolID)
+    let awaitingDraw = isAwaitingDraw(poolID)
+    let drawProcessing = isDrawInProgress(poolID)
+    let intermission = isInIntermission(poolID)
+
+    var trueCount = 0
+    if roundActive { trueCount = trueCount + 1 }
+    if awaitingDraw { trueCount = trueCount + 1 }
+    if drawProcessing { trueCount = trueCount + 1 }
+    if intermission { trueCount = trueCount + 1 }
+
+    Test.assertEqual(1, trueCount)
 }
 
 access(all)
 fun executeFullDrawWithIntermission(_ account: Test.TestAccount, poolID: UInt64) {
-    // 4-phase draw process that leaves pool in intermission:
-    // 1. Start draw (transitions rounds, inits batch)
+    // 3-phase draw process that leaves pool in intermission:
+    // 1. Start draw (transitions rounds, inits batch, requests randomness)
     startDraw(account, poolID: poolID)
 
     // 2. Process all batches (capture weights)
     // Use a large batch size to process all in one go for tests
     processAllDrawBatches(account, poolID: poolID, batchSize: 1000)
 
-    // 3. Request randomness
-    requestDrawRandomness(account, poolID: poolID)
-
-    // 4. Wait for randomness and complete
+    // 3. Wait for randomness and complete
     commitBlocksForRandomness()
     completeDraw(account, poolID: poolID)
 
@@ -475,22 +510,19 @@ fun executeFullDrawWithIntermission(_ account: Test.TestAccount, poolID: UInt64)
 
 access(all)
 fun executeFullDraw(_ account: Test.TestAccount, poolID: UInt64) {
-    // 4-phase draw process with backwards compatibility:
-    // 1. Start draw (transitions rounds, inits batch)
+    // 3-phase draw process with backwards compatibility:
+    // 1. Start draw (transitions rounds, inits batch, requests randomness)
     startDraw(account, poolID: poolID)
 
     // 2. Process all batches (capture weights)
     // Use a large batch size to process all in one go for tests
     processAllDrawBatches(account, poolID: poolID, batchSize: 1000)
 
-    // 3. Request randomness
-    requestDrawRandomness(account, poolID: poolID)
-
-    // 4. Wait for randomness and complete
+    // 3. Wait for randomness and complete
     commitBlocksForRandomness()
     completeDraw(account, poolID: poolID)
 
-    // 5. Start next round (for backwards compatibility)
+    // 4. Start next round (for backwards compatibility)
     // After completeDraw, pool is in intermission. Start next round automatically.
     startNextRound(account, poolID: poolID)
 }

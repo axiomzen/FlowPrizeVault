@@ -142,7 +142,6 @@ access(all) fun testUpdateDrawIntervalDuringBatchProcessing() {
     
     // Complete the draw
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(user, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
     
@@ -212,7 +211,6 @@ access(all) fun testIntervalUpdateDoesNotAffectPendingDrawRound() {
     // Complete draw - should still work correctly
     // The pending round's duration wasn't modified
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(user, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
     
@@ -283,7 +281,7 @@ access(all) fun testIntervalUpdateAcrossMultipleRounds() {
 }
 
 access(all) fun testFinalizedRoundDurationNotModified() {
-    // This test verifies that once a round is finalized (moved to pendingDrawRound),
+    // This test verifies that once a round is finalized (actualEndTime set during startDraw),
     // its duration cannot be modified. Interval updates only affect future rounds.
     
     let poolID = createTestPoolWithMediumInterval() // 60 second interval
@@ -302,15 +300,15 @@ access(all) fun testFinalizedRoundDurationNotModified() {
     startDraw(user, poolID: poolID)
     
     // At this point:
-    // - Pool is in intermission (no active round)
-    // - pendingDrawRound (round 1) is finalized with actualEndTime set
-    
+    // - Pool is in DRAW_PROCESSING state (activeRound has actualEndTime set)
+    // - Round 1 is being finalized for weight capture
+
     // Update interval - only affects the next round created by startNextRound
     updateDrawInterval(poolID: poolID, newInterval: 999.0)
-    
-    // During intermission, roundDuration returns 0.0
-    let stateIntermission = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, stateIntermission["roundDuration"]! as! UFix64)
+
+    // During DRAW_PROCESSING, activeRound still exists so roundDuration returns its duration
+    let stateDuringDraw = getPoolInitialState(poolID)
+    Test.assertEqual(60.0, stateDuringDraw["roundDuration"]! as! UFix64)
     
     // Pool config has been updated
     let details = getPoolDetails(poolID)
@@ -318,7 +316,6 @@ access(all) fun testFinalizedRoundDurationNotModified() {
     
     // Complete draw - pending round should still work correctly
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(user, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
     

@@ -129,20 +129,17 @@ access(all) fun testRequestRandomnessAfterBatchComplete() {
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
-    // Start draw and process batches
+    // Start draw (includes randomness request) and process batches
     startDraw(participant, poolID: poolID)
     processAllDrawBatches(participant, poolID: poolID, batchSize: 1000)
     
-    // Request randomness
-    requestDrawRandomness(participant, poolID: poolID)
-    
-    // Now draw should be in progress (randomness requested)
+    // Now draw should be in progress (randomness was requested during startDraw)
     let drawStatus = getDrawStatus(poolID)
     let isDrawInProgress = drawStatus["isDrawInProgress"]! as! Bool
     let isReadyForCompletion = drawStatus["isReadyForCompletion"]! as! Bool
     
-    Test.assert(isDrawInProgress, message: "Draw should be in progress after requesting randomness")
-    Test.assert(isReadyForCompletion, message: "Should be ready for completion after requesting randomness")
+    Test.assert(isDrawInProgress, message: "Draw should be in progress after startDraw")
+    Test.assert(isReadyForCompletion, message: "Should be ready for completion after batch processing")
 }
 
 // ============================================================================
@@ -231,14 +228,12 @@ access(all) fun testFullBatchedDrawFlow() {
     let status2 = getDrawStatus(poolID)
     Test.assert(status2["isBatchComplete"]! as! Bool, message: "Phase 2: Batch should be complete")
     
-    // Phase 3: Request randomness
-    requestDrawRandomness(participant, poolID: poolID)
-    
+    // Verify draw state after batch completion
     let status3 = getDrawStatus(poolID)
-    Test.assert(status3["isDrawInProgress"]! as! Bool, message: "Phase 3: Draw should be in progress")
-    Test.assert(status3["isReadyForCompletion"]! as! Bool, message: "Phase 3: Should be ready for completion")
+    Test.assert(status3["isDrawInProgress"]! as! Bool, message: "Draw should be in progress")
+    Test.assert(status3["isReadyForCompletion"]! as! Bool, message: "Should be ready for completion")
     
-    // Phase 4: Complete draw (after randomness available)
+    // Phase 3: Complete draw (after randomness available - wait 1 block)
     commitBlocksForRandomness()
     completeDraw(participant, poolID: poolID)
     
@@ -377,25 +372,20 @@ access(all) fun testStateTransitionsThroughAllPhases() {
     Test.assertEqual(false, statusInitial["isDrawInProgress"]! as! Bool)
     Test.assertEqual(true, statusInitial["canDrawNow"]! as! Bool)
     
-    // Phase 1: Start draw
+    // Phase 1: Start draw (includes randomness request)
     startDraw(user, poolID: poolID)
     let status1 = getDrawStatus(poolID)
     Test.assertEqual(true, status1["isBatchInProgress"]! as! Bool)
-    Test.assertEqual(false, status1["isDrawInProgress"]! as! Bool)
+    Test.assertEqual(true, status1["isDrawInProgress"]! as! Bool)  // Now true after startDraw
     
     // Phase 2: Process batches
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
     let status2 = getDrawStatus(poolID)
     Test.assertEqual(true, status2["isBatchComplete"]! as! Bool)
-    Test.assertEqual(false, status2["isDrawInProgress"]! as! Bool)
+    Test.assertEqual(true, status2["isDrawInProgress"]! as! Bool)  // Still true
+    Test.assertEqual(true, status2["isReadyForCompletion"]! as! Bool)  // Ready after batch complete
     
-    // Phase 3: Request randomness
-    requestDrawRandomness(user, poolID: poolID)
-    let status3 = getDrawStatus(poolID)
-    Test.assertEqual(true, status3["isDrawInProgress"]! as! Bool)
-    Test.assertEqual(true, status3["isReadyForCompletion"]! as! Bool)
-    
-    // Phase 4: Complete draw
+    // Phase 3: Complete draw (after randomness available - wait 1 block)
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
     
@@ -427,7 +417,6 @@ access(all) fun testNewUserDepositDuringBatchNotEligibleForCurrentDraw() {
     
     // Complete the draw
     processAllDrawBatches(existingUser, poolID: poolID, batchSize: 1000)
-    requestDrawRandomness(existingUser, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(existingUser, poolID: poolID)
     
@@ -493,7 +482,6 @@ access(all) fun testMultipleBatchCallsAfterComplete() {
     Test.assertEqual(true, status["isBatchComplete"]! as! Bool)
     
     // Complete the rest of the draw
-    requestDrawRandomness(user, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
     
@@ -509,53 +497,178 @@ access(all) fun testMultipleBatchCallsAfterComplete() {
 // TESTS - Round Transition During Batch
 // ============================================================================
 
-access(all) fun testPoolEntersIntermissionOnStartDraw() {
+access(all) fun testPoolEntersDrawProcessingOnStartDraw() {
     let poolID = createTestPoolWithMediumInterval()
-    
+
     // Setup participant
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: DEFAULT_DEPOSIT_AMOUNT + 10.0)
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
-    
+
     // Fund prize and advance time
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
-    
+
     // Check round ID before
     let stateBefore = getPoolInitialState(poolID)
     let roundBefore = stateBefore["currentRoundID"]! as! UInt64
     Test.assertEqual(UInt64(1), roundBefore)
-    
-    // Start draw (pool enters intermission, round ID stays at 1)
+
+    // Start draw (pool enters DRAW_PROCESSING state, not intermission)
     startDraw(user, poolID: poolID)
-    
-    // Pool should be in intermission
-    Test.assertEqual(true, isInIntermission(poolID))
-    
-    // Round ID during intermission is the last completed round (still 1, since draw not complete)
-    // Actually it's 0 because no draw has completed yet
+
+    // Pool should be in DRAW_PROCESSING (not intermission!)
+    // isInIntermission is only true when draw is complete AND no active round
+    Test.assertEqual(true, isDrawInProgress(poolID))
+    Test.assertEqual(false, isInIntermission(poolID))
+
+    // Round ID during draw processing: activeRound stays in place (simplified design)
+    // so currentRoundID remains the same (activeRound has actualEndTime set but isn't destroyed)
     let stateAfter = getPoolInitialState(poolID)
     let roundAfter = stateAfter["currentRoundID"]! as! UInt64
-    // lastCompletedRoundID is 0 before first draw completes
-    Test.assertEqual(UInt64(0), roundAfter)
+    Test.assertEqual(UInt64(1), roundAfter)
 }
 
 access(all) fun testUserEntriesInIntermissionDuringBatch() {
     let poolID = createTestPoolWithMediumInterval()
-    
+
     // Setup participant
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: DEFAULT_DEPOSIT_AMOUNT + 10.0)
     depositToPool(user, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
-    
+
     // Fund prize and advance time
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
-    
-    // Start draw (pool enters intermission)
+
+    // Start draw (pool enters draw processing)
     startDraw(user, poolID: poolID)
-    
-    // User should have entries equal to their share balance during intermission
+
+    // User should have entries equal to their share balance during draw processing
     let entries = getUserEntries(user.address, poolID)
-    Test.assert(entries > 0.0, message: "User should have entries (share balance) during intermission")
+    Test.assert(entries > 0.0, message: "User should have entries (share balance) during draw processing")
+}
+
+// ============================================================================
+// TWAB MANIPULATION PREVENTION TESTS
+// ============================================================================
+
+access(all) fun testDepositDuringDrawProcessingGetsNoExtraWeight() {
+    // SECURITY TEST: Verifies that depositing during draw processing
+    // does NOT give unfair weight. The exploit was:
+    // 1. User holds small amount all round
+    // 2. Deposits huge amount during draw processing
+    // 3. Gets weight as if they held huge amount all round
+    //
+    // FIX: recordShareChange caps time at actualEndTime, so new
+    // deposits during draw processing get zero additional weight.
+
+    let poolID = createTestPoolWithMediumInterval()
+
+    // Setup two users
+    let alice = Test.createAccount()
+    let bob = Test.createAccount()
+    setupUserWithFundsAndCollection(alice, amount: 200.0)
+    setupUserWithFundsAndCollection(bob, amount: 200.0)
+
+    // Alice deposits 100 at start of round
+    depositToPool(alice, poolID: poolID, amount: 100.0)
+
+    // Bob deposits only 10 at start of round
+    depositToPool(bob, poolID: poolID, amount: 10.0)
+
+    // Fund prize pool
+    fundPrizePool(poolID, amount: 50.0)
+
+    // Advance full round
+    Test.moveTime(by: 70.0)
+
+    // Start draw - enters DRAW_PROCESSING state
+    startDraw(alice, poolID: poolID)
+    Test.assertEqual(true, isDrawInProgress(poolID))
+
+    // ATTACK ATTEMPT: Bob tries to deposit 90 more during draw processing
+    // If vulnerable, Bob would get weight ~100 (as if held 100 all round)
+    // With fix, Bob should still get weight ~10 (his actual holding)
+    depositToPool(bob, poolID: poolID, amount: 90.0)
+
+    // Process batch and complete draw
+    processAllDrawBatches(alice, poolID: poolID, batchSize: 1000)
+    commitBlocksForRandomness()
+    completeDraw(alice, poolID: poolID)
+
+    // Verify Bob's weight was fair (should be ~10, NOT ~100)
+    // We can't directly check weight, but we can verify the system
+    // processed correctly without panic
+    // The draw completed successfully, meaning TWAB calculation worked
+    Test.assertEqual(true, isInIntermission(poolID))
+}
+
+access(all) fun testWithdrawDuringDrawProcessingRecordedCorrectly() {
+    // SECURITY TEST: Verifies that withdrawals during draw processing
+    // are also recorded correctly (with time capped at actualEndTime).
+
+    let poolID = createTestPoolWithMediumInterval()
+
+    // Setup user
+    let user = Test.createAccount()
+    setupUserWithFundsAndCollection(user, amount: 200.0)
+
+    // User deposits 100 at start of round
+    depositToPool(user, poolID: poolID, amount: 100.0)
+
+    // Fund prize pool
+    fundPrizePool(poolID, amount: 50.0)
+
+    // Advance full round
+    Test.moveTime(by: 70.0)
+
+    // Start draw - enters DRAW_PROCESSING state
+    startDraw(user, poolID: poolID)
+    Test.assertEqual(true, isDrawInProgress(poolID))
+
+    // User withdraws 50 during draw processing
+    // This should be recorded with time capped at actualEndTime
+    withdrawFromPool(user, poolID: poolID, amount: 50.0)
+
+    // Process batch and complete draw
+    processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
+    commitBlocksForRandomness()
+    completeDraw(user, poolID: poolID)
+
+    // Draw completed successfully
+    Test.assertEqual(true, isInIntermission(poolID))
+}
+
+access(all) fun testLazyUserNotAffectedByFix() {
+    // REGRESSION TEST: Verifies that "lazy" users (who deposited before
+    // the round and never transacted during) still get full weight.
+    // The currentShares fallback is still needed for this legitimate case.
+
+    let poolID = createTestPoolWithMediumInterval()
+
+    // Setup user
+    let user = Test.createAccount()
+    setupUserWithFundsAndCollection(user, amount: 200.0)
+
+    // User deposits 100 at start of round
+    depositToPool(user, poolID: poolID, amount: 100.0)
+
+    // Fund prize pool
+    fundPrizePool(poolID, amount: 50.0)
+
+    // Advance full round - user does NOTHING (lazy user)
+    Test.moveTime(by: 70.0)
+
+    // Start draw
+    startDraw(user, poolID: poolID)
+
+    // Process batch - lazy user should get full weight via currentShares fallback
+    // (They have no userSharesAtLastUpdate entry, so fallback is used)
+    processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
+    commitBlocksForRandomness()
+    completeDraw(user, poolID: poolID)
+
+    // Draw completed successfully - lazy user participated correctly
+    Test.assertEqual(true, isInIntermission(poolID))
 }

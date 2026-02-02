@@ -5,12 +5,11 @@ import "PrizeLinkedAccounts"
 /// Idempotent transaction that advances round completion. Call repeatedly until done.
 /// Uses default batch limit of 100.
 ///
-/// State Machine:
-/// 1. Round ended → startDraw()
+/// State Machine (3-phase draw):
+/// 1. Round ended → startDraw() (includes randomness request)
 /// 2. Batch in progress → processDrawBatch()
-/// 3. Batch complete → requestDrawRandomness()
-/// 4. Randomness ready → completeDraw()
-/// 5. In intermission → Done (call startNextRound separately)
+/// 3. Batch complete + 1 block passed → completeDraw()
+/// 4. In intermission → Done (call startNextRound separately)
 transaction(poolID: UInt64) {
 
     let adminRef: auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin
@@ -29,42 +28,36 @@ transaction(poolID: UInt64) {
         let batchLimit = 100
 
         // In intermission - nothing to do
-        if self.poolRef.isInIntermission() && !self.poolRef.isPendingDrawInProgress() {
+        // (isInIntermission already implies no draw in progress)
+        if self.poolRef.isInIntermission() {
             log("In intermission - call startNextRound()")
             return
         }
 
-        // Phase 4: Complete draw
+        // Phase 3: Complete draw (batch complete + randomness ready)
         if self.poolRef.isReadyForDrawCompletion() {
             self.adminRef.completePoolDraw(poolID: poolID)
             log("Draw completed!")
             return
         }
 
-        // Phase 3: Request randomness
-        if self.poolRef.isDrawBatchComplete() {
-            self.adminRef.requestPoolDrawRandomness(poolID: poolID)
-            log("Randomness requested - wait 1 block")
-            return
-        }
-
-        // Phase 2: Process batch
-        if self.poolRef.isPendingDrawInProgress() && !self.poolRef.isDrawBatchComplete() {
+        // Phase 2: Process batch (if batch not complete)
+        if self.poolRef.isDrawInProgress() && !self.poolRef.isDrawBatchComplete() {
             let remaining = self.adminRef.processPoolDrawBatch(poolID: poolID, limit: batchLimit)
             log("Batch processed, remaining: ".concat(remaining.toString()))
             return
         }
 
-        // Phase 1: Start draw
-        if self.poolRef.canDrawNow() && !self.poolRef.isPendingDrawInProgress() {
-            self.adminRef.startPoolDraw(poolID: poolID)
-            log("Draw started!")
+        // Batch complete but waiting for randomness block
+        if self.poolRef.isDrawBatchComplete() && !self.poolRef.isReadyForDrawCompletion() {
+            log("Batch complete - waiting for next block (randomness)")
             return
         }
 
-        // Waiting for randomness block
-        if self.poolRef.isDrawInProgress() && !self.poolRef.isReadyForDrawCompletion() {
-            log("Waiting for next block (randomness)")
+        // Phase 1: Start draw (includes randomness request)
+        if self.poolRef.canDrawNow() && !self.poolRef.isDrawInProgress() {
+            self.adminRef.startPoolDraw(poolID: poolID)
+            log("Draw started! (randomness requested)")
             return
         }
 

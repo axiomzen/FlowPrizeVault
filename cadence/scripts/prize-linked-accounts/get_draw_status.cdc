@@ -25,7 +25,24 @@ access(all) struct BatchProgress {
 
 /// Draw status information structure
 access(all) struct DrawStatus {
-    /// True if randomness has been requested and waiting for completion
+    // ============================================================
+    // POOL STATE MACHINE (use these for simple state checks)
+    // ============================================================
+    // One of: "ROUND_ACTIVE", "AWAITING_DRAW", "DRAW_PROCESSING", "INTERMISSION"
+    access(all) let poolState: String
+    /// STATE 1: Round in progress, timer hasn't expired
+    access(all) let isRoundActive: Bool
+    /// STATE 2: Round ended, waiting for admin to call startDraw()
+    access(all) let isAwaitingDraw: Bool
+    /// STATE 3: Draw ceremony in progress (batch processing + winner selection)
+    access(all) let isDrawProcessing: Bool
+    /// STATE 4: Draw complete, waiting for admin to call startNextRound()
+    access(all) let isIntermission: Bool
+
+    // ============================================================
+    // DETAILED STATUS (for progress bars, debugging, etc.)
+    // ============================================================
+    /// DEPRECATED: Use isDrawProcessing instead
     access(all) let isDrawInProgress: Bool
     /// True if the round has ended and startDraw() can be called
     access(all) let canDrawNow: Bool
@@ -40,15 +57,15 @@ access(all) struct DrawStatus {
     access(all) let isRoundEnded: Bool
     /// True if there's a pending draw round (after startDraw, before completeDraw)
     access(all) let isPendingDrawInProgress: Bool
-    /// True if batch processing is in progress (after startDraw, before requestRandomness)
+    /// True if batch processing is in progress (after startDraw, before batch complete)
     access(all) let isBatchInProgress: Bool
-    /// True if batch processing is complete and ready for randomness request
+    /// True if batch processing is complete and ready for completeDraw
     access(all) let isBatchComplete: Bool
-    /// True if randomness has been requested and completeDraw can be called
+    /// True if completeDraw can be called now
     access(all) let isReadyForCompletion: Bool
     /// Batch progress information (nil if no batch in progress)
     access(all) let batchProgress: BatchProgress?
-    /// True if pool is in intermission (between rounds, activeRound is nil)
+    /// DEPRECATED: Use isIntermission instead (this was inaccurate during draw processing)
     access(all) let isInIntermission: Bool
     /// Target end time for the current round (admin can modify before startDraw)
     access(all) let targetEndTime: UFix64
@@ -56,6 +73,11 @@ access(all) struct DrawStatus {
     access(all) let currentTime: UFix64
 
     init(
+        poolState: String,
+        isRoundActive: Bool,
+        isAwaitingDraw: Bool,
+        isDrawProcessing: Bool,
+        isIntermission: Bool,
         isDrawInProgress: Bool,
         canDrawNow: Bool,
         lastDrawTimestamp: UFix64,
@@ -76,6 +98,11 @@ access(all) struct DrawStatus {
         targetEndTime: UFix64,
         currentTime: UFix64
     ) {
+        self.poolState = poolState
+        self.isRoundActive = isRoundActive
+        self.isAwaitingDraw = isAwaitingDraw
+        self.isDrawProcessing = isDrawProcessing
+        self.isIntermission = isIntermission
         self.isDrawInProgress = isDrawInProgress
         self.canDrawNow = canDrawNow
         self.lastDrawTimestamp = lastDrawTimestamp
@@ -107,7 +134,7 @@ access(all) struct DrawStatus {
 access(all) fun main(poolID: UInt64): DrawStatus {
     let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)
         ?? panic("Pool does not exist")
-    
+
     // Extract batch progress if available
     var batchProgress: BatchProgress? = nil
     if let progressData = poolRef.getDrawBatchProgress() {
@@ -119,8 +146,27 @@ access(all) fun main(poolID: UInt64): DrawStatus {
             isComplete: progressData["isComplete"] as? Bool ?? false
         )
     }
-    
+
+    // Compute pool state from individual boolean functions
+    var poolState = "UNKNOWN"
+    if poolRef.isRoundActive() {
+        poolState = "ROUND_ACTIVE"
+    } else if poolRef.isAwaitingDraw() {
+        poolState = "AWAITING_DRAW"
+    } else if poolRef.isDrawInProgress() {
+        poolState = "DRAW_PROCESSING"
+    } else if poolRef.isInIntermission() {
+        poolState = "INTERMISSION"
+    }
+
     return DrawStatus(
+        // Pool state machine (mutually exclusive states)
+        poolState: poolState,
+        isRoundActive: poolRef.isRoundActive(),
+        isAwaitingDraw: poolRef.isAwaitingDraw(),
+        isDrawProcessing: poolRef.isDrawInProgress(),
+        isIntermission: poolRef.isInIntermission(),
+        // Detailed status
         isDrawInProgress: poolRef.isDrawInProgress(),
         canDrawNow: poolRef.canDrawNow(),
         lastDrawTimestamp: poolRef.lastDrawTimestamp,
@@ -132,7 +178,7 @@ access(all) fun main(poolID: UInt64): DrawStatus {
         currentRoundID: poolRef.getCurrentRoundID(),
         roundElapsedTime: poolRef.getRoundElapsedTime(),
         isRoundEnded: poolRef.isRoundEnded(),
-        isPendingDrawInProgress: poolRef.isPendingDrawInProgress(),
+        isPendingDrawInProgress: poolRef.isDrawInProgress(),
         isBatchInProgress: poolRef.isDrawBatchInProgress(),
         isBatchComplete: poolRef.isDrawBatchComplete(),
         isReadyForCompletion: poolRef.isReadyForDrawCompletion(),

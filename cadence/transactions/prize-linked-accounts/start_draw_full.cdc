@@ -1,13 +1,13 @@
 import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 
-/// Start Draw Full transaction - Handles phases 1-3 of the draw process (Admin only)
+/// Start Draw Full transaction - Handles phases 1-2 of the draw process (Admin only)
 /// 
 /// This transaction performs:
-///   1. startDraw() - Initiates the draw, creates pendingDrawRound
+///   1. startDraw() - Initiates the draw, materializes yield, requests randomness
 ///   2. processDrawBatch() - Processes all receivers in batches (loops until complete)
-///   3. requestDrawRandomness() - Requests on-chain randomness for winner selection
 ///
 /// After this transaction, wait at least 1 block, then call complete_draw.cdc to finalize.
+/// Note: Randomness is requested during startDraw() and fulfilled during completeDraw().
 ///
 /// Parameters:
 /// - poolID: The ID of the pool to start the draw for
@@ -24,9 +24,9 @@ transaction(poolID: UInt64, batchSize: Int) {
     }
     
     execute {
-        // Phase 1: Start the draw
+        // Phase 1: Start the draw (includes yield materialization and randomness request)
         self.adminRef.startPoolDraw(poolID: poolID)
-        log("Phase 1: Draw started for pool ".concat(poolID.toString()))
+        log("Phase 1: Draw started for pool ".concat(poolID.toString()).concat(" (randomness requested)"))
         
         // Phase 2: Process all batches
         var totalProcessed = 0
@@ -39,10 +39,7 @@ transaction(poolID: UInt64, batchSize: Int) {
             totalProcessed = totalProcessed + batchSize
         }
         log("Phase 2: Processed all receivers in ".concat(batchCount.toString()).concat(" batches"))
-        
-        // Phase 3: Request randomness
-        self.adminRef.requestPoolDrawRandomness(poolID: poolID)
-        log("Phase 3: Randomness requested - call complete_draw.cdc after next block")
+        log("Ready for Phase 3: call complete_draw.cdc after next block")
     }
 }
 

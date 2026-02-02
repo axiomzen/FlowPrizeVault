@@ -102,7 +102,6 @@ access(all) fun testCleanupGhostReceiverCreatedDuringDraw() {
     
     // Complete the draw
     processAllDrawBatches(participant1, poolID: poolID, batchSize: 10)
-    requestDrawRandomness(participant1, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(participant1, poolID: poolID)
     
@@ -158,10 +157,9 @@ access(all) fun testCleanupBlockedAfterRandomnessRequested() {
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
     
-    // Start draw and request randomness
+    // Start draw (includes randomness request) and process batches
     startDraw(participant, poolID: poolID)
     processAllDrawBatches(participant, poolID: poolID, batchSize: 10)
-    requestDrawRandomness(participant, poolID: poolID)
     
     // Try to run cleanup - should fail (pendingSelectionData still exists)
     let result = cleanupPoolStaleEntriesExpectFailure(poolID, startIndex: 0, receiverLimit: 100)
@@ -250,7 +248,6 @@ access(all) fun testCleanupDoesNotAffectActiveUsers() {
     
     // Complete draw
     processAllDrawBatches(active1, poolID: poolID, batchSize: 10)
-    requestDrawRandomness(active1, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(active1, poolID: poolID)
     
@@ -294,7 +291,6 @@ access(all) fun testCleanupAfterUserRedeposits() {
     
     // Complete draw
     processAllDrawBatches(participant, poolID: poolID, batchSize: 10)
-    requestDrawRandomness(participant, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(participant, poolID: poolID)
     
@@ -333,7 +329,6 @@ access(all) fun testMultipleCleanupCallsAreIdempotent() {
     startDraw(participant, poolID: poolID)
     withdrawFromPool(participant, poolID: poolID, amount: DEFAULT_DEPOSIT_AMOUNT)
     processAllDrawBatches(participant, poolID: poolID, batchSize: 10)
-    requestDrawRandomness(participant, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(participant, poolID: poolID)
     
@@ -387,7 +382,6 @@ access(all) fun testReceiverLimitOfOne() {
     
     // Complete draw
     processAllDrawBatches(p1, poolID: poolID, batchSize: 10)
-    requestDrawRandomness(p1, poolID: poolID)
     commitBlocksForRandomness()
     completeDraw(p1, poolID: poolID)
     
