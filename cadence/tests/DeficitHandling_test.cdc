@@ -42,7 +42,7 @@ access(all) fun testDeficitDetectedWhenYieldVaultDecreases() {
     
     // Get initial state
     let initialInfo = getPoolRewardsInfo(poolID)
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     let initialSharePrice = initialInfo["sharePrice"]!
     
     Test.assertEqual(100.0, initialTotalStaked)
@@ -57,11 +57,11 @@ access(all) fun testDeficitDetectedWhenYieldVaultDecreases() {
     
     // Get final state
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     let finalSharePrice = finalInfo["sharePrice"]!
     
     // Total staked should have decreased
-    Test.assert(finalTotalStaked < initialTotalStaked, message: "allocatedRewards should decrease after deficit")
+    Test.assert(finalTotalStaked < initialTotalStaked, message: "userPoolBalance should decrease after deficit")
     
     // Share price should have decreased (meaning users' balances decreased)
     Test.assert(finalSharePrice < initialSharePrice, message: "sharePrice should decrease after deficit")
@@ -111,7 +111,7 @@ access(all) fun testDeficitDistributionWithProtocol() {
 
     // Get initial state
     let initialInfo = getPoolRewardsInfo(poolID)
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     let initialPendingPrize = initialInfo["allocatedPrizeYield"]!
     let initialPendingProtocol = initialInfo["allocatedProtocolFee"]!
     let initialSharePrice = initialInfo["sharePrice"]!
@@ -129,13 +129,13 @@ access(all) fun testDeficitDistributionWithProtocol() {
 
     // Verify yield was distributed correctly
     let afterYieldInfo = getPoolRewardsInfo(poolID)
-    let afterYieldTotalStaked = afterYieldInfo["allocatedRewards"]!
+    let afterYieldTotalStaked = afterYieldInfo["userPoolBalance"]!
     let afterYieldPendingPrize = afterYieldInfo["allocatedPrizeYield"]!
     let afterYieldPendingProtocolFee = afterYieldInfo["allocatedProtocolFee"]!
 
-    // allocatedRewards should increase by rewards portion: 100 + 10 = 110
+    // userPoolBalance should increase by rewards portion: 100 + 10 = 110
     Test.assert(afterYieldTotalStaked > 109.0 && afterYieldTotalStaked < 111.0,
-        message: "allocatedRewards should be ~110 after yield. Got: ".concat(afterYieldTotalStaked.toString()))
+        message: "userPoolBalance should be ~110 after yield. Got: ".concat(afterYieldTotalStaked.toString()))
 
     // allocatedPrizeYield should be prize portion: 6
     Test.assert(afterYieldPendingPrize > 5.0 && afterYieldPendingPrize < 7.0,
@@ -155,7 +155,7 @@ access(all) fun testDeficitDistributionWithProtocol() {
 
     // Get final state
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     let finalPendingPrize = finalInfo["allocatedPrizeYield"]!
     let finalPendingProtocolFee = finalInfo["allocatedProtocolFee"]!
     let finalSharePrice = finalInfo["sharePrice"]!
@@ -178,7 +178,7 @@ access(all) fun testDeficitDistributionWithProtocol() {
     // Verify final values are approximately correct
     // Expected: 110 - 0 = 110 (rewards protected)
     Test.assert(finalTotalStaked > 109.0 && finalTotalStaked < 111.0,
-        message: "Final allocatedRewards should be ~110 (protected). Got: ".concat(finalTotalStaked.toString()))
+        message: "Final userPoolBalance should be ~110 (protected). Got: ".concat(finalTotalStaked.toString()))
     // Expected: prize fully drained
     Test.assert(finalPendingPrize < 0.5,
         message: "Final allocatedPrizeYield should be ~0 (drained). Got: ".concat(finalPendingPrize.toString()))
@@ -202,7 +202,7 @@ access(all) fun testDeficitOnlyRewardsWhen100PercentRewards() {
     
     // Get initial state
     let initialInfo = getPoolRewardsInfo(poolID)
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     let initialPendingPrize = initialInfo["allocatedPrizeYield"]!
     
     // Simulate depreciation
@@ -212,11 +212,11 @@ access(all) fun testDeficitOnlyRewardsWhen100PercentRewards() {
     
     // Get final state
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     let finalPendingPrize = finalInfo["allocatedPrizeYield"]!
     
     // All deficit should come from rewards (share price decrease)
-    Test.assert(finalTotalStaked < initialTotalStaked, message: "allocatedRewards should decrease")
+    Test.assert(finalTotalStaked < initialTotalStaked, message: "userPoolBalance should decrease")
     
     // allocatedPrizeYield should be unchanged (still 0)
     Test.assertEqual(initialPendingPrize, finalPendingPrize)
@@ -233,7 +233,7 @@ access(all) fun testDeficitOnlyPrizeWhen100PercentPrize() {
     
     // Get state after appreciation
     let midInfo = getPoolRewardsInfo(poolID)
-    let midTotalStaked = midInfo["allocatedRewards"]!
+    let midTotalStaked = midInfo["userPoolBalance"]!
     let midPendingPrize = midInfo["allocatedPrizeYield"]!
     
     // Total staked should be unchanged (all yield went to prize)
@@ -246,10 +246,10 @@ access(all) fun testDeficitOnlyPrizeWhen100PercentPrize() {
     
     // Get final state
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     let finalPendingPrize = finalInfo["allocatedPrizeYield"]!
     
-    // allocatedRewards should be unchanged (deficit absorbed by prize)
+    // userPoolBalance should be unchanged (deficit absorbed by prize)
     Test.assertEqual(midTotalStaked, finalTotalStaked)
     
     // allocatedPrizeYield should have decreased
@@ -300,13 +300,13 @@ access(all) fun testProtocolShortfallFallsToPrize() {
     triggerSyncWithYieldSource(poolID: poolID)
     
     let afterYieldInfo = getPoolRewardsInfo(poolID)
-    let afterYieldTotalStaked = afterYieldInfo["allocatedRewards"]!
+    let afterYieldTotalStaked = afterYieldInfo["userPoolBalance"]!
     let afterYieldPendingPrize = afterYieldInfo["allocatedPrizeYield"]!
     let afterYieldPendingProtocolFee = afterYieldInfo["allocatedProtocolFee"]!
     
     // Verify initial state: ~102, ~2, ~1
     Test.assert(afterYieldTotalStaked > 101.0 && afterYieldTotalStaked < 103.0,
-        message: "allocatedRewards should be ~102. Got: ".concat(afterYieldTotalStaked.toString()))
+        message: "userPoolBalance should be ~102. Got: ".concat(afterYieldTotalStaked.toString()))
     Test.assert(afterYieldPendingPrize > 1.5 && afterYieldPendingPrize < 2.5,
         message: "allocatedPrizeYield should be ~2. Got: ".concat(afterYieldPendingPrize.toString()))
     Test.assert(afterYieldPendingProtocolFee > 0.5 && afterYieldPendingProtocolFee < 1.5,
@@ -321,7 +321,7 @@ access(all) fun testProtocolShortfallFallsToPrize() {
     triggerSyncWithYieldSource(poolID: poolID)
     
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     let finalPendingPrize = finalInfo["allocatedPrizeYield"]!
     let finalPendingProtocolFee = finalInfo["allocatedProtocolFee"]!
     
@@ -334,7 +334,7 @@ access(all) fun testProtocolShortfallFallsToPrize() {
         message: "Prize should be depleted. Got: ".concat(finalPendingPrize.toString()))
     
     // Rewards absorbed its share + all shortfalls
-    // Original allocatedRewards ~102, absorbed ~7, should be ~95
+    // Original userPoolBalance ~102, absorbed ~7, should be ~95
     let rewardsLoss = afterYieldTotalStaked - finalTotalStaked
     Test.assert(rewardsLoss > 6.0 && rewardsLoss < 8.0,
         message: "Rewards should absorb ~7 (its share + shortfalls). Actual: ".concat(rewardsLoss.toString()))
@@ -357,11 +357,11 @@ access(all) fun testShortfallPriorityChain() {
     triggerSyncWithYieldSource(poolID: poolID)
     
     let afterYieldInfo = getPoolRewardsInfo(poolID)
-    let afterYieldTotalStaked = afterYieldInfo["allocatedRewards"]!
+    let afterYieldTotalStaked = afterYieldInfo["userPoolBalance"]!
     let afterYieldPendingPrize = afterYieldInfo["allocatedPrizeYield"]!
     let afterYieldPendingProtocolFee = afterYieldInfo["allocatedProtocolFee"]!
     
-    // State: allocatedRewards ~103, prize ~3, protocol ~4
+    // State: userPoolBalance ~103, prize ~3, protocol ~4
     // allocatedFunds = 103 + 3 + 4 = 110
     
     // Simulate 20 FLOW deficit (larger than total yield accumulated)
@@ -373,7 +373,7 @@ access(all) fun testShortfallPriorityChain() {
     triggerSyncWithYieldSource(poolID: poolID)
     
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     let finalPendingPrize = finalInfo["allocatedPrizeYield"]!
     let finalPendingProtocolFee = finalInfo["allocatedProtocolFee"]!
     
@@ -390,9 +390,9 @@ access(all) fun testShortfallPriorityChain() {
     Test.assert(rewardsLoss > 12.0 && rewardsLoss < 14.0,
         message: "Rewards should absorb ~13 (6 own + 7 shortfall). Actual: ".concat(rewardsLoss.toString()))
     
-    // Final allocatedRewards should be ~90 (103 - 13)
+    // Final userPoolBalance should be ~90 (103 - 13)
     Test.assert(finalTotalStaked > 89.0 && finalTotalStaked < 91.0,
-        message: "Final allocatedRewards should be ~90. Got: ".concat(finalTotalStaked.toString()))
+        message: "Final userPoolBalance should be ~90. Got: ".concat(finalTotalStaked.toString()))
 }
 
 access(all) fun testWaterfallProtectsRewardsWhenProtocolFundsSufficient() {
@@ -407,7 +407,7 @@ access(all) fun testWaterfallProtectsRewardsWhenProtocolFundsSufficient() {
     triggerSyncWithYieldSource(poolID: poolID)
 
     let afterYieldInfo = getPoolRewardsInfo(poolID)
-    let afterYieldTotalStaked = afterYieldInfo["allocatedRewards"]!
+    let afterYieldTotalStaked = afterYieldInfo["userPoolBalance"]!
     let afterYieldPendingPrize = afterYieldInfo["allocatedPrizeYield"]!
     let afterYieldPendingProtocolFee = afterYieldInfo["allocatedProtocolFee"]!
 
@@ -417,7 +417,7 @@ access(all) fun testWaterfallProtectsRewardsWhenProtocolFundsSufficient() {
     triggerSyncWithYieldSource(poolID: poolID)
 
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     let finalPendingPrize = finalInfo["allocatedPrizeYield"]!
     let finalPendingProtocolFee = finalInfo["allocatedProtocolFee"]!
 
@@ -521,14 +521,14 @@ access(all) fun testZeroDeficitNoChange() {
     
     let initialInfo = getPoolRewardsInfo(poolID)
     let initialSharePrice = initialInfo["sharePrice"]!
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     
     // Trigger sync without any change to yield vault
     triggerSyncWithYieldSource(poolID: poolID)
     
     let finalInfo = getPoolRewardsInfo(poolID)
     let finalSharePrice = finalInfo["sharePrice"]!
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     
     // Nothing should change
     Test.assertEqual(initialSharePrice, finalSharePrice)
@@ -637,7 +637,7 @@ access(all) fun testDeficitAutoAppliedDuringDeposit() {
     // Get initial state
     let initialInfo = getPoolRewardsInfo(poolID)
     let initialSharePrice = initialInfo["sharePrice"]!
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     
     Test.assertEqual(1.0, initialSharePrice)
     Test.assertEqual(100.0, initialTotalStaked)
@@ -721,7 +721,7 @@ access(all) fun testDeficitNotAppliedWithoutUserInteraction() {
     // Get initial state
     let initialInfo = getPoolRewardsInfo(poolID)
     let initialSharePrice = initialInfo["sharePrice"]!
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     
     // Simulate deficit without any interaction
     simulateYieldDepreciation(poolIndex: poolIndex, amount: 10.0, vaultPrefix: VAULT_PREFIX_DISTRIBUTION)
@@ -730,7 +730,7 @@ access(all) fun testDeficitNotAppliedWithoutUserInteraction() {
     // Share price should still be the same (no sync happened yet)
     let midInfo = getPoolRewardsInfo(poolID)
     let midSharePrice = midInfo["sharePrice"]!
-    let midTotalStaked = midInfo["allocatedRewards"]!
+    let midTotalStaked = midInfo["userPoolBalance"]!
     
     // Internal accounting hasn't changed because no sync happened
     Test.assertEqual(initialSharePrice, midSharePrice)

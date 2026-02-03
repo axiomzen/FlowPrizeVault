@@ -30,7 +30,7 @@ access(all) fun testNewPoolTotalStakedZero() {
     let poolID = UInt64(getPoolCount() - 1)
     
     let state = getPoolInitialState(poolID)
-    Test.assertEqual(0.0, state["allocatedRewards"]! as! UFix64)
+    Test.assertEqual(0.0, state["userPoolBalance"]! as! UFix64)
 }
 
 access(all) fun testNewPoolLastDrawTimestampZero() {

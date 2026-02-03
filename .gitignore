@@ -3,4 +3,4 @@ emulator-account.pkey
 imports
 .env
 azsavings.pkey
-.pkey
+*.pkey

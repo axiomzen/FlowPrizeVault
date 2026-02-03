@@ -80,7 +80,7 @@ access(all) fun testYieldBelowThresholdIsNotDistributed() {
     let initialInfo = getPoolRewardsInfo(poolID)
     let initialPendingPrize = initialInfo["allocatedPrizeYield"]!
     let initialPendingProtocol = initialInfo["allocatedProtocolFee"]!
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     
     // Simulate very small yield (below threshold)
     let poolIndex = Int(poolID)
@@ -91,7 +91,7 @@ access(all) fun testYieldBelowThresholdIsNotDistributed() {
     let finalInfo = getPoolRewardsInfo(poolID)
     let finalPendingPrize = finalInfo["allocatedPrizeYield"]!
     let finalPendingProtocolFee = finalInfo["allocatedProtocolFee"]!
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     
     // Nothing should have been distributed - all values should be unchanged
     Test.assert(
@@ -276,7 +276,7 @@ access(all) fun testSumConservationAboveThreshold() {
     
     // Get initial state
     let initialInfo = getPoolRewardsInfo(poolID)
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     let initialPendingPrize = initialInfo["allocatedPrizeYield"]!
     let initialPendingProtocol = initialInfo["allocatedProtocolFee"]!
     let initialAllocated = initialTotalStaked + initialPendingPrize + initialPendingProtocol
@@ -289,7 +289,7 @@ access(all) fun testSumConservationAboveThreshold() {
     
     // Get final state
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     let finalPendingPrize = finalInfo["allocatedPrizeYield"]!
     let finalPendingProtocolFee = finalInfo["allocatedProtocolFee"]!
     let finalAllocated = finalTotalStaked + finalPendingPrize + finalPendingProtocolFee
@@ -426,7 +426,7 @@ access(all) fun testDeficitBelowThresholdIsNotApplied() {
     
     // Get initial state
     let initialInfo = getPoolRewardsInfo(poolID)
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     let initialSharePrice = initialInfo["sharePrice"]!
     
     // Simulate very small deficit (below threshold)
@@ -436,7 +436,7 @@ access(all) fun testDeficitBelowThresholdIsNotApplied() {
     
     // Get final state
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     let finalSharePrice = finalInfo["sharePrice"]!
     
     // Nothing should have changed - deficit below threshold is skipped
@@ -465,7 +465,7 @@ access(all) fun testDeficitAtThresholdIsApplied() {
     
     // Get initial state
     let initialInfo = getPoolRewardsInfo(poolID)
-    let initialTotalStaked = initialInfo["allocatedRewards"]!
+    let initialTotalStaked = initialInfo["userPoolBalance"]!
     
     // Simulate deficit exactly at threshold
     let poolIndex = Int(poolID)
@@ -474,7 +474,7 @@ access(all) fun testDeficitAtThresholdIsApplied() {
     
     // Get final state
     let finalInfo = getPoolRewardsInfo(poolID)
-    let finalTotalStaked = finalInfo["allocatedRewards"]!
+    let finalTotalStaked = finalInfo["userPoolBalance"]!
     
     // Deficit at threshold should be applied
     Test.assert(
