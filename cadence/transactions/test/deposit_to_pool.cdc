@@ -24,10 +24,11 @@ transaction(poolID: UInt64, amount: UFix64) {
     execute {
         // Withdraw tokens from vault
         let tokens <- self.vaultRef.withdraw(amount: amount)
-        
+
         // Deposit into the pool (auto-registers if first time)
-        self.collectionRef.deposit(poolID: poolID, from: <-tokens)
-        
+        // Test transaction - use 10000 bps (100%) for no slippage protection
+        self.collectionRef.deposit(poolID: poolID, from: <-tokens, maxSlippageBps: 10000)
+
         log("Successfully deposited ".concat(amount.toString()).concat(" tokens into pool ").concat(poolID.toString()))
     }
 }
