@@ -121,7 +121,7 @@ access(all)
 fun sponsorDepositToPool(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64) {
     let depositResult = _executeTransaction(
         "../transactions/prize-linked-accounts/sponsor_deposit.cdc",
-        [poolID, amount],
+        [poolID, amount, UInt64(10000)],  // maxSlippageBps: 10000 (100%) for no slippage protection in tests
         account
     )
     assertTransactionSucceeded(depositResult, context: "Sponsor deposit")
