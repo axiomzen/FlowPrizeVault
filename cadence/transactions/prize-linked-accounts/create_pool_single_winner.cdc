@@ -26,15 +26,20 @@ transaction(
     yieldVaultPath: String
 ) {
 
-    let adminRef: auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin
+    let adminRef: auth(PrizeLinkedAccounts.CriticalOps, PrizeLinkedAccounts.OwnerOnly) &PrizeLinkedAccounts.Admin
+    let treasuryReceiverCap: Capability<&{FungibleToken.Receiver}>
     let providerCap: Capability<auth(FungibleToken.Withdraw) &FlowToken.Vault>
     let receiverCap: Capability<&FlowToken.Vault>
 
     prepare(signer: auth(Storage, BorrowValue, Capabilities) &Account) {
         // Borrow the Admin resource
-        self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
+        self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps, PrizeLinkedAccounts.OwnerOnly) &PrizeLinkedAccounts.Admin>(
             from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Admin resource not found. Only the contract deployer can create pools.")
+
+        // Get the signer's FlowToken receiver for treasury
+        self.treasuryReceiverCap = signer.capabilities.get<&{FungibleToken.Receiver}>(/public/flowTokenReceiver)
+        assert(self.treasuryReceiverCap.check(), message: "Signer must have a valid FlowToken receiver at /public/flowTokenReceiver")
 
         // Build the storage path from the identifier
         let storagePath = StoragePath(identifier: yieldVaultPath)
@@ -112,6 +117,12 @@ transaction(
         let poolID = self.adminRef.createPool(
             config: config,
             emergencyConfig: nil
+        )
+
+        // Set the treasury recipient to the pool creator
+        self.adminRef.setPoolProtocolFeeRecipient(
+            poolID: poolID,
+            recipientCap: self.treasuryReceiverCap
         )
 
         log("Created SingleWinner pool with ID: ".concat(poolID.toString()))
