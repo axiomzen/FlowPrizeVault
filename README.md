@@ -93,10 +93,6 @@ The main protocol contract containing:
 | **PoolPositionCollection** | User-owned resource for interacting with pools |
 | **Admin** | Privileged operations (strategy updates, emergency controls) |
 
-### `PrizeWinnerTracker.cdc`
-
-Optional pluggable winner history tracking using a ring buffer pattern. Can be attached to pools for leaderboard/history features.
-
 ---
 
 ## Key Mechanisms
@@ -529,9 +525,8 @@ flow test cadence/tests/PrizeVault_test.cdc
 
 ### Deployment Order
 
-1. `PrizeWinnerTracker` (optional)
-2. `PrizeLinkedAccounts`
-3. `PrizeVaultScheduler` (optional, for automated draws)
+1. `PrizeLinkedAccounts`
+2. `PrizeVaultScheduler` (optional, for automated draws)
 
 ---
 

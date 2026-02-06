@@ -46,8 +46,7 @@ transaction {
             minimumDeposit: 1.0,
             drawIntervalSeconds: 86400.0, // 24 hours
             distributionStrategy: strategy,
-            prizeDistribution: prizeDistribution,
-            winnerTrackerCap: nil
+            prizeDistribution: prizeDistribution
         )
         
         // Borrow admin resource and create pool

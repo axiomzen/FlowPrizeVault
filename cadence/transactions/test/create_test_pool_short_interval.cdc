@@ -46,8 +46,7 @@ transaction {
             minimumDeposit: 1.0,
             drawIntervalSeconds: 1.0,  // 1 second for testing!
             distributionStrategy: strategy,
-            prizeDistribution: prizeDistribution,
-            winnerTrackerCap: nil
+            prizeDistribution: prizeDistribution
         )
         
         // Borrow admin resource and create pool

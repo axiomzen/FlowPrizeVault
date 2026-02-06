@@ -38,7 +38,6 @@ import "NonFungibleToken"
 import "RandomConsumer"
 import "DeFiActions"
 import "DeFiActionsUtils"
-import "PrizeWinnerTracker"
 import "Xorshift128plus"
 
 access(all) contract PrizeLinkedAccounts {    
@@ -259,13 +258,6 @@ access(all) contract PrizeLinkedAccounts {
     /// @param newDistribution - Name of the new prize distribution
     /// @param adminUUID - UUID of the Admin resource performing the update (audit trail)
     access(all) event PrizeDistributionUpdated(poolID: UInt64, oldDistribution: String, newDistribution: String, adminUUID: UInt64)
-    
-    /// Emitted when the winner tracker capability is updated.
-    /// @param poolID - ID of the pool being configured
-    /// @param hasOldTracker - Whether a tracker was previously configured
-    /// @param hasNewTracker - Whether a tracker is now configured
-    /// @param adminUUID - UUID of the Admin resource performing the update (audit trail)
-    access(all) event WinnerTrackerUpdated(poolID: UInt64, hasOldTracker: Bool, hasNewTracker: Bool, adminUUID: UInt64)
     
     /// Emitted when the draw interval for FUTURE rounds is changed.
     /// This affects rounds created after the next startDraw().
@@ -702,29 +694,6 @@ access(all) contract PrizeLinkedAccounts {
                 adminUUID: self.uuid
             )
         }
-        
-        /// Updates or removes the winner tracker capability.
-        /// Winner tracker is used for external leaderboard/statistics integrations.
-        /// @param poolID - ID of the pool to update
-        /// @param newTrackerCap - Capability to winner tracker, or nil to disable
-        access(ConfigOps) fun updatePoolWinnerTracker(
-            poolID: UInt64,
-            newTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?
-        ) {
-            let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
-            
-            let hasOldTracker = poolRef.hasWinnerTracker()
-            poolRef.setWinnerTrackerCap(cap: newTrackerCap)
-            let hasNewTracker = newTrackerCap != nil
-            
-            emit WinnerTrackerUpdated(
-                poolID: poolID,
-                hasOldTracker: hasOldTracker,
-                hasNewTracker: hasNewTracker,
-                adminUUID: self.uuid
-            )
-        }
-        
         /// Updates the draw interval for FUTURE rounds only.
         /// 
         /// This function ONLY affects future rounds created after the next startDraw().
@@ -2540,11 +2509,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Configuration for how prizes are distributed among winners.
         /// Can be updated by admin with CriticalOps entitlement.
         access(contract) var prizeDistribution: {PrizeDistribution}
-        
-        /// Optional capability to winner tracker for leaderboard integration.
-        /// If set, winners are recorded in the tracker after each draw.
-        access(contract) var winnerTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?
-        
+
         /// Creates a new PoolConfig.
         /// @param assetType - Type of fungible token vault
         /// @param yieldConnector - DeFi connector for yield generation
@@ -2552,15 +2517,13 @@ access(all) contract PrizeLinkedAccounts {
         /// @param drawIntervalSeconds - Seconds between draws (>= 1)
         /// @param distributionStrategy - Yield distribution strategy
         /// @param prizeDistribution - Prize distribution configuration
-        /// @param winnerTrackerCap - Optional winner tracker capability
         init(
             assetType: Type,
             yieldConnector: {DeFiActions.Sink, DeFiActions.Source},
             minimumDeposit: UFix64,
             drawIntervalSeconds: UFix64,
             distributionStrategy: {DistributionStrategy},
-            prizeDistribution: {PrizeDistribution},
-            winnerTrackerCap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?
+            prizeDistribution: {PrizeDistribution}
         ) {
             self.assetType = assetType
             self.yieldConnector = yieldConnector
@@ -2568,7 +2531,6 @@ access(all) contract PrizeLinkedAccounts {
             self.drawIntervalSeconds = drawIntervalSeconds
             self.distributionStrategy = distributionStrategy
             self.prizeDistribution = prizeDistribution
-            self.winnerTrackerCap = winnerTrackerCap
         }
         
         /// Updates the distribution strategy.
@@ -2581,12 +2543,6 @@ access(all) contract PrizeLinkedAccounts {
         /// @param distribution - New prize distribution
         access(contract) fun setPrizeDistribution(distribution: {PrizeDistribution}) {
             self.prizeDistribution = distribution
-        }
-        
-        /// Updates or removes the winner tracker capability.
-        /// @param cap - New capability, or nil to disable tracking
-        access(contract) fun setWinnerTrackerCap(cap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?) {
-            self.winnerTrackerCap = cap
         }
         
         /// Updates the draw interval.
@@ -2615,11 +2571,6 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns the prize distribution name for display.
         access(all) view fun getPrizeDistributionName(): String {
             return self.prizeDistribution.getDistributionName()
-        }
-        
-        /// Returns whether a winner tracker is configured.
-        access(all) view fun hasWinnerTracker(): Bool {
-            return self.winnerTrackerCap != nil
         }
         
         /// Calculates yield distribution for a given amount.
@@ -4476,21 +4427,6 @@ access(all) contract PrizeLinkedAccounts {
                 totalAwarded = totalAwarded + prizeAmount
             }
             
-            // Record winners in external tracker (for leaderboards, analytics)
-            if let trackerCap = self.config.winnerTrackerCap {
-                if let trackerRef = trackerCap.borrow() {
-                    for idx in InclusiveRange(0, distributedWinners.length - 1) {
-                        trackerRef.recordWinner(
-                            poolID: self.poolID,
-                            round: currentRound,
-                            winnerReceiverID: distributedWinners[idx],
-                            amount: prizeAmounts[idx],
-                            nftIDs: nftIDsPerWinner[idx]
-                        )
-                    }
-                }
-            }
-            
             // Build winner addresses array from capabilities
             let winnerAddresses: [Address?] = []
             for winnerID in distributedWinners {
@@ -4577,17 +4513,6 @@ access(all) contract PrizeLinkedAccounts {
         /// @param distribution - New prize distribution
         access(contract) fun setPrizeDistribution(distribution: {PrizeDistribution}) {
             self.config.setPrizeDistribution(distribution: distribution)
-        }
-        
-        /// Returns whether a winner tracker is configured.
-        access(all) view fun hasWinnerTracker(): Bool {
-            return self.config.winnerTrackerCap != nil
-        }
-        
-        /// Updates the winner tracker capability. Called by Admin.
-        /// @param cap - New capability, or nil to disable tracking
-        access(contract) fun setWinnerTrackerCap(cap: Capability<&{PrizeWinnerTracker.WinnerTrackerPublic}>?) {
-            self.config.setWinnerTrackerCap(cap: cap)
         }
         
         /// Updates the draw interval for FUTURE rounds only.

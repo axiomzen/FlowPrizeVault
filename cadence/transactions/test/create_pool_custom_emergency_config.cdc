@@ -46,8 +46,7 @@ transaction(
             minimumDeposit: 1.0,
             drawIntervalSeconds: 1.0,
             distributionStrategy: distributionStrategy,
-            prizeDistribution: prizeDistribution,
-            winnerTrackerCap: nil
+            prizeDistribution: prizeDistribution
         )
         
         // Create custom emergency config

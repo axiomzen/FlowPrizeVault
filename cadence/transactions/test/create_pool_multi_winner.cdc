@@ -39,8 +39,7 @@ transaction(splits: [UFix64], nftIDs: [UInt64]) {
             minimumDeposit: 1.0,
             drawIntervalSeconds: 60.0,
             distributionStrategy: distributionStrategy,
-            prizeDistribution: prizeDistribution,
-            winnerTrackerCap: nil
+            prizeDistribution: prizeDistribution
         )
         
         let admin = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(

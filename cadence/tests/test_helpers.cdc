@@ -66,7 +66,6 @@ fun deployAllDependencies() {
     deployContract(name: "DeFiActionsUtils", path: "../../imports/92195d814edf9cb0/DeFiActionsUtils.cdc")
     deployContract(name: "DeFiActionsMathUtils", path: "../../imports/92195d814edf9cb0/DeFiActionsMathUtils.cdc")
     deployContract(name: "DeFiActions", path: "../../imports/92195d814edf9cb0/DeFiActions.cdc")
-    deployContract(name: "PrizeWinnerTracker", path: "../contracts/PrizeWinnerTracker.cdc")
     deployContract(name: "PrizeLinkedAccounts", path: "../contracts/PrizeLinkedAccounts.cdc")
     deployContract(name: "MockYieldConnector", path: "../contracts/mock/MockYieldConnector.cdc")
 }
@@ -830,17 +829,6 @@ fun createPoolAsNonAdmin(_ account: Test.TestAccount): Bool {
 }
 
 // ============================================================================
-// WINNER TRACKER HELPERS
-// ============================================================================
-
-access(all)
-fun poolHasWinnerTracker(_ poolID: UInt64): Bool {
-    let scriptResult = _executeScript("../scripts/test/pool_has_winner_tracker.cdc", [poolID])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! Bool
-}
-
-// ============================================================================
 // ADMIN CAPABILITY HELPERS
 // ============================================================================
 
@@ -1521,102 +1509,6 @@ fun getReceiverID(_ userAddress: Address, _ poolID: UInt64): UInt64 {
     let scriptResult = _executeScript("../scripts/test/get_receiver_id.cdc", [userAddress, poolID])
     Test.expect(scriptResult, Test.beSucceeded())
     return scriptResult.returnValue! as! UInt64
-}
-
-// ============================================================================
-// WINNER TRACKER HELPERS
-// ============================================================================
-
-/// Setup winner tracker on the deployer account
-access(all)
-fun setupWinnerTracker(maxSize: Int) {
-    let deployerAccount = getDeployerAccount()
-    let result = _executeTransaction(
-        "../transactions/test/setup_winner_tracker.cdc",
-        [maxSize],
-        deployerAccount
-    )
-    assertTransactionSucceeded(result, context: "Setup winner tracker")
-}
-
-/// Update pool's winner tracker capability
-access(all)
-fun updatePoolWinnerTracker(_ poolID: UInt64, trackerAddress: Address) {
-    let deployerAccount = getDeployerAccount()
-    let result = _executeTransaction(
-        "../transactions/test/update_pool_winner_tracker.cdc",
-        [poolID, trackerAddress],
-        deployerAccount
-    )
-    assertTransactionSucceeded(result, context: "Update pool winner tracker")
-}
-
-/// Clear pool's winner tracker (set to nil)
-access(all)
-fun clearPoolWinnerTracker(_ poolID: UInt64) {
-    let deployerAccount = getDeployerAccount()
-    let result = _executeTransaction(
-        "../transactions/test/clear_pool_winner_tracker.cdc",
-        [poolID],
-        deployerAccount
-    )
-    assertTransactionSucceeded(result, context: "Clear pool winner tracker")
-}
-
-/// Get recent winners from the tracker
-access(all)
-fun getRecentWinners(_ trackerAddress: Address, _ poolID: UInt64, limit: Int): [{String: AnyStruct}] {
-    let scriptResult = _executeScript("../scripts/test/get_recent_winners.cdc", [trackerAddress, poolID, limit])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! [{String: AnyStruct}]
-}
-
-/// Get total winner count from tracker
-access(all)
-fun getWinnerCount(_ trackerAddress: Address, _ poolID: UInt64): Int {
-    let scriptResult = _executeScript("../scripts/test/get_winner_count.cdc", [trackerAddress, poolID])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! Int
-}
-
-/// Get NFT winner count from tracker
-access(all)
-fun getNFTWinnersCount(_ trackerAddress: Address, _ poolID: UInt64): Int {
-    let scriptResult = _executeScript("../scripts/test/get_nft_winners_count.cdc", [trackerAddress, poolID])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! Int
-}
-
-/// Get the prize amount of the most recent winner for a pool
-access(all)
-fun getLastWinnerAmount(_ trackerAddress: Address, _ poolID: UInt64): UFix64 {
-    let scriptResult = _executeScript("../scripts/test/get_last_winner_amount.cdc", [trackerAddress, poolID])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! UFix64
-}
-
-/// Get the NFT IDs of the most recent winner for a pool
-access(all)
-fun getLastWinnerNFTIDs(_ trackerAddress: Address, _ poolID: UInt64): [UInt64] {
-    let scriptResult = _executeScript("../scripts/test/get_last_winner_nft_ids.cdc", [trackerAddress, poolID])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! [UInt64]
-}
-
-/// Get the count of recent winners for a pool (up to the specified limit)
-access(all)
-fun getRecentWinnersCount(_ trackerAddress: Address, _ poolID: UInt64, limit: Int): Int {
-    let scriptResult = _executeScript("../scripts/test/get_recent_winners_count.cdc", [trackerAddress, poolID, limit])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! Int
-}
-
-/// Get the pool IDs from recent winners
-access(all)
-fun getRecentWinnerPoolIDs(_ trackerAddress: Address, _ poolID: UInt64, limit: Int): [UInt64] {
-    let scriptResult = _executeScript("../scripts/test/get_recent_winner_pool_ids.cdc", [trackerAddress, poolID, limit])
-    Test.expect(scriptResult, Test.beSucceeded())
-    return scriptResult.returnValue! as! [UInt64]
 }
 
 // ============================================================================

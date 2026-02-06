@@ -167,26 +167,6 @@ setup_test_environment() {
     fi
     echo ""
     
-    # Step 5.5: Setup winner tracker
-    print_step "5.5" "Setting up PrizeWinnerTracker"
-    TRACKER_OUTPUT=$(run_tx cadence/transactions/prize-vault-modular/setup_winner_tracker.cdc 100 --signer $ADMIN_ACCOUNT --include logs)
-    if check_error "$TRACKER_OUTPUT"; then
-        echo "$TRACKER_OUTPUT" | grep -E "(Transaction ID|Tracker created)" || true
-        print_success "Winner tracker setup complete"
-    else
-        echo "$TRACKER_OUTPUT" | grep -E "(already exists|skipping)" && print_success "Tracker already exists" || \
-            print_warn "Tracker setup may have issues"
-    fi
-    sleep 1
-    
-    # Verify tracker
-    ADMIN_ADDR=$(get_account_address "$ADMIN_ACCOUNT")
-    [[ ! "$ADMIN_ADDR" =~ ^0x ]] && ADMIN_ADDR="0x$ADMIN_ADDR"
-    TRACKER_VERIFY=$(run_script cadence/scripts/prize-vault-modular/get_winner_history.cdc $ADMIN_ADDR 0 1)
-    echo "$TRACKER_VERIFY" | grep -qE "(panic|not found|nil)" && \
-        print_error "Tracker capability not accessible!" || print_success "Tracker capability verified"
-    echo ""
-    
     # Step 6: Create pool
     print_step "6" "Creating pool (60% savings, 40% lottery)"
     # Note: autoSchedule is false here - scheduler is set up separately in test_scheduler.sh

@@ -46,8 +46,7 @@ transaction(minimumDeposit: UFix64) {
             minimumDeposit: minimumDeposit,
             drawIntervalSeconds: 86400.0,  // Standard 24 hours
             distributionStrategy: strategy,
-            prizeDistribution: prizeDistribution,
-            winnerTrackerCap: nil
+            prizeDistribution: prizeDistribution
         )
         
         // Borrow admin resource and create pool

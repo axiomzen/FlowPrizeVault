@@ -116,8 +116,7 @@ transaction(
             minimumDeposit: minimumDeposit,
             drawIntervalSeconds: drawIntervalSeconds,
             distributionStrategy: distributionStrategy,
-            prizeDistribution: prizeDistribution,
-            winnerTrackerCap: nil
+            prizeDistribution: prizeDistribution
         )
 
         // Create the pool

@@ -45,8 +45,7 @@ transaction(rewardsPercent: UFix64, prizePercent: UFix64, protocolFeePercent: UF
             minimumDeposit: 1.0,
             drawIntervalSeconds: 86400.0,
             distributionStrategy: strategy,
-            prizeDistribution: prizeDistribution,
-            winnerTrackerCap: nil
+            prizeDistribution: prizeDistribution
         )
         
         // Borrow admin resource and create pool
