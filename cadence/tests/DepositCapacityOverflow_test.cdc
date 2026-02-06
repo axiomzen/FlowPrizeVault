@@ -87,7 +87,7 @@ access(all) fun testDepositSucceedsWithinCapacity() {
     
     // Verify deposit succeeded by checking pool totals
     let poolTotals = getPoolTotals(poolID)
-    Test.assertEqual(depositAmount, poolTotals["allocatedRewards"]!)
+    Test.assertEqual(depositAmount, poolTotals["userPoolBalance"]!)
     
     log("Test passed: Deposit succeeded within capacity limit")
 }
@@ -106,7 +106,7 @@ access(all) fun testDepositExactlyAtCapacitySucceeds() {
     
     // Verify deposit succeeded by checking pool totals
     let poolTotals = getPoolTotals(poolID)
-    Test.assertEqual(50.0, poolTotals["allocatedRewards"]!)
+    Test.assertEqual(50.0, poolTotals["userPoolBalance"]!)
     
     log("Test passed: Deposit exactly at capacity limit succeeded")
 }

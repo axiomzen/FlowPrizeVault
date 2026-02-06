@@ -577,7 +577,7 @@ access(all) contract PrizeLinkedAccounts {
         /// nil = deposits disabled in partial mode.
         access(all) let partialModeDepositLimit: UFix64?
         
-        /// Minimum ratio of yield source balance to allocatedRewards (0.8-1.0).
+        /// Minimum ratio of yield source balance to userPoolBalance (0.8-1.0).
         /// Below this ratio, health score is reduced.
         access(all) let minBalanceThreshold: UFix64
         
@@ -1637,7 +1637,7 @@ access(all) contract PrizeLinkedAccounts {
     /// 
     /// 
     /// INVARIANTS:
-    /// - totalAssets should approximately equal Pool.allocatedRewards
+    /// - totalAssets should approximately equal Pool.userPoolBalance
     /// - sum(userShares) == totalShares
     /// - share price may increase (yield) or decrease (loss socialization)
     access(all) resource ShareTracker {
@@ -2968,7 +2968,7 @@ access(all) contract PrizeLinkedAccounts {
         // 
         // KEY RELATIONSHIPS:
         // 
-        // allocatedRewards: Sum of user deposits + auto-compounded prizes
+        // userPoolBalance: Sum of user deposits + auto-compounded prizes
         //   - Excludes rewards interest (interest is tracked in share price)
         //   - Updated on: deposit (+), prize awarded (+), withdraw (-)
         //   - This is the "no-loss guarantee" amount
@@ -2983,7 +2983,7 @@ access(all) contract PrizeLinkedAccounts {
         // User portion of yield source balance
         //   - Includes deposits + won prizes + accrued rewards yield
         //   - Updated on: deposit (+), prize (+), rewards yield (+), withdraw (-)
-        access(all) var allocatedRewards: UFix64
+        access(all) var userPoolBalance: UFix64
         //
         // allocatedPrizeYield: Prize portion awaiting transfer to prize pool
         //   - Accumulates as yield is earned
@@ -3095,7 +3095,7 @@ access(all) contract PrizeLinkedAccounts {
             self.receiverAddresses = {}
             
             // Initialize accounting
-            self.allocatedRewards = 0.0
+            self.userPoolBalance = 0.0
             self.lastDrawTimestamp = 0.0
             self.allocatedPrizeYield = 0.0
             self.allocatedProtocolFee = 0.0
@@ -3377,7 +3377,7 @@ access(all) contract PrizeLinkedAccounts {
             let threshold = self.getEmergencyConfig().minBalanceThreshold
             
             // Check if balance meets threshold (50% of health score)
-            let balanceHealthy = balance >= self.allocatedRewards * threshold
+            let balanceHealthy = balance >= self.userPoolBalance * threshold
             
             // Calculate withdrawal success rate (50% of health score)
             let withdrawSuccessRate = self.consecutiveWithdrawFailures == 0 ? 1.0 : 
@@ -3511,7 +3511,7 @@ access(all) contract PrizeLinkedAccounts {
                     // Accrue yield to share price (minus dust to virtual shares)
                     let actualRewards = self.shareTracker.accrueYield(amount: amount)
                     let dustAmount = amount - actualRewards
-                    self.allocatedRewards = self.allocatedRewards + actualRewards
+                    self.userPoolBalance = self.userPoolBalance + actualRewards
                     emit RewardsYieldAccrued(poolID: self.poolID, amount: actualRewards)
                     
                     // Route dust to pending protocol
@@ -3538,7 +3538,7 @@ access(all) contract PrizeLinkedAccounts {
         /// 2. Process any pending yield rewards
         /// 3. Mint shares proportional to deposit
         /// 4. Update TWAB in active round (or mark as gap interactor if round ended)
-        /// 5. Update accounting (allocatedRewards)
+        /// 5. Update accounting (userPoolBalance)
         /// 6. Deposit to yield source
         /// 
         /// TWAB HANDLING:
@@ -3609,7 +3609,7 @@ access(all) contract PrizeLinkedAccounts {
             }
 
             // Update pool total
-            self.allocatedRewards = self.allocatedRewards + amount
+            self.userPoolBalance = self.userPoolBalance + amount
             
             // Deposit to yield source to start earning
             self.depositToYieldSourceFull(<- from)
@@ -3674,7 +3674,7 @@ access(all) contract PrizeLinkedAccounts {
             self.sponsorReceivers[receiverID] = true
             
             // Update pool total
-            self.allocatedRewards = self.allocatedRewards + amount
+            self.userPoolBalance = self.userPoolBalance + amount
             
             // Deposit to yield source to start earning
             self.depositToYieldSourceFull(<- from)
@@ -3696,7 +3696,7 @@ access(all) contract PrizeLinkedAccounts {
         /// 4. Withdraw from yield source
         /// 5. Burn shares proportional to withdrawal
         /// 6. Update TWAB in active round (or mark as gap interactor if round ended)
-        /// 7. Update accounting (allocatedRewards)
+        /// 7. Update accounting (userPoolBalance)
         /// 
         /// TWAB HANDLING:
         /// - If in active round: recordShareChange() accumulates TWAB up to now
@@ -3854,7 +3854,7 @@ access(all) contract PrizeLinkedAccounts {
             }
 
             // Update pool total
-            self.allocatedRewards = self.allocatedRewards - actualWithdrawn
+            self.userPoolBalance = self.userPoolBalance - actualWithdrawn
             
             // If user has withdrawn to 0 shares, unregister them
             // BUT NOT if a draw is in progress - unregistering during batch processing
@@ -3886,13 +3886,13 @@ access(all) contract PrizeLinkedAccounts {
         /// and depreciation (deficit).
         /// 
         /// ALLOCATED FUNDS (see getTotalAllocatedFunds()):
-        /// allocatedRewards + allocatedPrizeYield + allocatedProtocolFee
+        /// userPoolBalance + allocatedPrizeYield + allocatedProtocolFee
         /// This sum must always equal the yield source balance after sync.
         /// 
         /// EXCESS (yieldBalance > allocatedFunds):
         /// 1. Calculate excess amount
         /// 2. Apply distribution strategy (rewards/prize/protocolFee split)
-        /// 3. Accrue rewards yield to share price (increases allocatedRewards)
+        /// 3. Accrue rewards yield to share price (increases userPoolBalance)
         /// 4. Add prize yield to allocatedPrizeYield
         /// 5. Add protocol fee to allocatedProtocolFee
         /// 
@@ -3971,7 +3971,7 @@ access(all) contract PrizeLinkedAccounts {
                 // Accrue returns actual amount after virtual share dust
                 let actualRewards = self.shareTracker.accrueYield(amount: plan.rewardsAmount)
                 rewardsDust = plan.rewardsAmount - actualRewards
-                self.allocatedRewards = self.allocatedRewards + actualRewards
+                self.userPoolBalance = self.userPoolBalance + actualRewards
                 emit RewardsYieldAccrued(poolID: self.poolID, amount: actualRewards)
                 
                 if rewardsDust > 0.0 {
@@ -4055,7 +4055,7 @@ access(all) contract PrizeLinkedAccounts {
             var absorbedByRewards: UFix64 = 0.0
             if remainingDeficit > 0.0 {
                 absorbedByRewards = self.shareTracker.decreaseTotalAssets(amount: remainingDeficit)
-                self.allocatedRewards = self.allocatedRewards - absorbedByRewards
+                self.userPoolBalance = self.userPoolBalance - absorbedByRewards
                 remainingDeficit = remainingDeficit - absorbedByRewards
             }
 
@@ -4105,6 +4105,13 @@ access(all) contract PrizeLinkedAccounts {
             // Final health check before draw
             if self.checkAndAutoTriggerEmergency() {
                 panic("Emergency mode auto-triggered - cannot start draw")
+            }
+
+            // Sync with yield source to capture any pending yield before materializing prizes.
+            // This ensures yield added directly to the yield source (not via deposits) is
+            // properly accounted for in allocatedPrizeYield before the draw.
+            if self.needsSync() {
+                self.syncWithYieldSource()
             }
 
             let now = getCurrentBlock().timestamp
@@ -4425,7 +4432,7 @@ access(all) contract PrizeLinkedAccounts {
                 }
                 
                 // Update pool total
-                self.allocatedRewards = self.allocatedRewards + prizeAmount
+                self.userPoolBalance = self.userPoolBalance + prizeAmount
                 
                 // Re-deposit prize to yield source (continues earning)
                 self.depositToYieldSourceFull(<- prizeVault)
@@ -5023,7 +5030,17 @@ access(all) contract PrizeLinkedAccounts {
             }
             return 0.0
         }
-        
+
+        /// Returns the current balance in the yield source (real-time query).
+        /// This may differ from getTotalAllocatedFunds() if:
+        /// - Yield has accrued since last sync (excess)
+        /// - Yield source has lost value (deficit)
+        /// Use this to see the actual assets before they're synced to the pool.
+        access(all) fun getYieldSourceBalance(): UFix64 {
+            let yieldSource = &self.config.yieldConnector as &{DeFiActions.Source}
+            return yieldSource.minimumAvailable()
+        }
+
         /// Returns true if internal accounting differs from yield source balance.
         /// Handles both excess (gains) and deficit (losses).
         /// This is used to determine if syncWithYieldSource() needs to be called.
@@ -5040,12 +5057,12 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns total funds allocated across all buckets (rewards + prize + protocolFee).
         /// This sum should always equal the yield source balance after sync.
         access(all) view fun getTotalAllocatedFunds(): UFix64 {
-            return self.allocatedRewards + self.allocatedPrizeYield + self.allocatedProtocolFee
+            return self.userPoolBalance + self.allocatedPrizeYield + self.allocatedProtocolFee
         }
         
         /// Returns the allocated rewards amount (user portion of yield source).
-        access(all) view fun getAllocatedRewards(): UFix64 {
-            return self.allocatedRewards
+        access(all) view fun getUserPoolBalance(): UFix64 {
+            return self.userPoolBalance
         }
         
         /// Returns the allocated prize yield (awaiting transfer to prize pool).

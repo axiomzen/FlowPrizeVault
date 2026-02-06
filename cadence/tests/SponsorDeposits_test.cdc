@@ -54,7 +54,7 @@ access(all) fun testSponsorDepositIncreasesPoolTotals() {
     ensurePoolExists()
     
     let initialTotals = getPoolTotals(poolID)
-    let initialStaked = initialTotals["allocatedRewards"]!
+    let initialStaked = initialTotals["userPoolBalance"]!
     
     // Setup sponsor and deposit
     let sponsor = Test.createAccount()
@@ -63,7 +63,7 @@ access(all) fun testSponsorDepositIncreasesPoolTotals() {
     
     // Verify pool totals increased
     let finalTotals = getPoolTotals(poolID)
-    Test.assertEqual(initialStaked + depositAmount, finalTotals["allocatedRewards"]!)
+    Test.assertEqual(initialStaked + depositAmount, finalTotals["userPoolBalance"]!)
 }
 
 access(all) fun testSponsorDepositUpdatesSponsorBalance() {
