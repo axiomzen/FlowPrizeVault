@@ -1547,3 +1547,53 @@ fun getRoundTargetEndTime(_ poolID: UInt64): UFix64 {
     return status["targetEndTime"] as? UFix64 ?? 0.0
 }
 
+// ============================================================================
+// SLIPPAGE CONNECTOR HELPERS
+// ============================================================================
+
+// Vault prefix constant for slippage pool creation
+access(all) let VAULT_PREFIX_SLIPPAGE: String = "testYieldVaultSlippage_"
+
+access(all)
+fun createPoolWithSlippageConnector(rewards: UFix64, prize: UFix64, protocolFee: UFix64, depositFeeBps: UInt64): UInt64 {
+    let deployerAccount = getDeployerAccount()
+    let createResult = _executeTransaction(
+        "../transactions/test/create_pool_with_slippage_connector.cdc",
+        [rewards, prize, protocolFee, depositFeeBps],
+        deployerAccount
+    )
+    assertTransactionSucceeded(createResult, context: "Create pool with slippage connector")
+
+    let poolCount = getPoolCount()
+    return UInt64(poolCount - 1)
+}
+
+access(all)
+fun getYieldVaultBalance(poolIndex: Int, vaultPrefix: String): UFix64 {
+    let scriptResult = _executeScript(
+        "../scripts/test/get_yield_vault_balance_by_prefix.cdc",
+        [DEPLOYER_ADDRESS, poolIndex, vaultPrefix]
+    )
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
+}
+
+access(all)
+fun depositToPoolWithSlippage(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64, maxSlippageBps: UInt64) {
+    let depositResult = _executeTransaction(
+        "../transactions/test/deposit_to_pool_with_slippage.cdc",
+        [poolID, amount, maxSlippageBps],
+        account
+    )
+    assertTransactionSucceeded(depositResult, context: "Deposit to pool with slippage")
+}
+
+access(all)
+fun depositToPoolWithSlippageExpectFailure(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64, maxSlippageBps: UInt64): Bool {
+    let depositResult = _executeTransaction(
+        "../transactions/test/deposit_to_pool_with_slippage.cdc",
+        [poolID, amount, maxSlippageBps],
+        account
+    )
+    return depositResult.error == nil
+}
