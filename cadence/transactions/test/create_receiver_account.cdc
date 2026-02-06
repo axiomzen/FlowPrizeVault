@@ -67,8 +67,9 @@ transaction(poolID: UInt64, depositAmount: UFix64, accountKey: String) {
         ) ?? panic("Could not borrow new account's vault for withdrawal")
         
         let payment <- newAccountVault.withdraw(amount: depositAmount)
-        collectionRef.deposit(poolID: poolID, from: <-payment)
-        
+        // Test transaction - use 10000 bps (100%) for no slippage protection
+        collectionRef.deposit(poolID: poolID, from: <-payment, maxSlippageBps: 10000)
+
         log("Created receiver account: ".concat(newAccount.address.toString()))
     }
 }
