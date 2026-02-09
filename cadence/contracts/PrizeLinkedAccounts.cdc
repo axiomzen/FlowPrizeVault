@@ -3555,11 +3555,8 @@ access(all) contract PrizeLinkedAccounts {
 
             let now = getCurrentBlock().timestamp
 
-            // 1. Deposit to yield source
+            // 1. Deposit to yield source (zero-check is centralized in depositToYieldSourceFull)
             let actualReceived = self.depositToYieldSourceFull(<- from)
-
-            // Ensure we received something (protects against complete rejection)
-            assert(actualReceived > 0.0, message: "Yield source returned zero. Nominal: \(nominalAmount), received: 0")
 
             // 2. Enforce slippage protection (compare asset amounts, not shares)
             // minAcceptable = nominalAmount * (10000 - maxSlippageBps) / 10000
@@ -3644,11 +3641,8 @@ access(all) contract PrizeLinkedAccounts {
                 self.syncWithYieldSource()
             }
 
-            // 1. Deposit to yield source FIRST and measure actual received
+            // 1. Deposit to yield source FIRST (zero-check is centralized in depositToYieldSourceFull)
             let actualReceived = self.depositToYieldSourceFull(<- from)
-
-            // Ensure we received something (protects against complete rejection)
-            assert(actualReceived > 0.0, message: "Yield source returned zero. Nominal: \(nominalAmount), received: 0")
 
             // 2. Enforce slippage protection (compare asset amounts, not shares)
             let minAcceptable = nominalAmount * UFix64(UInt64(10000) - maxSlippageBps) / 10000.0
@@ -3939,6 +3933,10 @@ access(all) contract PrizeLinkedAccounts {
 
             let afterYieldBalance = self.config.yieldConnector.minimumAvailable()
             let actualReceived = afterYieldBalance - beforeYieldBalance
+
+            // Centralized zero-check: every caller is protected against a buggy/paused
+            // yield source that silently swallows tokens without crediting anything
+            assert(actualReceived > 0.0, message: "Yield source credited zero for deposit. Nominal: \(nominalAmount), received: 0")
 
             // Emit slippage event if there's a difference
             if actualReceived < nominalAmount {
