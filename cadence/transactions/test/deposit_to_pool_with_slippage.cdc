@@ -1,13 +1,14 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
-import FungibleToken from "FungibleToken"
-import FlowToken from "FlowToken"
+import "PrizeLinkedAccounts"
+import "FungibleToken"
+import "FlowToken"
 
-/// Deposit transaction - Deposits FLOW tokens into a specific PrizeLinkedAccounts pool
-/// Auto-registers with the pool on first deposit
+/// Deposit tokens into a PrizeLinkedAccounts pool with configurable slippage protection
+/// Unlike deposit_to_pool.cdc which hardcodes maxSlippageBps=10000, this allows testing
+/// slippage protection rejection.
 ///
 /// Parameters:
-/// - poolID: The ID of the pool to deposit into
-/// - amount: The amount of FLOW tokens to deposit
+/// - poolID: The pool to deposit into
+/// - amount: Amount of FLOW tokens to deposit
 /// - maxSlippageBps: Maximum acceptable slippage in basis points (100 = 1%, 10000 = no protection)
 transaction(poolID: UInt64, amount: UFix64, maxSlippageBps: UInt64) {
 
@@ -15,24 +16,19 @@ transaction(poolID: UInt64, amount: UFix64, maxSlippageBps: UInt64) {
     let vaultRef: auth(FungibleToken.Withdraw) &FlowToken.Vault
 
     prepare(signer: auth(Storage) &Account) {
-        // Borrow the collection with Withdraw entitlement for deposit
         self.collectionRef = signer.storage.borrow<auth(PrizeLinkedAccounts.PositionOps) &PrizeLinkedAccounts.PoolPositionCollection>(
             from: PrizeLinkedAccounts.PoolPositionCollectionStoragePath
-        ) ?? panic("No PoolPositionCollection found. Run setup_collection.cdc first")
+        ) ?? panic("No PoolPositionCollection found. Run setup_user_collection.cdc first")
 
-        // Borrow the vault to withdraw from
         self.vaultRef = signer.storage.borrow<auth(FungibleToken.Withdraw) &FlowToken.Vault>(
             from: /storage/flowTokenVault
         ) ?? panic("Could not borrow FlowToken vault")
     }
 
     execute {
-        // Withdraw tokens from vault
         let tokens <- self.vaultRef.withdraw(amount: amount)
-
-        // Deposit into the pool (auto-registers if first time)
         self.collectionRef.deposit(poolID: poolID, from: <-tokens, maxSlippageBps: maxSlippageBps)
 
-        log("Successfully deposited ".concat(amount.toString()).concat(" tokens into pool ").concat(poolID.toString()))
+        log("Deposited ".concat(amount.toString()).concat(" with maxSlippageBps=").concat(maxSlippageBps.toString()))
     }
 }

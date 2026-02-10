@@ -153,7 +153,15 @@ access(all) contract PrizeLinkedAccounts {
     /// @param actualAmount - Amount actually withdrawn (may be less if yield source has insufficient liquidity)
     /// @param ownerAddress - Current owner address of the PoolPositionCollection (nil if resource transferred/not stored)
     access(all) event Withdrawn(poolID: UInt64, receiverID: UInt64, requestedAmount: UFix64, actualAmount: UFix64, ownerAddress: Address?)
-    
+
+    /// Emitted when a deposit to the yield source results in less value than nominal.
+    /// This occurs due to ERC4626 share conversion slippage, fees, or buffering.
+    /// @param poolID - Pool where deposit occurred
+    /// @param nominalAmount - Amount sent to yield source
+    /// @param actualReceived - Amount actually credited by yield source
+    /// @param slippage - Difference (nominalAmount - actualReceived)
+    access(all) event DepositSlippage(poolID: UInt64, nominalAmount: UFix64, actualReceived: UFix64, slippage: UFix64)
+
     // ============================================================
     // EVENTS - Reward Processing
     // ============================================================
@@ -3444,33 +3452,36 @@ access(all) contract PrizeLinkedAccounts {
             
             switch destination {
                 case PoolFundingDestination.Prize:
-                    // Prize funding goes directly to prize vault
-                    self.prizeDistributor.fundPrizePool(vault: <- from)
-                    
+                    // Deposit to yield source, track as prize allocation
+                    let nominalAmount = from.balance
+                    let actualReceived = self.depositToYieldSourceFull(<- from)
+                    self.allocatedPrizeYield = self.allocatedPrizeYield + actualReceived
+                    emit PrizePoolFunded(poolID: self.poolID, amount: actualReceived, source: "direct_funding")
+
                 case PoolFundingDestination.Rewards:
                     // Rewards funding requires depositors to receive the yield
                     assert(
                         self.shareTracker.getTotalShares() > 0.0,
                         message: "Cannot fund rewards with no depositors - funds would be orphaned. Amount: \(from.balance), totalShares: \(self.shareTracker.getTotalShares())"
                     )
-                    
-                    let amount = from.balance
 
-                    // Deposit to yield source to earn on the funds
-                    self.depositToYieldSourceFull(<- from)
+                    let nominalAmount = from.balance
 
-                    // Accrue yield to share price (minus dust to virtual shares)
-                    let actualRewards = self.shareTracker.accrueYield(amount: amount)
-                    let dustAmount = amount - actualRewards
+                    // Deposit to yield source and measure actual received
+                    let actualReceived = self.depositToYieldSourceFull(<- from)
+
+                    // Accrue yield to share price based on ACTUAL received (minus dust to virtual shares)
+                    let actualRewards = self.shareTracker.accrueYield(amount: actualReceived)
+                    let dustAmount = actualReceived - actualRewards
                     self.userPoolBalance = self.userPoolBalance + actualRewards
                     emit RewardsYieldAccrued(poolID: self.poolID, amount: actualRewards)
-                    
+
                     // Route dust to pending protocol
                     if dustAmount > 0.0 {
                         emit RewardsRoundingDustToProtocolFee(poolID: self.poolID, amount: dustAmount)
                         self.allocatedProtocolFee = self.allocatedProtocolFee + dustAmount
                     }
-                    
+
                 default:
                     panic("Unsupported funding destination. Destination rawValue: \(destination.rawValue)")
             }
@@ -3501,11 +3512,13 @@ access(all) contract PrizeLinkedAccounts {
         /// @param from - Vault containing funds to deposit (consumed)
         /// @param receiverID - UUID of the depositor's PoolPositionCollection
         /// @param ownerAddress - Optional owner address for address resolution
-        access(contract) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64, ownerAddress: Address?) {
+        /// @param maxSlippageBps - Maximum acceptable slippage in basis points (100 = 1%, 10000 = 100% = no protection)
+        access(contract) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64, ownerAddress: Address?, maxSlippageBps: UInt64) {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive. Amount: \(from.balance)"
                 from.getType() == self.config.assetType: "Invalid vault type. Expected: \(self.config.assetType.identifier), got: \(from.getType().identifier)"
                 self.shareTracker.getTotalAssets() + from.balance <= PrizeLinkedAccounts.SAFE_MAX_TVL: "Deposit would exceed pool TVL capacity"
+                maxSlippageBps <= 10000: "maxSlippageBps cannot exceed 10000 (100%)"
             }
 
             // Auto-register if not registered (handles re-deposits after full withdrawal)
@@ -3516,56 +3529,65 @@ access(all) contract PrizeLinkedAccounts {
                 self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             }
 
-            // Enforce state-specific deposit rules
+            // Enforce state-specific deposit rules (validate on nominal amount before slippage)
+            let nominalAmount = from.balance
             switch self.emergencyState {
                 case PoolEmergencyState.Normal:
                     // Normal: enforce minimum deposit
-                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit. Required: \(self.config.minimumDeposit), got: \(from.balance)")
+                    assert(nominalAmount >= self.config.minimumDeposit, message: "Below minimum deposit. Required: \(self.config.minimumDeposit), got: \(nominalAmount)")
                 case PoolEmergencyState.PartialMode:
                     // Partial: enforce deposit limit
                     let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
                     assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: \(receiverID)")
-                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: \(depositLimit), got: \(from.balance)")
+                    assert(nominalAmount <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: \(depositLimit), got: \(nominalAmount)")
                 case PoolEmergencyState.EmergencyMode:
                     // Emergency: no deposits allowed
-                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: \(receiverID), amount: \(from.balance)")
+                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: \(receiverID), amount: \(nominalAmount)")
                 case PoolEmergencyState.Paused:
                     // Paused: nothing allowed
-                    panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(from.balance)")
+                    panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(nominalAmount)")
             }
 
             // Process pending yield/deficit before deposit to ensure fair share price
             if self.needsSync() {
                 self.syncWithYieldSource()
             }
-            
-            let amount = from.balance
+
             let now = getCurrentBlock().timestamp
-            
-            // Get current shares BEFORE the deposit for TWAB calculation
+
+            // 1. Deposit to yield source (zero-check is centralized in depositToYieldSourceFull)
+            let actualReceived = self.depositToYieldSourceFull(<- from)
+
+            // 2. Enforce slippage protection (compare asset amounts, not shares)
+            // minAcceptable = nominalAmount * (10000 - maxSlippageBps) / 10000
+            let minAcceptable = nominalAmount * UFix64(UInt64(10000) - maxSlippageBps) / 10000.0
+            assert(
+                actualReceived >= minAcceptable,
+                message: "Slippage exceeded: sent \(nominalAmount), received \(actualReceived), max slippage \(maxSlippageBps) bps"
+            )
+
+            // 3. Get current shares BEFORE minting for TWAB calculation
             let oldShares = self.shareTracker.getUserShares(receiverID: receiverID)
-            
-            // Record deposit in share tracker (mints shares)
-            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: amount)
+
+            // 4. Mint shares based on ACTUAL received (not nominal)
+            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: actualReceived)
+
             let newShares = oldShares + newSharesMinted
-            
-            // Update TWAB in the active round (if exists)
+
+            // 5. Update TWAB in the active round (if exists)
             if let round = &self.activeRound as &Round? {
                 round.recordShareChange(
                     receiverID: receiverID,
                     oldShares: oldShares,
                     newShares: newShares,
-                    atTime: now 
+                    atTime: now
                 )
             }
 
-            // Update pool total
-            self.userPoolBalance = self.userPoolBalance + amount
-            
-            // Deposit to yield source to start earning
-            self.depositToYieldSourceFull(<- from)
+            // 6. Update pool total with ACTUAL amount received
+            self.userPoolBalance = self.userPoolBalance + actualReceived
 
-            emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: amount, shares: newSharesMinted, ownerAddress: ownerAddress)
+            emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: actualReceived, shares: newSharesMinted, ownerAddress: ownerAddress)
         }
         
         /// Deposits funds as a sponsor (prize-ineligible).
@@ -3586,29 +3608,32 @@ access(all) contract PrizeLinkedAccounts {
         /// @param from - Vault containing funds to deposit (consumed)
         /// @param receiverID - UUID of the sponsor's SponsorPositionCollection
         /// @param ownerAddress - Owner address of the SponsorPositionCollection (passed directly since sponsors don't use capabilities)
-        access(contract) fun sponsorDeposit(from: @{FungibleToken.Vault}, receiverID: UInt64, ownerAddress: Address?) {
+        /// @param maxSlippageBps - Maximum acceptable slippage in basis points (100 = 1%, 10000 = 100% = no protection)
+        access(contract) fun sponsorDeposit(from: @{FungibleToken.Vault}, receiverID: UInt64, ownerAddress: Address?, maxSlippageBps: UInt64) {
             pre {
                 from.balance > 0.0: "Deposit amount must be positive. Amount: \(from.balance)"
                 from.getType() == self.config.assetType: "Invalid vault type. Expected: \(self.config.assetType.identifier), got: \(from.getType().identifier)"
                 self.shareTracker.getTotalAssets() + from.balance <= PrizeLinkedAccounts.SAFE_MAX_TVL: "Deposit would exceed pool TVL capacity"
+                maxSlippageBps <= 10000: "maxSlippageBps cannot exceed 10000 (100%)"
             }
 
-            // Enforce state-specific deposit rules
+            // Enforce state-specific deposit rules (validate on nominal amount before slippage)
+            let nominalAmount = from.balance
             switch self.emergencyState {
                 case PoolEmergencyState.Normal:
                     // Normal: enforce minimum deposit
-                    assert(from.balance >= self.config.minimumDeposit, message: "Below minimum deposit. Required: \(self.config.minimumDeposit), got: \(from.balance)")
+                    assert(nominalAmount >= self.config.minimumDeposit, message: "Below minimum deposit. Required: \(self.config.minimumDeposit), got: \(nominalAmount)")
                 case PoolEmergencyState.PartialMode:
                     // Partial: enforce deposit limit
                     let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
                     assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: \(receiverID)")
-                    assert(from.balance <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: \(depositLimit), got: \(from.balance)")
+                    assert(nominalAmount <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: \(depositLimit), got: \(nominalAmount)")
                 case PoolEmergencyState.EmergencyMode:
                     // Emergency: no deposits allowed
-                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: \(receiverID), amount: \(from.balance)")
+                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: \(receiverID), amount: \(nominalAmount)")
                 case PoolEmergencyState.Paused:
                     // Paused: nothing allowed
-                    panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(from.balance)")
+                    panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(nominalAmount)")
             }
 
             // Process pending yield/deficit before deposit to ensure fair share price
@@ -3616,24 +3641,29 @@ access(all) contract PrizeLinkedAccounts {
                 self.syncWithYieldSource()
             }
 
-            let amount = from.balance
+            // 1. Deposit to yield source FIRST (zero-check is centralized in depositToYieldSourceFull)
+            let actualReceived = self.depositToYieldSourceFull(<- from)
 
-            // Record deposit in share tracker (mints shares - same as regular deposit)
-            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: amount)
-            
+            // 2. Enforce slippage protection (compare asset amounts, not shares)
+            let minAcceptable = nominalAmount * UFix64(UInt64(10000) - maxSlippageBps) / 10000.0
+            assert(
+                actualReceived >= minAcceptable,
+                message: "Slippage exceeded: sent \(nominalAmount), received \(actualReceived), max slippage \(maxSlippageBps) bps"
+            )
+
+            // 3. Mint shares based on ACTUAL received (not nominal)
+            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: actualReceived)
+
             // Mark as sponsor (prize-ineligible)
             self.sponsorReceivers[receiverID] = true
             
             // Update pool total
-            self.userPoolBalance = self.userPoolBalance + amount
-            
-            // Deposit to yield source to start earning
-            self.depositToYieldSourceFull(<- from)
+            self.userPoolBalance = self.userPoolBalance + actualReceived
 
             // NOTE: No registeredReceiverList registration - sponsors are NOT prize-eligible
             // NOTE: No TWAB/Round tracking - no prize weight needed
-            
-            emit SponsorDeposited(poolID: self.poolID, receiverID: receiverID, amount: amount, shares: newSharesMinted, ownerAddress: ownerAddress)
+
+            emit SponsorDeposited(poolID: self.poolID, receiverID: receiverID, amount: actualReceived, shares: newSharesMinted, ownerAddress: ownerAddress)
         }
         
         /// Withdraws funds for a receiver.
@@ -3889,14 +3919,36 @@ access(all) contract PrizeLinkedAccounts {
         /// Deposits a vault's full balance to the yield source.
         /// Asserts the entire amount was accepted; reverts if any funds are left over.
         /// Destroys the vault after successful deposit.
+        /// Returns the actual amount received by the yield source (may differ from nominal due to slippage).
         ///
         /// @param vault - The vault to deposit (will be destroyed)
-        access(self) fun depositToYieldSourceFull(_ vault: @{FungibleToken.Vault}) {
-            let beforeBalance = vault.balance
+        /// @return actualReceived - The actual amount credited to the yield source
+        access(self) fun depositToYieldSourceFull(_ vault: @{FungibleToken.Vault}): UFix64 {
+            let nominalAmount = vault.balance
+            let beforeYieldBalance = self.config.yieldConnector.minimumAvailable()
+
             self.config.yieldConnector.depositCapacity(from: &vault as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
-            let deposited = beforeBalance - vault.balance
-            assert(vault.balance == 0.0, message: "Yield sink could not accept full deposit. Deposited: \(deposited), leftover: \(vault.balance)")
+            assert(vault.balance == 0.0, message: "Yield sink could not accept full deposit. Nominal: \(nominalAmount), leftover: \(vault.balance)")
             destroy vault
+
+            let afterYieldBalance = self.config.yieldConnector.minimumAvailable()
+            let actualReceived = afterYieldBalance - beforeYieldBalance
+
+            // Centralized zero-check: every caller is protected against a buggy/paused
+            // yield source that silently swallows tokens without crediting anything
+            assert(actualReceived > 0.0, message: "Yield source credited zero for deposit. Nominal: \(nominalAmount), received: 0")
+
+            // Emit slippage event if there's a difference
+            if actualReceived < nominalAmount {
+                emit DepositSlippage(
+                    poolID: self.poolID,
+                    nominalAmount: nominalAmount,
+                    actualReceived: actualReceived,
+                    slippage: nominalAmount - actualReceived
+                )
+            }
+
+            return actualReceived
         }
 
         /// Applies excess funds (appreciation) according to the distribution strategy.
@@ -4085,15 +4137,6 @@ access(all) contract PrizeLinkedAccounts {
 
             // Update last draw timestamp (draw initiated, even though batch processing pending)
             self.lastDrawTimestamp = now
-            
-            // Materialize pending prize funds from yield source
-            if self.allocatedPrizeYield > 0.0 {
-                let prizeVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedPrizeYield)
-                let actualWithdrawn = prizeVault.balance
-                self.prizeDistributor.fundPrizePool(vault: <- prizeVault)
-                self.allocatedPrizeYield = self.allocatedPrizeYield - actualWithdrawn
-            }
-            
             // Materialize pending protocol fee from yield source
             if self.allocatedProtocolFee > 0.0 {
                 let protocolVault <- self.config.yieldConnector.withdrawAvailable(maxAmount: self.allocatedProtocolFee)
@@ -4121,8 +4164,9 @@ access(all) contract PrizeLinkedAccounts {
                 }
             }
             
-            let prizeAmount = self.prizeDistributor.getPrizePoolBalance()
-            assert(prizeAmount > 0.0, message: "No prize pool funds")
+            // Prize amount is the allocated yield
+            let prizeAmount = self.allocatedPrizeYield
+            assert(prizeAmount > 0.0, message: "No prize pool funds. allocatedPrizeYield: \(self.allocatedPrizeYield)")
             
             // Request randomness now - will be fulfilled in completeDraw() after batch processing
             let randomRequest <- self.randomConsumer.requestRandomness()
@@ -4336,7 +4380,7 @@ access(all) contract PrizeLinkedAccounts {
                 emit IntermissionStarted(
                     poolID: self.poolID,
                     completedRoundID: completedRoundID,
-                    prizePoolBalance: self.prizeDistributor.getPrizePoolBalance()
+                    prizePoolBalance: self.allocatedPrizeYield
                 )
                 return
             }
@@ -4355,20 +4399,24 @@ access(all) contract PrizeLinkedAccounts {
                 let winnerID = distributedWinners[i]
                 let prizeAmount = prizeAmounts[i]
                 let nftIDsForWinner = nftIDsPerWinner[i]
-                
-                // Withdraw prize from prize pool
-                let prizeVault <- self.prizeDistributor.withdrawPrize(
-                    amount: prizeAmount,
-                    yieldSource: nil
+
+                // Prize funds are already in yield source (allocatedPrizeYield)
+                // Just reallocate accounting - NO token movement, NO slippage
+                assert(
+                    prizeAmount <= self.allocatedPrizeYield,
+                    message: "Insufficient prize yield. Requested: \(prizeAmount), available: \(self.allocatedPrizeYield)"
                 )
-                
+
+                // Move allocation from prize → user
+                self.allocatedPrizeYield = self.allocatedPrizeYield - prizeAmount
+
                 // Get current shares BEFORE the prize deposit for TWAB calculation
                 let oldShares = self.shareTracker.getUserShares(receiverID: winnerID)
-                
-                // AUTO-COMPOUND: Add prize to winner's deposit (mints shares)
+
+                // AUTO-COMPOUND: Mint shares for winner (funds already in yield source)
                 let newSharesMinted = self.shareTracker.deposit(receiverID: winnerID, amount: prizeAmount)
                 let newShares = oldShares + newSharesMinted
-                
+
                 // Update TWAB in active round if one exists (prize deposits accumulate TWAB like regular deposits)
                 // Note: Pool is in intermission during completeDraw (activeRound == nil)
                 // Prize amounts are added to shares but no TWAB is recorded until next round starts
@@ -4384,9 +4432,6 @@ access(all) contract PrizeLinkedAccounts {
                 
                 // Update pool total
                 self.userPoolBalance = self.userPoolBalance + prizeAmount
-                
-                // Re-deposit prize to yield source (continues earning)
-                self.depositToYieldSourceFull(<- prizeVault)
 
                 // Track lifetime prize winnings
                 let totalPrizes = self.receiverTotalEarnedPrizes[winnerID] ?? 0.0
@@ -4452,10 +4497,10 @@ access(all) contract PrizeLinkedAccounts {
             emit IntermissionStarted(
                 poolID: self.poolID,
                 completedRoundID: completedRoundID,
-                prizePoolBalance: self.prizeDistributor.getPrizePoolBalance()
+                prizePoolBalance: self.allocatedPrizeYield
             )
         }
-        
+
         /// Starts a new round, exiting intermission (Phase 5 - optional, for explicit round control).
         /// 
         /// Creates a new active round with the configured draw interval duration.
@@ -5229,22 +5274,23 @@ access(all) contract PrizeLinkedAccounts {
         }
         
         /// Deposits funds into a pool.
-        /// 
+        ///
         /// Automatically registers with the pool on first deposit.
         /// Requires PositionOps entitlement (user must have authorized capability).
-        /// 
+        ///
         /// @param poolID - ID of pool to deposit into
         /// @param from - Vault containing funds to deposit (consumed)
-        access(PositionOps) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}) {
+        /// @param maxSlippageBps - Maximum acceptable slippage in basis points (100 = 1%, 10000 = no protection)
+        access(PositionOps) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}, maxSlippageBps: UInt64) {
             // Auto-register on first deposit
             if self.registeredPools[poolID] == nil {
                 self.registerWithPool(poolID: poolID)
             }
-            
+
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
-            
+
             // Delegate to pool's deposit function with owner address for tracking
-            poolRef.deposit(from: <- from, receiverID: self.uuid, ownerAddress: self.owner?.address)
+            poolRef.deposit(from: <- from, receiverID: self.uuid, ownerAddress: self.owner?.address, maxSlippageBps: maxSlippageBps)
         }
         
         /// Withdraws funds from a pool.
@@ -5401,21 +5447,22 @@ access(all) contract PrizeLinkedAccounts {
         }
         
         /// Deposits funds as a sponsor (prize-ineligible).
-        /// 
+        ///
         /// Sponsors earn rewards yield but cannot win prizes.
         /// Requires PositionOps entitlement.
-        /// 
+        ///
         /// @param poolID - ID of pool to deposit into
         /// @param from - Vault containing funds to deposit (consumed)
-        access(PositionOps) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}) {
+        /// @param maxSlippageBps - Maximum acceptable slippage in basis points (100 = 1%, 10000 = no protection)
+        access(PositionOps) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}, maxSlippageBps: UInt64) {
             // Track registration locally
             if self.registeredPools[poolID] == nil {
                 self.registeredPools[poolID] = true
             }
-            
+
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
             // Pass owner address directly (sponsors don't use capability-based lookup)
-            poolRef.sponsorDeposit(from: <- from, receiverID: self.uuid, ownerAddress: self.owner?.address)
+            poolRef.sponsorDeposit(from: <- from, receiverID: self.uuid, ownerAddress: self.owner?.address, maxSlippageBps: maxSlippageBps)
         }
         
         /// Withdraws funds from a pool.
