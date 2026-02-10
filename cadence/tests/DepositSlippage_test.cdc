@@ -36,7 +36,7 @@ access(all) fun assertAccountingInvariant(_ poolID: UInt64, _ poolIndex: Int, co
     let rewardsInfo = getPoolRewardsInfo(poolID)
     let vaultBalance = getYieldVaultBalance(poolIndex: poolIndex, vaultPrefix: VAULT_PREFIX_SLIPPAGE)
 
-    let allocatedRewards = rewardsInfo["allocatedRewards"]!
+    let allocatedRewards = rewardsInfo["userPoolBalance"]!
     let allocatedPrizeYield = rewardsInfo["allocatedPrizeYield"]!
     let allocatedProtocolFee = rewardsInfo["allocatedProtocolFee"]!
     let totalAllocated = allocatedRewards + allocatedPrizeYield + allocatedProtocolFee
@@ -102,7 +102,7 @@ access(all) fun testSingleDepositWithSlippageAccountingMatch() {
 
     // Assert allocatedRewards matches actual received (98.0), not nominal (100.0)
     let rewardsInfo = getPoolRewardsInfo(poolID)
-    let allocatedRewards = rewardsInfo["allocatedRewards"]!
+    let allocatedRewards = rewardsInfo["userPoolBalance"]!
     log("\n▸ Step 4: Checking allocatedRewards (should match vault, NOT nominal deposit)")
     log("  allocatedRewards: ".concat(allocatedRewards.toString()))
     log("  Expected:         98.0 (actual received, not 100.0 nominal)")
@@ -422,7 +422,7 @@ access(all) fun testSlippageWithYieldDistributionBuckets() {
     // Step 3: Log & assert pre-yield state — all yield buckets should be 0
     log("\n▸ Step 3: Verify pre-yield state (buckets should be zero)")
     let preYieldInfo = getPoolRewardsInfo(poolID)
-    let preRewards = preYieldInfo["allocatedRewards"]!
+    let preRewards = preYieldInfo["userPoolBalance"]!
     let prePrize = preYieldInfo["allocatedPrizeYield"]!
     let preProtocol = preYieldInfo["allocatedProtocolFee"]!
     let preSharePrice = preYieldInfo["sharePrice"] ?? 0.0
@@ -462,7 +462,7 @@ access(all) fun testSlippageWithYieldDistributionBuckets() {
     // Step 5: Log pre-deposit state — vault is 108 but allocations still sum to 98 (stale)
     let staleVault = getYieldVaultBalance(poolIndex: poolIndex, vaultPrefix: VAULT_PREFIX_SLIPPAGE)
     let staleInfo = getPoolRewardsInfo(poolID)
-    let staleTotal = staleInfo["allocatedRewards"]! + staleInfo["allocatedPrizeYield"]! + staleInfo["allocatedProtocolFee"]!
+    let staleTotal = staleInfo["userPoolBalance"]! + staleInfo["allocatedPrizeYield"]! + staleInfo["allocatedProtocolFee"]!
     log("\n▸ Step 5: Pre-deposit state (yield unrecognized, allocations stale)")
     log("  Vault balance:    ".concat(staleVault.toString()).concat(" (108.0 — yield added)"))
     log("  Total allocated:  ".concat(staleTotal.toString()).concat(" (98.0 — stale, no sync yet)"))
@@ -476,7 +476,7 @@ access(all) fun testSlippageWithYieldDistributionBuckets() {
     // Step 7: Log & assert post-second-deposit state
     log("\n▸ Step 7: Verify post-second-deposit state (buckets should reflect yield distribution)")
     let postInfo = getPoolRewardsInfo(poolID)
-    let postRewards = postInfo["allocatedRewards"]!
+    let postRewards = postInfo["userPoolBalance"]!
     let postPrize = postInfo["allocatedPrizeYield"]!
     let postProtocol = postInfo["allocatedProtocolFee"]!
     let postSharePrice = postInfo["sharePrice"] ?? 0.0

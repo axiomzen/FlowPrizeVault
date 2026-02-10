@@ -2970,6 +2970,11 @@ access(all) contract PrizeLinkedAccounts {
         /// Prize allocation: yield awaiting transfer to prize pool at draw time.
         /// Stays in yield source earning until materialized during draw.
         
+        /// Tracks how much of allocatedPrizeYield came from direct funding (e.g. marketing sponsorship)
+        /// for the current draw period. Reset to 0.0 when a new round starts.
+        /// Use this to distinguish organic yield from direct contributions:
+        ///   organicPrizeYield = allocatedPrizeYield - directPrizeFundingThisDraw
+        access(all) var directPrizeFundingThisDraw: UFix64
         
         /// Protocol allocation: yield awaiting transfer to recipient at draw time.
         /// Stays in yield source earning until materialized during draw.
@@ -3057,6 +3062,7 @@ access(all) contract PrizeLinkedAccounts {
             self.userPoolBalance = 0.0
             self.lastDrawTimestamp = 0.0
             self.allocatedPrizeYield = 0.0
+            self.directPrizeFundingThisDraw = 0.0
             self.allocatedProtocolFee = 0.0
             self.totalProtocolFeeForwarded = 0.0
             self.protocolFeeRecipientCap = nil
@@ -3456,6 +3462,7 @@ access(all) contract PrizeLinkedAccounts {
                     let nominalAmount = from.balance
                     let actualReceived = self.depositToYieldSourceFull(<- from)
                     self.allocatedPrizeYield = self.allocatedPrizeYield + actualReceived
+                    self.directPrizeFundingThisDraw = self.directPrizeFundingThisDraw + actualReceived
                     emit PrizePoolFunded(poolID: self.poolID, amount: actualReceived, source: "direct_funding")
 
                 case PoolFundingDestination.Rewards:
@@ -4517,6 +4524,9 @@ access(all) contract PrizeLinkedAccounts {
                 self.pendingDrawReceipt == nil: "Pending randomness request not completed"
             }
 
+            // Reset per-draw direct funding tracker for the new round
+            self.directPrizeFundingThisDraw = 0.0
+
             let now = getCurrentBlock().timestamp
             let newRoundID = self.lastCompletedRoundID + 1
             let duration = self.config.drawIntervalSeconds
@@ -5038,6 +5048,13 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns the allocated prize yield (awaiting transfer to prize pool).
         access(all) view fun getAllocatedPrizeYield(): UFix64 {
             return self.allocatedPrizeYield
+        }
+
+        /// Returns the amount of direct funding (e.g. marketing sponsorship) added to the
+        /// prize pool during the current draw period. Reset when a new round starts.
+        /// Organic prize yield = getAllocatedPrizeYield() - getDirectPrizeFundingThisDraw()
+        access(all) view fun getDirectPrizeFundingThisDraw(): UFix64 {
+            return self.directPrizeFundingThisDraw
         }
 
         /// Returns the allocated protocol fee (awaiting transfer to recipient).
