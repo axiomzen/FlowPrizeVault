@@ -5,7 +5,8 @@
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"testing": "0000000000000007",
-				"testnet": "4eb6c573ea50e6f9"
+				"testnet": "4eb6c573ea50e6f9",
+				"mainnet": "92195d814edf9cb0"
 			}
 		},
 		"DeFiActionsMathUtils": {
@@ -13,7 +14,8 @@
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"testing": "0000000000000007",
-				"testnet": "4eb6c573ea50e6f9"
+				"testnet": "4eb6c573ea50e6f9",
+				"mainnet": "92195d814edf9cb0"
 			}
 		},
 		"DeFiActionsUtils": {
@@ -21,7 +23,8 @@
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"testing": "0000000000000007",
-				"testnet": "4eb6c573ea50e6f9"
+				"testnet": "4eb6c573ea50e6f9",
+				"mainnet": "92195d814edf9cb0"
 			}
 		},
 		"MockNFT": {
@@ -36,7 +39,8 @@
 			"source": "cadence/contracts/mock/MockYieldConnector.cdc",
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
-				"testing": "0000000000000007"
+				"testing": "0000000000000007",
+				"testnet": "59c03ef8ae3c700d"
 			}
 		},
 		"PrizeLinkedAccounts": {
@@ -44,7 +48,8 @@
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"testing": "0000000000000007",
-				"testnet": "4eb6c573ea50e6f9"
+				"testnet": "59c03ef8ae3c700d",
+				"mainnet": "a092c4aab33daeda"
 			}
 		},
 		"PrizeVault": {
@@ -86,7 +91,20 @@
 			"aliases": {
 				"emulator": "f8d6e0586b0a20c7",
 				"testing": "0000000000000007",
-				"testnet": "4eb6c573ea50e6f9"
+				"testnet": "4eb6c573ea50e6f9",
+				"mainnet": "45caec600164c9e6"
+			}
+		},
+		"FlowYieldVaultsConnector": {
+			"source": "cadence/contracts/FlowYieldVaultsConnector.cdc",
+			"aliases": {
+				"mainnet": "cc9dd0c6477a8fc7"
+			}
+		},
+		"FlowYieldVaultsConnectorV2": {
+			"source": "cadence/contracts/FlowYieldVaultsConnectorV2.cdc",
+			"aliases": {
+				"mainnet": "a092c4aab33daeda"
 			}
 		}
 	},
@@ -105,19 +123,25 @@
 			"source": "mainnet://92195d814edf9cb0.DeFiActions",
 			"hash": "da752be448f97dec0f1a11051a12a6c851c11de28ac31f240c7f62593b79c717",
 			"block_height": 141250028,
-			"aliases": {}
+			"aliases": {
+				"mainnet": "92195d814edf9cb0"
+			}
 		},
 		"DeFiActionsMathUtils": {
 			"source": "mainnet://92195d814edf9cb0.DeFiActionsMathUtils",
 			"hash": "f2ae511846ea9a545380968837f47a4198447c008e575047f3ace3b7cf782067",
 			"block_height": 141250028,
-			"aliases": {}
+			"aliases": {
+				"mainnet": "92195d814edf9cb0"
+			}
 		},
 		"DeFiActionsUtils": {
 			"source": "mainnet://92195d814edf9cb0.DeFiActionsUtils",
 			"hash": "f3ee7f02ec7373742172f08302471f7b16c44fc0e8deba1efeb50b4367610224",
 			"block_height": 141250028,
-			"aliases": {}
+			"aliases": {
+				"mainnet": "92195d814edf9cb0"
+			}
 		},
 		"DelegatorManager": {
 			"source": "mainnet://d6f80565193ad727.DelegatorManager",
@@ -411,7 +435,9 @@
 			"source": "mainnet://45caec600164c9e6.Xorshift128plus",
 			"hash": "219161c40707967b50ff71e507ac0e5ee24d932ea8925112fe108ff2638711aa",
 			"block_height": 141250028,
-			"aliases": {}
+			"aliases": {
+				"mainnet": "45caec600164c9e6"
+			}
 		},
 		"stFlowToken": {
 			"source": "mainnet://d6f80565193ad727.stFlowToken",
@@ -420,6 +446,18 @@
 			"aliases": {
 				"mainnet": "d6f80565193ad727",
 				"testnet": "d6f80565193ad727"
+			}
+		},
+		"FlowYieldVaults": {
+			"source": "mainnet://b1d63873c3cc9f79.FlowYieldVaults",
+			"aliases": {
+				"mainnet": "b1d63873c3cc9f79"
+			}
+		},
+		"FlowYieldVaultsClosedBeta": {
+			"source": "mainnet://b1d63873c3cc9f79.FlowYieldVaultsClosedBeta",
+			"aliases": {
+				"mainnet": "b1d63873c3cc9f79"
 			}
 		}
 	},
@@ -488,7 +526,28 @@
 				"type": "file",
 				"location": "testnet-account3.pkey"
 			}
-		}
+		},
+    "testnet-account7": {
+      "address": "59c03ef8ae3c700d",
+      "key": {
+        "type": "file",
+        "location": "testnet-account7.pkey"
+      }
+    },
+    "mainnet-test-deployer": {
+      "address": "cc9dd0c6477a8fc7",
+      "key": {
+        "type": "file",
+        "location": "mainnet-test-deployer.pkey"
+      }
+    },
+    "mainnet-deployer": {
+      "address": "a092c4aab33daeda",
+      "key": {
+        "type": "file",
+        "location": "mainnet-deployer.pkey"
+      }
+    }
 	},
 	"deployments": {
 		"emulator": {
@@ -506,13 +565,15 @@
 			]
 		},
 		"testnet": {
-			"testnet-account3": [
-				"Xorshift128plus",
-				"DeFiActionsUtils",
-				"DeFiActionsMathUtils",
-				"DeFiActions",
+			"testnet-account7": [
 				"PrizeLinkedAccounts",
 				"MockYieldConnector"
+			]
+		},
+		"mainnet": {
+			"mainnet-deployer": [
+				"FlowYieldVaultsConnectorV2",
+				"PrizeLinkedAccounts"
 			]
 		}
 	}

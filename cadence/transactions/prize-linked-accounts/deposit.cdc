@@ -1,29 +1,33 @@
 import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 import FungibleToken from "FungibleToken"
-import FlowToken from "FlowToken"
 
-/// Deposit transaction - Deposits FLOW tokens into a specific PrizeLinkedAccounts pool
+/// Deposit transaction - Deposits tokens into a specific PrizeLinkedAccounts pool
+/// Works with any FungibleToken vault (FLOW, pyUSD, etc.)
 /// Auto-registers with the pool on first deposit
 ///
 /// Parameters:
 /// - poolID: The ID of the pool to deposit into
-/// - amount: The amount of FLOW tokens to deposit
+/// - amount: The amount of tokens to deposit
 /// - maxSlippageBps: Maximum acceptable slippage in basis points (100 = 1%, 10000 = no protection)
-transaction(poolID: UInt64, amount: UFix64, maxSlippageBps: UInt64) {
+/// - vaultPath: Storage path identifier for the token vault (e.g., "flowTokenVault", "EVMVMBridgedToken_99af3eea856556646c98c8b9b2548fe815240750Vault")
+transaction(poolID: UInt64, amount: UFix64, maxSlippageBps: UInt64, vaultPath: String) {
 
     let collectionRef: auth(PrizeLinkedAccounts.PositionOps) &PrizeLinkedAccounts.PoolPositionCollection
-    let vaultRef: auth(FungibleToken.Withdraw) &FlowToken.Vault
+    let vaultRef: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}
 
     prepare(signer: auth(Storage) &Account) {
-        // Borrow the collection with Withdraw entitlement for deposit
+        // Borrow the collection with PositionOps entitlement for deposit
         self.collectionRef = signer.storage.borrow<auth(PrizeLinkedAccounts.PositionOps) &PrizeLinkedAccounts.PoolPositionCollection>(
             from: PrizeLinkedAccounts.PoolPositionCollectionStoragePath
         ) ?? panic("No PoolPositionCollection found. Run setup_collection.cdc first")
 
-        // Borrow the vault to withdraw from
-        self.vaultRef = signer.storage.borrow<auth(FungibleToken.Withdraw) &FlowToken.Vault>(
-            from: /storage/flowTokenVault
-        ) ?? panic("Could not borrow FlowToken vault")
+        // Build the storage path from the identifier and borrow the vault
+        let storagePath = StoragePath(identifier: vaultPath)
+            ?? panic("Invalid storage path identifier: ".concat(vaultPath))
+
+        self.vaultRef = signer.storage.borrow<auth(FungibleToken.Withdraw) &{FungibleToken.Vault}>(
+            from: storagePath
+        ) ?? panic("Could not borrow FungibleToken vault at /storage/".concat(vaultPath))
     }
 
     execute {
