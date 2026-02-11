@@ -21,8 +21,10 @@ Copy-paste Flow CLI commands for all essential operations.
 | Update yield distribution | `update_distribution_strategy.cdc` | poolID, rewardsPercent, prizePercent, protocolFeePercent |
 | **User Operations** | | |
 | Setup collection | `setup_collection.cdc` | - |
-| Deposit | `deposit.cdc` | poolID, amount |
-| Withdraw | `withdraw.cdc` | poolID, amount |
+| Deposit | `deposit.cdc` | poolID, amount, maxSlippageBps, vaultPath |
+| Withdraw | `withdraw.cdc` | poolID, amount, vaultPath |
+| **Admin Operations** | | |
+| Fund prize pool | `fund_prize_pool.cdc` | poolID, amount, vaultPath, purpose |
 | **Draw Cycle** | | |
 | Add yield | `add_yield_to_pool.cdc` | amount |
 | Fund prize pool | `fund_prize_pool.cdc` | poolID, amount, vaultIdentifier |
@@ -34,6 +36,7 @@ Copy-paste Flow CLI commands for all essential operations.
 | Pool stats | `get_pool_stats.cdc` | poolID |
 | Draw status | `get_draw_status.cdc` | poolID |
 | User shares | `get_user_shares.cdc` | address, poolID |
+| User pool balance | `get_pool_balance.cdc` | address, poolID |
 | Yield status (real-time) | `get_yield_status.cdc` | poolID |
 | Projected user balance | `get_projected_balance.cdc` | address, poolID |
 
@@ -359,12 +362,14 @@ flow transactions send cadence/transactions/prize-linked-accounts/setup_collecti
 
 ### 3.2 Deposit
 
-Deposits FLOW tokens into a pool. Auto-registers the user on first deposit.
+Deposits tokens into a pool. Auto-registers the user on first deposit. Works with any FungibleToken vault.
 
 ```bash
 flow transactions send cadence/transactions/prize-linked-accounts/deposit.cdc \
   0 \
   100.0 \
+  10000 \
+  "flowTokenVault" \
   --network=emulator \
   --signer=emulator-account
 ```
@@ -373,16 +378,25 @@ flow transactions send cadence/transactions/prize-linked-accounts/deposit.cdc \
 | Position | Name | Type | Description |
 |----------|------|------|-------------|
 | 1 | poolID | UInt64 | Pool ID (usually 0 for first pool) |
-| 2 | amount | UFix64 | Amount of FLOW to deposit |
+| 2 | amount | UFix64 | Amount of tokens to deposit |
+| 3 | maxSlippageBps | UInt64 | Max slippage in basis points (100 = 1%, 10000 = no protection) |
+| 4 | vaultPath | String | Storage path identifier for the token vault |
+
+**Common vault paths:**
+| Token | vaultPath |
+|-------|-----------|
+| FLOW | `"flowTokenVault"` |
+| pyUSD | `"EVMVMBridgedToken_99af3eea856556646c98c8b9b2548fe815240750Vault"` |
 
 ### 3.3 Withdraw
 
-Withdraws tokens from a pool (principal + any accrued rewards).
+Withdraws tokens from a pool (principal + any accrued rewards). Works with any FungibleToken vault.
 
 ```bash
 flow transactions send cadence/transactions/prize-linked-accounts/withdraw.cdc \
   0 \
   50.0 \
+  "flowTokenVault" \
   --network=emulator \
   --signer=emulator-account
 ```
@@ -391,7 +405,8 @@ flow transactions send cadence/transactions/prize-linked-accounts/withdraw.cdc \
 | Position | Name | Type | Description |
 |----------|------|------|-------------|
 | 1 | poolID | UInt64 | Pool ID |
-| 2 | amount | UFix64 | Amount of FLOW to withdraw |
+| 2 | amount | UFix64 | Amount of tokens to withdraw |
+| 3 | vaultPath | String | Storage path identifier for the token vault |
 
 ### 3.4 Check User Balance
 
@@ -417,6 +432,27 @@ flow scripts execute cadence/scripts/prize-linked-accounts/get_user_shares.cdc \
 - `totalEarnedPrizes` - Total prizes won
 - `totalBalance` - Total balance including prizes
 - `bonusWeight` - Any bonus weight assigned
+
+### 3.5 User Pool Balance
+
+Quick query for a user's withdrawable asset balance and lifetime prizes in a pool.
+
+```bash
+flow scripts execute cadence/scripts/prize-linked-accounts/get_pool_balance.cdc \
+  0x01cf0e2f2f715450 \
+  0 \
+  --network=emulator
+```
+
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | address | Address | User's account address |
+| 2 | poolID | UInt64 | Pool ID |
+
+**Returns:** `PoolBalance` with:
+- `totalBalance` - Current withdrawable asset value (shares x sharePrice)
+- `totalEarnedPrizes` - Lifetime total of prizes won
 
 ---
 
@@ -541,9 +577,53 @@ flow transactions send cadence/transactions/prize-linked-accounts/start_next_rou
 
 ---
 
-## 5. Query Commands
+## 5. Admin Operations
 
-### 5.1 List All Pools
+### 5.1 Fund Prize Pool Directly
+
+Adds tokens directly to a pool's prize pool. Use for sponsorships, promotional funding, or launch bonuses. Tokens are deposited into the yield source and tracked as `allocatedPrizeYield`, available for the next draw. Requires admin access (`CriticalOps` entitlement).
+
+```bash
+flow transactions send cadence/transactions/prize-linked-accounts/fund_prize_pool.cdc \
+  0 \
+  5.0 \
+  "flowTokenVault" \
+  "Launch bonus prize funding" \
+  --network=emulator \
+  --signer=emulator-account
+```
+
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | poolID | UInt64 | Pool ID to fund |
+| 2 | amount | UFix64 | Amount of tokens to add to prize pool |
+| 3 | vaultPath | String | Storage path identifier for the token vault |
+| 4 | purpose | String | Human-readable description for audit trail |
+
+**Mainnet example (pyUSD):**
+```bash
+flow transactions send cadence/transactions/prize-linked-accounts/fund_prize_pool.cdc \
+  0 \
+  10.0 \
+  "EVMVMBridgedToken_99af3eea856556646c98c8b9b2548fe815240750Vault" \
+  "Marketing sponsorship - Week 1" \
+  --network=mainnet \
+  --signer=mainnet-deployer \
+  --gas-limit 9999
+```
+
+**Notes:**
+- Only works in `Normal` emergency state
+- Token type must match the pool's asset type
+- Emits `DirectFundingReceived` and `PrizePoolFunded` events
+- Tracked separately via `getDirectPrizeFundingThisDraw()` (resets each round)
+
+---
+
+## 6. Query Commands
+
+### 6.1 List All Pools
 
 Returns an array of all pool IDs.
 
@@ -552,7 +632,7 @@ flow scripts execute cadence/scripts/prize-linked-accounts/get_all_pools.cdc \
   --network=emulator
 ```
 
-### 5.2 Pool Stats
+### 6.2 Pool Stats
 
 Comprehensive pool statistics.
 
@@ -578,7 +658,7 @@ flow scripts execute cadence/scripts/prize-linked-accounts/get_pool_stats.cdc \
 - `isInIntermission` - Whether between rounds
 - `emergencyState` - 0=Normal, 1=Paused, 2=Emergency, 3=Partial
 
-### 5.3 Draw Status
+### 6.3 Draw Status
 
 Detailed draw state machine status.
 
@@ -601,7 +681,7 @@ flow scripts execute cadence/scripts/prize-linked-accounts/get_draw_status.cdc \
 - `prizePoolBalance` / `allocatedPrizeYield` - Prize amounts
 - `batchProgress` - Batch processing status (if in progress)
 
-### 5.4 Yield Status (Real-time)
+### 6.4 Yield Status (Real-time)
 
 Live yield source data compared to cached pool accounting. Use this to see pending yield before it's synced.
 

@@ -1,13 +1,8 @@
 /*
-FlowYieldVaultsConnectorV2 - Mainnet FlowYieldVaults Integration (Secured)
+FlowYieldVaultsConnector - Mainnet FlowYieldVaults Integration
 
-PURPOSE: Connector for EVM-bridged tokens with 6 decimal precision (e.g., pyUSD).
-The EVM-Cadence bridge truncates to 6 decimals on withdrawal, while Cadence's UFix64
-has 8 decimals. This connector truncates amounts before bridge calls to prevent panics.
-
-DO NOT use this connector for tokens with different decimal precision.
-For tokens with 8+ decimals (e.g., native FLOW), use a connector without truncation
-or create a new connector with the appropriate precision.
+This connector enables PrizeLinkedAccounts to deposit funds into FlowYieldVaults (yield-bearing strategies)
+and implements DeFiActions.Sink and DeFiActions.Source interfaces.
 
 Security model:
 - The YieldVaultManagerWrapper resource is stored in the deployer's account
@@ -19,13 +14,12 @@ Security model:
 FlowYieldVaults Contract: mainnet://b1d63873c3cc9f79.FlowYieldVaults
 */
 
-import FungibleToken from 0xf233dcee88fe0abe
-import FlowYieldVaults from 0xb1d63873c3cc9f79
-import FlowYieldVaultsClosedBeta from 0xb1d63873c3cc9f79
-import DeFiActions from 0x92195d814edf9cb0
-import DeFiActionsUtils from 0x92195d814edf9cb0
+import "FungibleToken"
+import "FlowYieldVaults"
+import "FlowYieldVaultsClosedBeta"
+import "DeFiActions"
 
-access(all) contract FlowYieldVaultsConnectorV2 {
+access(all) contract FlowYieldVaultsConnector {
 
     /// Entitlement required to deposit/withdraw through the YieldVaultManagerWrapper.
     /// Only the Connector struct (living inside PrizeLinkedAccounts' Pool) holds a capability with this entitlement.
@@ -211,13 +205,13 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             return 0.0
         }
 
-        /// DeFiActions.Source Implementation — balance + withdraw via entitled capability
-        /// Uses operateCap directly so it reads from the correct wrapper regardless of storage path.
+        /// DeFiActions.Source Implementation — balance via public path, withdraw via entitled capability
         access(all) fun minimumAvailable(): UFix64 {
-            if let managerRef = self.operateCap.borrow() {
-                return FlowYieldVaultsConnectorV2.truncateTo6DecimalPrecision(
-                    managerRef.getYieldVaultBalance()
-                )
+            let managerAccount = getAccount(self.managerAddress)
+            if let managerRef = managerAccount.capabilities.borrow<&YieldVaultManagerWrapper>(
+                FlowYieldVaultsConnector.ManagerPublicPath
+            ) {
+                return managerRef.getYieldVaultBalance()
             }
             return 0.0
         }
@@ -226,12 +220,7 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             let managerRef = self.operateCap.borrow()
                 ?? panic("Cannot borrow YieldVaultManagerWrapper via Operate capability")
 
-            let truncatedAmount = FlowYieldVaultsConnectorV2.truncateTo6DecimalPrecision(maxAmount)
-            if truncatedAmount == 0.0 {
-                // Sub-6-decimal dust — bridge can't move this. Return empty vault.
-                return <- DeFiActionsUtils.getEmptyVault(self.vaultType)
-            }
-            return <- managerRef.withdrawFromYieldVault(maxAmount: truncatedAmount)
+            return <- managerRef.withdrawFromYieldVault(maxAmount: maxAmount)
         }
 
         access(all) view fun getSourceType(): Type {
@@ -304,73 +293,8 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         )
     }
 
-<<<<<<< HEAD
-    /// Create a new YieldVaultManagerWrapper at a CUSTOM storage path.
-    /// Allows multiple connectors (with different strategies) from the same account.
-    /// The pathIdentifier MUST be unique per account — caller is responsible for avoiding collisions.
-    access(all) fun createConnectorAndManagerAtPath(
-        account: auth(Storage, Capabilities) &Account,
-        yieldVaultManagerCap: Capability<auth(FungibleToken.Withdraw) &FlowYieldVaults.YieldVaultManager>,
-        betaBadgeCap: Capability<auth(FlowYieldVaultsClosedBeta.Beta) &FlowYieldVaultsClosedBeta.BetaBadge>,
-        vaultType: Type,
-        strategyType: Type,
-        pathIdentifier: String
-    ): Connector {
-        let supportedVaults = FlowYieldVaults.getSupportedInitializationVaults(forStrategy: strategyType)
-        assert(supportedVaults[vaultType] == true, message: "Strategy does not support vault type")
-
-        let storagePath = StoragePath(identifier: pathIdentifier)!
-        let publicPath = PublicPath(identifier: pathIdentifier)!
-
-        let manager <- create YieldVaultManagerWrapper(
-            yieldVaultManagerCap: yieldVaultManagerCap,
-            betaBadgeCap: betaBadgeCap,
-            vaultType: vaultType,
-            strategyType: strategyType
-        )
-
-        account.storage.save(<-manager, to: storagePath)
-
-        let operateCap = account.capabilities.storage.issue<auth(Operate) &YieldVaultManagerWrapper>(storagePath)
-        let publicCap = account.capabilities.storage.issue<&YieldVaultManagerWrapper>(storagePath)
-        account.capabilities.publish(publicCap, at: publicPath)
-
-        emit ConnectorCreated(
-            managerAddress: account.address,
-            strategyType: strategyType.identifier,
-            vaultType: vaultType.identifier
-        )
-
-        return Connector(
-            managerAddress: account.address,
-            operateCap: operateCap,
-            vaultType: vaultType
-        )
-    }
-
-    /// Truncates a UFix64 value to 6 decimal places for EVM-bridged tokens (e.g., pyUSD).
-    /// The EVM-Cadence bridge only supports 6 decimals; passing 8-decimal UFix64 values
-    /// causes bridge panics. This floors DOWN — never over-reports or over-requests.
-    /// Overflow-safe for any UFix64 value by separating integer/fractional parts.
-    access(all) view fun truncateTo6DecimalPrecision(_ value: UFix64): UFix64 {
-        if value == 0.0 { return 0.0 }
-
-        let PRECISION_FACTOR: UFix64 = 1000000.0  // 10^6 for 6 decimals
-
-        // Split into integer + fractional to avoid overflow.
-        let integerPart: UFix64 = UFix64(UInt64(value))
-        let fractionalPart: UFix64 = value - integerPart
-
-        let scaledFrac: UFix64 = fractionalPart * PRECISION_FACTOR
-        let truncatedFrac: UInt64 = UInt64(scaledFrac)  // Floor (truncate toward zero)
-
-        return integerPart + UFix64(truncatedFrac) / PRECISION_FACTOR
-    }
-
-=======
->>>>>>> 7aa31af (scripts and txns for mainnet/testnet deployment)
     init() {
-        let identifier = "flowYieldVaultsManagerV2_\(self.account.address)"
+        let identifier = "flowYieldVaultsManager_\(self.account.address)"
         self.ManagerStoragePath = StoragePath(identifier: identifier)!
         self.ManagerPublicPath = PublicPath(identifier: identifier)!
     }
