@@ -1090,6 +1090,13 @@ fun getUserActualBalance(_ userAddress: Address, _ poolID: UInt64): {String: UFi
     return scriptResult.returnValue! as! {String: UFix64}
 }
 
+access(all)
+fun getProjectedBalance(_ userAddress: Address, _ poolID: UInt64): {String: UFix64} {
+    let scriptResult = _executeScript("../scripts/test/get_projected_balance.cdc", [userAddress, poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: UFix64}
+}
+
 // ============================================================================
 // PRECISION TESTING HELPERS
 // ============================================================================
