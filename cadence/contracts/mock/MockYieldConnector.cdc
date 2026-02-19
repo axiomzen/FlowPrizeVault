@@ -377,5 +377,124 @@ access(all) contract MockYieldConnector {
             depositFeeBps: depositFeeBps
         )
     }
+
+    /// TruncatingVaultConnector - A connector that truncates withdrawal amounts to 6 decimal places
+    /// Simulates EVM bridge behavior where assets only have 6 decimals of precision,
+    /// causing the last 2 digits of UFix64's 8-decimal precision to be lost on withdrawal.
+    access(all) struct TruncatingVaultConnector: DeFiActions.Sink, DeFiActions.Source {
+        /// Capability to withdraw from the underlying vault
+        access(self) let providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>
+        /// Capability to deposit to the underlying vault
+        access(self) let receiverCap: Capability<&{FungibleToken.Receiver}>
+        /// The vault type this connector handles
+        access(self) let vaultType: Type
+        /// UniqueIdentifier for DeFiActions tracing
+        access(contract) var uniqueID: DeFiActions.UniqueIdentifier?
+
+        init(
+            providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>,
+            receiverCap: Capability<&{FungibleToken.Receiver}>,
+            vaultType: Type
+        ) {
+            self.providerCap = providerCap
+            self.receiverCap = receiverCap
+            self.vaultType = vaultType
+            self.uniqueID = nil
+        }
+
+        /// Truncates a UFix64 value to 6 decimal places (same logic as FlowYieldVaultsConnectorV2)
+        access(all) view fun truncateToSixDecimals(_ value: UFix64): UFix64 {
+            if value == 0.0 { return 0.0 }
+
+            let PRECISION_FACTOR: UFix64 = 1000000.0  // 10^6 for 6 decimals
+
+            // Split into integer + fractional to avoid overflow
+            let integerPart: UFix64 = UFix64(UInt64(value))
+            let fractionalPart: UFix64 = value - integerPart
+
+            let scaledFrac: UFix64 = fractionalPart * PRECISION_FACTOR
+            let truncatedFrac: UInt64 = UInt64(scaledFrac)  // Floor (truncate toward zero)
+
+            return integerPart + UFix64(truncatedFrac) / PRECISION_FACTOR
+        }
+
+        // ============ Sink Interface ============
+
+        access(all) view fun getSinkType(): Type {
+            return self.vaultType
+        }
+
+        access(all) fun minimumCapacity(): UFix64 {
+            return UFix64.max
+        }
+
+        access(all) fun depositCapacity(from: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}) {
+            if let receiver = self.receiverCap.borrow() {
+                let amount = from.balance
+                if amount > 0.0 {
+                    receiver.deposit(from: <-from.withdraw(amount: amount))
+                }
+            }
+        }
+
+        // ============ Source Interface ============
+
+        access(all) view fun getSourceType(): Type {
+            return self.vaultType
+        }
+
+        /// Reports balance truncated to 6 decimals (simulates EVM bridge precision loss)
+        access(all) fun minimumAvailable(): UFix64 {
+            if let provider = self.providerCap.borrow() {
+                return self.truncateToSixDecimals(provider.balance)
+            }
+            return 0.0
+        }
+
+        /// Withdraws up to maxAmount, but truncates the actual withdrawal to 6 decimals
+        access(FungibleToken.Withdraw) fun withdrawAvailable(maxAmount: UFix64): @{FungibleToken.Vault} {
+            if let provider = self.providerCap.borrow() {
+                let available = provider.balance
+                let requestedAmount = maxAmount < available ? maxAmount : available
+                // Truncate to 6 decimals before withdrawing
+                let truncatedAmount = self.truncateToSixDecimals(requestedAmount)
+                if truncatedAmount > 0.0 {
+                    return <-provider.withdraw(amount: truncatedAmount)
+                }
+            }
+            return <-DeFiActionsUtils.getEmptyVault(self.vaultType)
+        }
+
+        // ============ IdentifiableStruct Interface ============
+
+        access(all) fun getComponentInfo(): DeFiActions.ComponentInfo {
+            return DeFiActions.ComponentInfo(
+                type: self.getType(),
+                id: self.id(),
+                innerComponents: []
+            )
+        }
+
+        access(contract) view fun copyID(): DeFiActions.UniqueIdentifier? {
+            return self.uniqueID
+        }
+
+        access(contract) fun setID(_ id: DeFiActions.UniqueIdentifier?) {
+            self.uniqueID = id
+        }
+    }
+
+    /// Creates a new TruncatingVaultConnector
+    access(all) fun createTruncatingVaultConnector(
+        providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>,
+        receiverCap: Capability<&{FungibleToken.Receiver}>,
+        vaultType: Type
+    ): TruncatingVaultConnector {
+        return TruncatingVaultConnector(
+            providerCap: providerCap,
+            receiverCap: receiverCap,
+            vaultType: vaultType
+        )
+    }
 }
 
