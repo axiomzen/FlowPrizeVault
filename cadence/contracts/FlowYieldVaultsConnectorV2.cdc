@@ -316,7 +316,6 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         )
     }
 
-<<<<<<< HEAD
     /// Create a new YieldVaultManagerWrapper at a CUSTOM storage path.
     /// Allows multiple connectors (with different strategies) from the same account.
     /// The pathIdentifier MUST be unique per account — caller is responsible for avoiding collisions.
@@ -396,8 +395,6 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         return integerPart + UFix64(truncatedFrac) / PRECISION_FACTOR
     }
 
-=======
->>>>>>> 7aa31af (scripts and txns for mainnet/testnet deployment)
     init() {
         let identifier = "flowYieldVaultsManagerV2_\(self.account.address)"
         self.ManagerStoragePath = StoragePath(identifier: identifier)!
