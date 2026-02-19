@@ -712,12 +712,12 @@ pendingYield: 10.0             # 10 FLOW yield pending sync
 needsSync: true                # Will sync on next deposit/withdraw
 ```
 
-### 5.5 Projected User Balance
+### 6.5 Projected User Balance (Real-time)
 
-Shows what a user's balance *would be* if the pool synced with the yield source right now. Useful for displaying real-time balances in a UI without waiting for an on-chain sync.
+A user's true current balance accounting for any unsynced yield or deficit in the yield source. Unlike `get_pool_balance` or `get_user_shares` which use the cached share price from the last sync, this calculates the projected share price by reading the live yield source balance and previewing the distribution split.
 
 ```bash
-flow scripts execute cadence/scripts/test/get_projected_balance.cdc \
+flow scripts execute cadence/scripts/prize-linked-accounts/get_projected_balance.cdc \
   0x01cf0e2f2f715450 \
   0 \
   --network=emulator
@@ -726,21 +726,24 @@ flow scripts execute cadence/scripts/test/get_projected_balance.cdc \
 **Parameters:**
 | Position | Name | Type | Description |
 |----------|------|------|-------------|
-| 1 | userAddress | Address | User's account address |
+| 1 | address | Address | User's account address |
 | 2 | poolID | UInt64 | Pool ID |
 
-**Returns:** Dictionary with:
-- `projectedBalance` - Balance if a sync happened now (accounts for unsync'd yield/deficit)
-- `actualBalance` - Current balance based on last synced share price
-- `shares` - Number of shares held
-- `sharePrice` - Current share price (before projection)
+**Returns:** `ProjectedBalanceInfo` with:
+- `projectedBalance` - True current balance accounting for unsynced yield/deficit
+- `syncedBalance` - Cached balance from last sync (shares x last-synced share price)
+- `shares` - Current share count
+- `syncedSharePrice` - Share price from last sync
 
 **Example output:**
 ```
-{"projectedBalance": 105.50000000, "actualBalance": 100.00000000, "shares": 100.00000000, "sharePrice": 1.00000000}
+projectedBalance: 105.50       # What user would get if sync happened now
+syncedBalance: 100.00          # What pool currently reports (stale)
+shares: 100.0                  # User's share count
+syncedSharePrice: 1.0          # Last-synced share price
 ```
 
-The difference between `projectedBalance` and `actualBalance` represents pending yield (or deficit) that hasn't been synced yet.
+**When to use:** Use this when you need the most accurate user balance, especially before large withdrawals or when yield has been accruing between syncs.
 
 ---
 
