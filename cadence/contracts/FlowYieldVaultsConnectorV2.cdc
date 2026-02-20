@@ -19,11 +19,11 @@ Security model:
 FlowYieldVaults Contract: mainnet://b1d63873c3cc9f79.FlowYieldVaults
 */
 
-import "FungibleToken"
-import "FlowYieldVaults"
-import "FlowYieldVaultsClosedBeta"
-import "DeFiActions"
-import "DeFiActionsUtils"
+import FungibleToken from 0xf233dcee88fe0abe
+import FlowYieldVaults from 0xb1d63873c3cc9f79
+import FlowYieldVaultsClosedBeta from 0xb1d63873c3cc9f79
+import DeFiActions from 0x92195d814edf9cb0
+import DeFiActionsUtils from 0x92195d814edf9cb0
 
 access(all) contract FlowYieldVaultsConnectorV2 {
 
