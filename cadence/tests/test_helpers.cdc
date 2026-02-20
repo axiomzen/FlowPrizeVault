@@ -1604,3 +1604,24 @@ fun depositToPoolWithSlippageExpectFailure(_ account: Test.TestAccount, poolID: 
     )
     return depositResult.error == nil
 }
+
+// ============================================================================
+// TRUNCATING CONNECTOR HELPERS
+// ============================================================================
+
+// Vault prefix constant for truncating pool creation
+access(all) let VAULT_PREFIX_TRUNCATING: String = "testYieldVaultTruncating_"
+
+access(all)
+fun createPoolWithTruncatingConnector(rewards: UFix64, prize: UFix64, protocolFee: UFix64): UInt64 {
+    let deployerAccount = getDeployerAccount()
+    let createResult = _executeTransaction(
+        "../transactions/test/create_pool_with_truncating_connector.cdc",
+        [rewards, prize, protocolFee],
+        deployerAccount
+    )
+    assertTransactionSucceeded(createResult, context: "Create pool with truncating connector")
+
+    let poolCount = getPoolCount()
+    return UInt64(poolCount - 1)
+}
