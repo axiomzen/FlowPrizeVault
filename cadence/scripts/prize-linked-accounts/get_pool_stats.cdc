@@ -3,6 +3,7 @@ import "PrizeLinkedAccounts"
 /// Pool statistics structure
 access(all) struct PoolStats {
     access(all) let poolID: UInt64
+    access(all) let assetType: String
     access(all) let userPoolBalance: UFix64
     access(all) let prizePoolBalance: UFix64
     access(all) let totalProtocolFeeForwarded: UFix64
@@ -24,9 +25,14 @@ access(all) struct PoolStats {
     access(all) let isRoundEnded: Bool
     /// True if pool is in intermission (between rounds, activeRound is nil)
     access(all) let isInIntermission: Bool
+    /// Yield distribution percentages (derived from strategy via calculateDistribution(1.0))
+    access(all) let rewardsPercent: UFix64
+    access(all) let prizePercent: UFix64
+    access(all) let protocolFeePercent: UFix64
 
     init(
         poolID: UInt64,
+        assetType: String,
         userPoolBalance: UFix64,
         prizePoolBalance: UFix64,
         totalProtocolFeeForwarded: UFix64,
@@ -46,9 +52,13 @@ access(all) struct PoolStats {
         roundStartTime: UFix64,
         roundElapsedTime: UFix64,
         isRoundEnded: Bool,
-        isInIntermission: Bool
+        isInIntermission: Bool,
+        rewardsPercent: UFix64,
+        prizePercent: UFix64,
+        protocolFeePercent: UFix64
     ) {
         self.poolID = poolID
+        self.assetType = assetType
         self.userPoolBalance = userPoolBalance
         self.prizePoolBalance = prizePoolBalance
         self.totalProtocolFeeForwarded = totalProtocolFeeForwarded
@@ -69,6 +79,9 @@ access(all) struct PoolStats {
         self.roundElapsedTime = roundElapsedTime
         self.isRoundEnded = isRoundEnded
         self.isInIntermission = isInIntermission
+        self.rewardsPercent = rewardsPercent
+        self.prizePercent = prizePercent
+        self.protocolFeePercent = protocolFeePercent
     }
 }
 
@@ -83,9 +96,11 @@ access(all) fun main(poolID: UInt64): PoolStats {
         ?? panic("Pool does not exist")
     
     let config = poolRef.getConfig()
+    let distributionPlan = config.calculateDistribution(totalAmount: 1.0)
     
     return PoolStats(
         poolID: poolID,
+        assetType: config.assetType.identifier,
         userPoolBalance: poolRef.userPoolBalance,
         prizePoolBalance: poolRef.getPrizePoolBalance(),
         totalProtocolFeeForwarded: poolRef.getTotalProtocolFeeForwarded(),
@@ -105,6 +120,9 @@ access(all) fun main(poolID: UInt64): PoolStats {
         roundStartTime: poolRef.getRoundStartTime(),
         roundElapsedTime: poolRef.getRoundElapsedTime(),
         isRoundEnded: poolRef.isRoundEnded(),
-        isInIntermission: poolRef.isInIntermission()
+        isInIntermission: poolRef.isInIntermission(),
+        rewardsPercent: distributionPlan.rewardsAmount,
+        prizePercent: distributionPlan.prizeAmount,
+        protocolFeePercent: distributionPlan.protocolFeeAmount
     )
 }

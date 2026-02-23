@@ -1,40 +1,44 @@
 import "PrizeLinkedAccounts"
 import "FungibleToken"
-import "FlowToken"
 
-/// Fund the prize prize pool directly using Admin
-/// This simulates yield that would go to the prize
-transaction(poolID: UInt64, amount: UFix64) {
+/// Fund the prize pool directly using Admin with any fungible token type.
+/// Tokens bypass the yield distribution split and go 100% to the prize pool.
+///
+/// Parameters:
+/// - poolID: The ID of the pool to fund
+/// - amount: The amount of tokens to add to the prize pool
+/// - vaultIdentifier: Storage path identifier for the token vault (e.g., "flowTokenVault",
+///   "EVMVMBridgedToken_99af3eea856556646c98c8b9b2548fe815240750Vault" for pyUSD)
+transaction(poolID: UInt64, amount: UFix64, vaultIdentifier: String) {
     
     let adminRef: auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin
-    let vaultRef: auth(FungibleToken.Withdraw) &FlowToken.Vault
+    let vaultRef: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}
     
     prepare(signer: auth(Storage) &Account) {
-        // Borrow admin resource
         self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
             from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Could not borrow Admin resource")
         
-        // Borrow FlowToken vault
-        self.vaultRef = signer.storage.borrow<auth(FungibleToken.Withdraw) &FlowToken.Vault>(
-            from: /storage/flowTokenVault
-        ) ?? panic("Could not borrow FlowToken vault")
+        let vaultPath = StoragePath(identifier: vaultIdentifier)
+            ?? panic("Invalid vault storage path identifier: ".concat(vaultIdentifier))
+
+        self.vaultRef = signer.storage.borrow<auth(FungibleToken.Withdraw) &{FungibleToken.Vault}>(
+            from: vaultPath
+        ) ?? panic("Could not borrow vault at /storage/".concat(vaultIdentifier))
     }
     
     execute {
-        // Withdraw tokens
         let tokens <- self.vaultRef.withdraw(amount: amount)
         
-        // Fund the prize pool directly
         self.adminRef.fundPoolDirect(
             poolID: poolID,
             destination: PrizeLinkedAccounts.PoolFundingDestination.Prize,
             from: <- tokens,
-            purpose: "Test funding",
+            purpose: "Direct prize pool funding",
             metadata: nil
         )
         
-        log("Funded prize pool with ".concat(amount.toString()).concat(" FLOW"))
+        log("Funded prize pool with ".concat(amount.toString()).concat(" tokens from /storage/").concat(vaultIdentifier))
     }
 }
 

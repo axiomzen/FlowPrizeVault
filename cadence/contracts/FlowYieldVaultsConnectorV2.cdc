@@ -211,12 +211,10 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             return 0.0
         }
 
-        /// DeFiActions.Source Implementation — balance via public path, withdraw via entitled capability
+        /// DeFiActions.Source Implementation — balance + withdraw via entitled capability
+        /// Uses operateCap directly so it reads from the correct wrapper regardless of storage path.
         access(all) fun minimumAvailable(): UFix64 {
-            let managerAccount = getAccount(self.managerAddress)
-            if let managerRef = managerAccount.capabilities.borrow<&YieldVaultManagerWrapper>(
-                FlowYieldVaultsConnectorV2.ManagerPublicPath
-            ) {
+            if let managerRef = self.operateCap.borrow() {
                 return FlowYieldVaultsConnectorV2.truncateTo6DecimalPrecision(
                     managerRef.getYieldVaultBalance()
                 )
@@ -299,6 +297,49 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         )
 
         // Return the struct connector that holds the entitled capability
+        return Connector(
+            managerAddress: account.address,
+            operateCap: operateCap,
+            vaultType: vaultType
+        )
+    }
+
+    /// Create a new YieldVaultManagerWrapper at a CUSTOM storage path.
+    /// Allows multiple connectors (with different strategies) from the same account.
+    /// The pathIdentifier MUST be unique per account — caller is responsible for avoiding collisions.
+    access(all) fun createConnectorAndManagerAtPath(
+        account: auth(Storage, Capabilities) &Account,
+        yieldVaultManagerCap: Capability<auth(FungibleToken.Withdraw) &FlowYieldVaults.YieldVaultManager>,
+        betaBadgeCap: Capability<auth(FlowYieldVaultsClosedBeta.Beta) &FlowYieldVaultsClosedBeta.BetaBadge>,
+        vaultType: Type,
+        strategyType: Type,
+        pathIdentifier: String
+    ): Connector {
+        let supportedVaults = FlowYieldVaults.getSupportedInitializationVaults(forStrategy: strategyType)
+        assert(supportedVaults[vaultType] == true, message: "Strategy does not support vault type")
+
+        let storagePath = StoragePath(identifier: pathIdentifier)!
+        let publicPath = PublicPath(identifier: pathIdentifier)!
+
+        let manager <- create YieldVaultManagerWrapper(
+            yieldVaultManagerCap: yieldVaultManagerCap,
+            betaBadgeCap: betaBadgeCap,
+            vaultType: vaultType,
+            strategyType: strategyType
+        )
+
+        account.storage.save(<-manager, to: storagePath)
+
+        let operateCap = account.capabilities.storage.issue<auth(Operate) &YieldVaultManagerWrapper>(storagePath)
+        let publicCap = account.capabilities.storage.issue<&YieldVaultManagerWrapper>(storagePath)
+        account.capabilities.publish(publicCap, at: publicPath)
+
+        emit ConnectorCreated(
+            managerAddress: account.address,
+            strategyType: strategyType.identifier,
+            vaultType: vaultType.identifier
+        )
+
         return Connector(
             managerAddress: account.address,
             operateCap: operateCap,
