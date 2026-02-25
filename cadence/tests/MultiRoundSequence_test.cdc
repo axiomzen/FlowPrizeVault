@@ -188,21 +188,23 @@ access(all) fun testPrizeAffectsNextRoundTWAB() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 20.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
-    // Get entries before winning
+    // Advance to near round end to get earned entries for round 1
+    Test.moveTime(by: 58.0)
     let entriesRound1 = getUserEntries(user.address, poolID)
-    
+
     // Fund and execute round 1
     fundPrizePool(poolID, amount: prizeAmount)
-    Test.moveTime(by: 61.0)
+    Test.moveTime(by: 3.0) // push past round end
     executeFullDraw(user, poolID: poolID)
-    
+
     // User won 50, now has 150 balance
     let balanceAfterWin = getUserPoolBalance(user.address, poolID)
     Test.assertEqual(depositAmount + prizeAmount, balanceAfterWin["totalBalance"]!)
-    
-    // Get entries in round 2 - should be higher due to larger balance
+
+    // Advance to near end of round 2 to get earned entries
+    Test.moveTime(by: 58.0)
     let entriesRound2 = getUserEntries(user.address, poolID)
-    
+
     // Round 2 entries should be higher (more shares from prize)
     // Note: This depends on timing, but entries should reflect new share count
     Test.assert(
@@ -259,18 +261,20 @@ access(all) fun testUserEntriesCarryForwardCorrectly() {
     var roundNum = 1
     while roundNum <= 3 {
         fundPrizePool(poolID, amount: 5.0)
-        Test.moveTime(by: 61.0)
-        
-        // Get entries before draw
+        Test.moveTime(by: 59.0)
+
+        // Get entries near round end
         let entriesBeforeDraw = getUserEntries(user.address, poolID)
         Test.assert(entriesBeforeDraw > 0.0, message: "Should have entries in round ".concat(roundNum.toString()))
-        
+
+        Test.moveTime(by: 2.0) // push past round end
         executeFullDraw(user, poolID: poolID)
-        
-        // Get entries after draw (in new round)
+
+        // After draw, in new round, advance time before checking
+        Test.moveTime(by: 30.0)
         let entriesAfterDraw = getUserEntries(user.address, poolID)
         Test.assert(entriesAfterDraw > 0.0, message: "Should have entries after round ".concat(roundNum.toString()))
-        
+
         roundNum = roundNum + 1
     }
 }
@@ -412,6 +416,9 @@ access(all) fun testNewUserJoinsEachRound() {
     Test.moveTime(by: 61.0)
     executeFullDraw(user1, poolID: poolID)
     
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // All three users should have entries now
     let entries1 = getUserEntries(user1.address, poolID)
     let entries2 = getUserEntries(user2.address, poolID)

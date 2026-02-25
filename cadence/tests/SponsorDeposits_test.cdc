@@ -187,7 +187,10 @@ access(all) fun testRegularUserHasPrizeEntries() {
     let regularUser = Test.createAccount()
     setupUserWithFundsAndCollection(regularUser, amount: depositAmount + 1.0)
     depositToPool(regularUser, poolID: poolID, amount: depositAmount)
-    
+
+    // Advance time so earned entries accumulate (pool 0 has 86400s round)
+    Test.moveTime(by: 60.0)
+
     // Regular user should have prize entries
     let entries = getUserEntries(regularUser.address, poolID)
     Test.assert(entries > 0.0, message: "Regular user should have prize entries")
@@ -209,7 +212,10 @@ access(all) fun testSameAccountCanBeBothRegularAndSponsor() {
     // Deposit to both
     depositToPool(dualUser, poolID: poolID, amount: regularAmount)
     sponsorDepositToPool(dualUser, poolID: poolID, amount: sponsorAmount)
-    
+
+    // Advance time so earned entries accumulate (pool 0 has 86400s round)
+    Test.moveTime(by: 60.0)
+
     // Check regular balance has entries
     let regularEntries = getUserEntries(dualUser.address, poolID)
     Test.assert(regularEntries > 0.0, message: "Regular position should have entries")
@@ -280,6 +286,9 @@ access(all) fun testSponsorAndRegularUserBothEarnYield() {
     Test.assertEqual(depositAmount, sponsorBalance["totalBalance"]!)
     Test.assertEqual(depositAmount, regularBalance["totalBalance"]!)
     
+    // Advance time so earned entries accumulate (pool 0 has 86400s round)
+    Test.moveTime(by: 60.0)
+
     // But only regular user has prize entries
     let regularEntries = getUserEntries(regularUser.address, poolID)
     let sponsorEntries = getSponsorEntries(sponsor.address, poolID)

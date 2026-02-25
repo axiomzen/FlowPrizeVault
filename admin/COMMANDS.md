@@ -446,9 +446,10 @@ flow transactions send cadence/transactions/prize-linked-accounts/add_yield_to_p
 
 **Note:** This only works with MockYieldConnector. In production, yield comes from the real DeFi protocol.
 
-### 4.2 Fund Prize Pool
 
-Directly funds the prize pool with tokens, bypassing the yield distribution split. Tokens go 100% to the prize pool.
+### 4.2 Fund Prize Pool Directly (Admin)
+
+Bypasses the yield distribution split and deposits FLOW directly into the prize pool. Useful for sponsorships, promotional prize seeding, or testing draws with a guaranteed prize amount. Requires the Admin resource (`CriticalOps` entitlement).
 
 ```bash
 flow transactions send cadence/transactions/test/fund_prize_pool.cdc \
@@ -457,6 +458,7 @@ flow transactions send cadence/transactions/test/fund_prize_pool.cdc \
   "EVMVMBridgedToken_99af3eea856556646c98c8b9b2548fe815240750Vault" \
   --network=emulator \
   --signer=emulator-account
+
 ```
 
 **Parameters:**
@@ -506,7 +508,7 @@ flow transactions send cadence/transactions/prize-linked-accounts/start_draw_ful
 
 **Note:** Two calls are needed because randomness must be requested in one block and fulfilled in a subsequent block.
 
-### 4.5 Manual Draw Controls
+### 4.4 Manual Draw Controls
 
 For fine-grained control, use these individual transactions:
 

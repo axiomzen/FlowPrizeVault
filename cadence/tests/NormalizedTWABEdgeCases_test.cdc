@@ -344,6 +344,9 @@ access(all) fun testReDepositDuringBatchNotEligibleForCurrentDraw() {
     // Start next round to exit intermission
     startNextRound(userA, poolID: poolID)
     
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // User B's deposit is in the NEW round, not the one we just drew
     let userBEntries = getUserEntries(userB.address, poolID)
     Test.assert(userBEntries > 0.0, message: "User B should have entries in the new round")

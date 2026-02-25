@@ -319,7 +319,10 @@ access(all) fun testLargerDepositGetsMoreWeight() {
     
     depositToPool(smallUser, poolID: poolID, amount: 50.0)
     depositToPool(largeUser, poolID: poolID, amount: 200.0)
-    
+
+    // Advance time so earned entries accumulate
+    Test.moveTime(by: 55.0)
+
     // Large user should have more entries (proportional to deposit)
     let smallEntries = getUserEntries(smallUser.address, poolID)
     let largeEntries = getUserEntries(largeUser.address, poolID)
