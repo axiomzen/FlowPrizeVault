@@ -16,12 +16,16 @@ Copy-paste Flow CLI commands for all essential operations.
 | Change to % split | `update_prize_distribution_percentage.cdc` | poolID, prizeSplits |
 | Change to single winner | `update_prize_distribution_single.cdc` | poolID |
 | Change to fixed tiers | `update_prize_distribution_tiers.cdc` | poolID, tiers |
+| Update current round end time | `update_round_target_end_time.cdc` | poolID, newTargetEndTime |
+| Update future draw interval | `update_draw_interval.cdc` | poolID, newInterval |
+| Update yield distribution | `update_distribution_strategy.cdc` | poolID, rewardsPercent, prizePercent, protocolFeePercent |
 | **User Operations** | | |
 | Setup collection | `setup_collection.cdc` | - |
 | Deposit | `deposit.cdc` | poolID, amount |
 | Withdraw | `withdraw.cdc` | poolID, amount |
 | **Draw Cycle** | | |
 | Add yield | `add_yield_to_pool.cdc` | amount |
+| Fund prize pool | `fund_prize_pool.cdc` | poolID, amount, vaultIdentifier |
 | Smart draw | `start_draw_full.cdc` | poolID |
 | Complete draw | `complete_draw.cdc` | poolID |
 | Start next round | `start_next_round.cdc` | poolID |
@@ -31,7 +35,10 @@ Copy-paste Flow CLI commands for all essential operations.
 | Draw status | `get_draw_status.cdc` | poolID |
 | User shares | `get_user_shares.cdc` | address, poolID |
 | Yield status (real-time) | `get_yield_status.cdc` | poolID |
+| Projected user balance | `get_projected_balance.cdc` | address, poolID |
 
+
+PYUSD identifier: EVMVMBridgedToken_99af3eea856556646c98c8b9b2548fe815240750Vault
 ---
 
 ## Environment Setup
@@ -270,6 +277,72 @@ flow transactions send cadence/transactions/prize-linked-accounts/update_prize_d
 
 **Custom Distributions:** For prize distributions beyond the built-in types, deploy a contract implementing `PrizeLinkedAccounts.PrizeDistribution`, then write a transaction that uses it.
 
+### 2.6 Updating Round Timing
+
+Two operations are available for adjusting round timing:
+
+**Update Current Round Target End Time:**
+
+Extends or shortens the *current* active round. Can only be called before `startDraw()`. TWAB math adapts automatically — existing users are not unfairly affected.
+
+```bash
+flow transactions send cadence/transactions/prize-linked-accounts/update_round_target_end_time.cdc \
+  0 \
+  1740500000.0 \
+  --network=emulator \
+  --signer=emulator-account
+```
+
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | poolID | UInt64 | Pool ID to update |
+| 2 | newTargetEndTime | UFix64 | New target end time (Unix timestamp in seconds) |
+
+**Tip:** To extend the current round by 1 day, add `86400` to the current `targetEndTime` (visible in draw status).
+
+**Update Draw Interval for Future Rounds:**
+
+Changes the draw interval for *future* rounds only. The current round is not affected — the new interval applies starting from the next round created after `startDraw()`.
+
+```bash
+flow transactions send cadence/transactions/prize-linked-accounts/update_draw_interval.cdc \
+  0 \
+  604800.0 \
+  --network=emulator \
+  --signer=emulator-account
+```
+
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | poolID | UInt64 | Pool ID to update |
+| 2 | newInterval | UFix64 | New draw interval in seconds (e.g., `86400.0` = daily, `604800.0` = weekly) |
+
+### 2.7 Updating Yield Distribution Strategy
+
+Changes how yield is split between rewards (savings), prize pool (lottery), and protocol fees. Takes effect immediately for the next yield distribution.
+
+```bash
+flow transactions send cadence/transactions/test/update_distribution_strategy.cdc \
+  0 \
+  0.4 \
+  0.4 \
+  0.2 \
+  --network=emulator \
+  --signer=emulator-account
+```
+
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | poolID | UInt64 | Pool ID to update |
+| 2 | rewardsPercent | UFix64 | Fraction of yield to rewards/savings (0.0–1.0) |
+| 3 | prizePercent | UFix64 | Fraction of yield to prize pool (0.0–1.0) |
+| 4 | protocolFeePercent | UFix64 | Fraction of yield to protocol fees (0.0–1.0) |
+
+**Important:** All three percentages must sum to exactly `1.0`. Requires `CriticalOps` entitlement.
+
 ---
 
 ## 3. User Operations
@@ -373,7 +446,29 @@ flow transactions send cadence/transactions/prize-linked-accounts/add_yield_to_p
 
 **Note:** This only works with MockYieldConnector. In production, yield comes from the real DeFi protocol.
 
-### 4.2 Smart Draw (Recommended)
+### 4.2 Fund Prize Pool
+
+Directly funds the prize pool with tokens, bypassing the yield distribution split. Tokens go 100% to the prize pool.
+
+```bash
+flow transactions send cadence/transactions/test/fund_prize_pool.cdc \
+  0 \
+  10.0 \
+  "EVMVMBridgedToken_99af3eea856556646c98c8b9b2548fe815240750Vault" \
+  --network=emulator \
+  --signer=emulator-account
+```
+
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | poolID | UInt64 | Pool ID to fund |
+| 2 | amount | UFix64 | Amount of tokens to add to the prize pool |
+| 3 | vaultIdentifier | String | Storage path identifier for the token vault (e.g., `"flowTokenVault"`, `"EVMVMBridgedToken_99af3eea856556646c98c8b9b2548fe815240750Vault"` for pyUSD) |
+
+**Note:** Requires `CriticalOps` entitlement on the Admin resource. The signer must hold both the Admin resource and the token vault being drawn from.
+
+### 4.3 Smart Draw (Recommended)
 
 Intelligently advances the draw process based on current pool state. Call repeatedly until complete.
 
@@ -411,7 +506,7 @@ flow transactions send cadence/transactions/prize-linked-accounts/start_draw_ful
 
 **Note:** Two calls are needed because randomness must be requested in one block and fulfilled in a subsequent block.
 
-### 4.3 Manual Draw Controls
+### 4.5 Manual Draw Controls
 
 For fine-grained control, use these individual transactions:
 
@@ -536,6 +631,36 @@ totalAllocatedFunds: 100.0     # Cached total
 pendingYield: 10.0             # 10 FLOW yield pending sync
 needsSync: true                # Will sync on next deposit/withdraw
 ```
+
+### 5.5 Projected User Balance
+
+Shows what a user's balance *would be* if the pool synced with the yield source right now. Useful for displaying real-time balances in a UI without waiting for an on-chain sync.
+
+```bash
+flow scripts execute cadence/scripts/test/get_projected_balance.cdc \
+  0x01cf0e2f2f715450 \
+  0 \
+  --network=emulator
+```
+
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | userAddress | Address | User's account address |
+| 2 | poolID | UInt64 | Pool ID |
+
+**Returns:** Dictionary with:
+- `projectedBalance` - Balance if a sync happened now (accounts for unsync'd yield/deficit)
+- `actualBalance` - Current balance based on last synced share price
+- `shares` - Number of shares held
+- `sharePrice` - Current share price (before projection)
+
+**Example output:**
+```
+{"projectedBalance": 105.50000000, "actualBalance": 100.00000000, "shares": 100.00000000, "sharePrice": 1.00000000}
+```
+
+The difference between `projectedBalance` and `actualBalance` represents pending yield (or deficit) that hasn't been synced yet.
 
 ---
 
