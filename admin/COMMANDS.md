@@ -7,7 +7,7 @@ Copy-paste Flow CLI commands for all essential operations.
 | Operation | Transaction | Parameters |
 |-----------|-------------|------------|
 | Deploy contracts | `flow project deploy` | network |
-| Setup yield vault | `setup_test_yield_vault.cdc` | - |
+| Setup yield vault | `setup_test_yield_vault.cdc` | vaultPath |
 | **Pool Creation** | | |
 | Single winner pool | `create_pool_single_winner.cdc` | config + yieldVaultPath |
 | Multi-winner (%) pool | `create_pool_percentage_split.cdc` | config + prizeSplits + yieldVaultPath |
@@ -26,7 +26,7 @@ Copy-paste Flow CLI commands for all essential operations.
 | **Admin Operations** | | |
 | Fund prize pool | `fund_prize_pool.cdc` | poolID, amount, vaultPath, purpose |
 | **Draw Cycle** | | |
-| Add yield | `add_yield_to_pool.cdc` | amount |
+| Add yield | `add_yield_to_pool.cdc` | amount, yieldVaultPath |
 | Fund prize pool | `fund_prize_pool.cdc` | poolID, amount, vaultIdentifier |
 | Smart draw | `start_draw_full.cdc` | poolID |
 | Complete draw | `complete_draw.cdc` | poolID |
@@ -83,11 +83,31 @@ Creates a vault that serves as the yield source. The pool deposits user funds he
 
 ```bash
 flow transactions send cadence/transactions/prize-linked-accounts/setup_test_yield_vault.cdc \
+  "testYieldVault" \
   --network=testnet \
   --signer=testnet-account3
 ```
 
-This creates `/storage/testYieldVault`. You manually add "yield" to this vault to simulate interest.
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | vaultPath | String | Storage path identifier (e.g., "testYieldVault", "testYieldVault2") |
+
+This creates `/storage/<vaultPath>` and publishes a receiver at `/public/<vaultPath>Receiver`. You manually add "yield" to this vault to simulate interest.
+
+Each pool needs its own dedicated yield vault. To create multiple pools, run this transaction once per pool with a unique path:
+
+```bash
+# Pool 0's yield vault
+flow transactions send cadence/transactions/prize-linked-accounts/setup_test_yield_vault.cdc \
+  "testYieldVault" \
+  --network=testnet --signer=testnet-account3
+
+# Pool 1's yield vault
+flow transactions send cadence/transactions/prize-linked-accounts/setup_test_yield_vault.cdc \
+  "testYieldVault2" \
+  --network=testnet --signer=testnet-account3
+```
 
 **For Production:**
 
@@ -466,11 +486,12 @@ The draw process has 4 phases:
 
 ### 4.1 Add Yield (Simulate)
 
-Adds FLOW to the yield vault to simulate yield generation. This will be distributed according to the pool's distribution strategy on the next draw.
+Adds FLOW to a yield vault to simulate yield generation. This will be distributed according to the pool's distribution strategy on the next draw.
 
 ```bash
 flow transactions send cadence/transactions/prize-linked-accounts/add_yield_to_pool.cdc \
   50.0 \
+  "testYieldVault" \
   --network=testnet \
   --signer=testnet-account3
 ```
@@ -479,6 +500,7 @@ flow transactions send cadence/transactions/prize-linked-accounts/add_yield_to_p
 | Position | Name | Type | Description |
 |----------|------|------|-------------|
 | 1 | amount | UFix64 | Amount of FLOW to add as yield |
+| 2 | yieldVaultPath | String | Storage path identifier of the yield vault (e.g., "testYieldVault", "testYieldVault2") |
 
 **Note:** This only works with MockYieldConnector. In production, yield comes from the real DeFi protocol.
 
@@ -800,6 +822,7 @@ flow project deploy --network=emulator
 
 # 3. Setup yield vault (admin)
 flow transactions send cadence/transactions/prize-linked-accounts/setup_test_yield_vault.cdc \
+  "testYieldVault" \
   --network=emulator --signer=emulator-account
 
 # 4. Create single winner pool (daily draws)
@@ -818,7 +841,7 @@ flow transactions send cadence/transactions/prize-linked-accounts/deposit.cdc \
 
 # 7. Add yield (simulates interest earned)
 flow transactions send cadence/transactions/prize-linked-accounts/add_yield_to_pool.cdc \
-  10.0 \
+  10.0 "testYieldVault" \
   --network=emulator --signer=emulator-account
 
 # 8. Wait for round to end (10+ seconds)

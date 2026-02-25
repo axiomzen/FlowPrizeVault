@@ -1,34 +1,36 @@
 import FungibleToken from "FungibleToken"
 import FlowToken from "FlowToken"
 
-/// Add Yield to Pool - Simulates yield generation by adding funds to the test yield vault
+/// Add Yield to Pool - Simulates yield generation by adding funds to a test yield vault
 /// This is for testing purposes - the funds added will be available as "yield"
 /// when syncWithYieldSource is called
 ///
 /// Parameters:
 /// - amount: Amount of FLOW to add as simulated yield
-transaction(amount: UFix64) {
-    
+/// - yieldVaultPath: Storage path identifier of the yield vault (e.g., "testYieldVault", "testYieldVault2")
+transaction(amount: UFix64, yieldVaultPath: String) {
+
     let senderVault: auth(FungibleToken.Withdraw) &FlowToken.Vault
     let receiverRef: &{FungibleToken.Receiver}
-    
+
     prepare(signer: auth(Storage) &Account) {
-        // Get sender's main FLOW vault
         self.senderVault = signer.storage.borrow<auth(FungibleToken.Withdraw) &FlowToken.Vault>(
             from: /storage/flowTokenVault
         ) ?? panic("Could not borrow sender's FlowToken vault")
-        
-        // Get test yield vault receiver
+
+        let storagePath = StoragePath(identifier: yieldVaultPath)
+            ?? panic("Invalid storage path identifier: ".concat(yieldVaultPath))
+
         self.receiverRef = signer.storage.borrow<&{FungibleToken.Receiver}>(
-            from: /storage/testYieldVault
-        ) ?? panic("Could not borrow test yield vault - run setup_test_yield_vault.cdc first")
+            from: storagePath
+        ) ?? panic("Could not borrow yield vault at /storage/".concat(yieldVaultPath).concat(" - run setup_test_yield_vault.cdc first"))
     }
-    
+
     execute {
         let tokens <- self.senderVault.withdraw(amount: amount)
         self.receiverRef.deposit(from: <- tokens)
-        
-        log("Added ".concat(amount.toString()).concat(" FLOW as simulated yield"))
+
+        log("Added ".concat(amount.toString()).concat(" FLOW as simulated yield to /storage/").concat(yieldVaultPath))
     }
 }
 

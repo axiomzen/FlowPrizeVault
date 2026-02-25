@@ -1,43 +1,43 @@
 import FungibleToken from "FungibleToken"
 import FlowToken from "FlowToken"
 
-/// Setup Test Yield Vault - Creates a dedicated vault for yield testing
+/// Setup Test Yield Vault - Creates a dedicated FlowToken vault for yield testing
 /// This vault will receive deposits and can provide withdrawals (simulating a yield source)
 /// The admin will fund this vault to simulate yield generation
 ///
-/// Stores at: /storage/testYieldVault
-/// Provider capability at: /storage/testYieldVaultProvider (private)
-/// Receiver capability at: /public/testYieldVaultReceiver
-transaction {
-    
+/// Parameters:
+/// - vaultPath: Storage path identifier (e.g., "testYieldVault", "testYieldVault2")
+///
+/// Stores at: /storage/<vaultPath>
+/// Receiver published at: /public/<vaultPath>Receiver
+transaction(vaultPath: String) {
+
     prepare(signer: auth(Storage, Capabilities) &Account) {
-        // Check if vault already exists
-        if signer.storage.type(at: /storage/testYieldVault) != nil {
-            log("Test yield vault already exists")
+        let storagePath = StoragePath(identifier: vaultPath)
+            ?? panic("Invalid storage path identifier: ".concat(vaultPath))
+        let publicPath = PublicPath(identifier: vaultPath.concat("Receiver"))
+            ?? panic("Invalid public path identifier: ".concat(vaultPath).concat("Receiver"))
+
+        if signer.storage.type(at: storagePath) != nil {
+            log("Yield vault already exists at /storage/".concat(vaultPath))
             return
         }
-        
-        // Create and store a new vault for yield testing
+
         let vault <- FlowToken.createEmptyVault(vaultType: Type<@FlowToken.Vault>())
-        signer.storage.save(<-vault, to: /storage/testYieldVault)
-        
-        // Issue provider capability (for withdrawing - simulating yield returns)
+        signer.storage.save(<-vault, to: storagePath)
+
         let providerCap = signer.capabilities.storage.issue<auth(FungibleToken.Withdraw) &FlowToken.Vault>(
-            /storage/testYieldVault
+            storagePath
         )
-        
-        // Issue receiver capability (for depositing into yield source)
+
         let receiverCap = signer.capabilities.storage.issue<&FlowToken.Vault>(
-            /storage/testYieldVault
+            storagePath
         )
-        signer.capabilities.publish(receiverCap, at: /public/testYieldVaultReceiver)
-        
-        log("Test yield vault created successfully")
+        signer.capabilities.publish(receiverCap, at: publicPath)
+
+        log("Yield vault created at /storage/".concat(vaultPath))
+        log("Receiver published at /public/".concat(vaultPath).concat("Receiver"))
         log("Provider capability ID: ".concat(providerCap.id.toString()))
-    }
-    
-    execute {
-        log("Test yield vault setup complete!")
     }
 }
 
