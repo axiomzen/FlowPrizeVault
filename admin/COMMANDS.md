@@ -22,6 +22,7 @@ Copy-paste Flow CLI commands for all essential operations.
 | Withdraw | `withdraw.cdc` | poolID, amount |
 | **Draw Cycle** | | |
 | Add yield | `add_yield_to_pool.cdc` | amount |
+| Fund prize pool directly | `test/fund_prize_pool.cdc` | poolID, amount |
 | Smart draw | `start_draw_full.cdc` | poolID |
 | Complete draw | `complete_draw.cdc` | poolID |
 | Start next round | `start_next_round.cdc` | poolID |
@@ -373,7 +374,27 @@ flow transactions send cadence/transactions/prize-linked-accounts/add_yield_to_p
 
 **Note:** This only works with MockYieldConnector. In production, yield comes from the real DeFi protocol.
 
-### 4.2 Smart Draw (Recommended)
+### 4.2 Fund Prize Pool Directly (Admin)
+
+Bypasses the yield distribution split and deposits FLOW directly into the prize pool. Useful for sponsorships, promotional prize seeding, or testing draws with a guaranteed prize amount. Requires the Admin resource (`CriticalOps` entitlement).
+
+```bash
+flow transactions send cadence/transactions/test/fund_prize_pool.cdc \
+  0 \
+  100.0 \
+  --network=testnet \
+  --signer=testnet-account3
+```
+
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | poolID | UInt64 | Pool ID to fund |
+| 2 | amount | UFix64 | Amount of FLOW to deposit into the prize pool |
+
+**Note:** The funds come from the signer's own FlowToken vault and go directly to the pool's prize allocation — they are **not** split through the yield distribution strategy. The destination is hardcoded to `PoolFundingDestination.Prize`. To fund rewards (share price increase) instead, modify the transaction to use `PoolFundingDestination.Rewards`.
+
+### 4.3 Smart Draw (Recommended)
 
 Intelligently advances the draw process based on current pool state. Call repeatedly until complete.
 
@@ -411,7 +432,7 @@ flow transactions send cadence/transactions/prize-linked-accounts/start_draw_ful
 
 **Note:** Two calls are needed because randomness must be requested in one block and fulfilled in a subsequent block.
 
-### 4.3 Manual Draw Controls
+### 4.4 Manual Draw Controls
 
 For fine-grained control, use these individual transactions:
 

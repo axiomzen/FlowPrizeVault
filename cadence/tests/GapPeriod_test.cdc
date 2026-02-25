@@ -167,6 +167,9 @@ access(all) fun testMultipleRoundDurationsInGap() {
     // Execute draw and verify gap user gets full entries in new round
     executeFullDraw(user, poolID: poolID)
     
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // Check gap user has entries in new round
     let entries = getUserEntries(gapUser.address, poolID)
     Test.assert(entries > 0.0, message: "Gap user should have entries after draw")
@@ -228,6 +231,9 @@ access(all) fun testManyUsersJoinDuringGap() {
     // Execute draw
     executeFullDraw(existingUser, poolID: poolID)
     
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // Verify all gap users have entries in new round
     for gapUser in gapUsers {
         let entries = getUserEntries(gapUser.address, poolID)
@@ -262,15 +268,18 @@ access(all) fun testNewUserOnlyInGap() {
     // Execute draw (round1User's TWAB finalized from activeRound, gapOnlyUser should get lazy fallback)
     executeFullDraw(round1User, poolID: poolID)
     
+    // Advance to near round end so earned entries accumulate fully
+    Test.moveTime(by: 58.0)
+
     // Verify gap-only user has entries in new round (via lazy fallback)
     let gapUserEntries = getUserEntries(gapOnlyUser.address, poolID)
-    
+
     // Gap user should have ~full entries (deposited at start of new round effectively)
     let tolerance: UFix64 = 5.0
-    let difference = gapUserEntries > depositAmount 
-        ? gapUserEntries - depositAmount 
+    let difference = gapUserEntries > depositAmount
+        ? gapUserEntries - depositAmount
         : depositAmount - gapUserEntries
-    
+
     Test.assert(
         difference < tolerance,
         message: "Gap-only user should get ~full entries in new round. Got: ".concat(gapUserEntries.toString())
@@ -340,10 +349,13 @@ access(all) fun testGapDepositFinalizedCorrectly() {
     // Execute full draw
     executeFullDraw(existingUser, poolID: poolID)
     
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // Both users should now be in round 2
     let existingUserEntries = getUserEntries(existingUser.address, poolID)
     let gapUserEntries = getUserEntries(gapUser.address, poolID)
-    
+
     // Both should have entries (gap user via lazy fallback)
     Test.assert(existingUserEntries > 0.0, message: "Existing user should have entries")
     Test.assert(gapUserEntries > 0.0, message: "Gap user should have entries")
@@ -365,14 +377,14 @@ access(all) fun testGapPeriodUserEntriesInEndedRound() {
     // Fund prize
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     
-    // Get entries BEFORE round ends (should be projected for full round)
+    // Advance to near round end to check earned entries
+    Test.moveTime(by: 58.0)
     let entriesBeforeEnd = getUserEntries(user.address, poolID)
-    
+
     // Wait for round to end
-    Test.moveTime(by: 61.0)
-    
-    // Get entries AFTER round ends but before draw (gap period)
-    // Entries should still be calculated correctly
+    Test.moveTime(by: 3.0)
+
+    // In gap period, entries are capped at round end (same value)
     let entriesInGap = getUserEntries(user.address, poolID)
     
     // Entries should be similar (both calculating projected TWAB)

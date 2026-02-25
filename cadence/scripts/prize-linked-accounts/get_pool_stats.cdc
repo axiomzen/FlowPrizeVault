@@ -3,6 +3,7 @@ import "PrizeLinkedAccounts"
 /// Pool statistics structure
 access(all) struct PoolStats {
     access(all) let poolID: UInt64
+    access(all) let assetType: String
     access(all) let userPoolBalance: UFix64
     access(all) let prizePoolBalance: UFix64
     access(all) let totalProtocolFeeForwarded: UFix64
@@ -27,6 +28,7 @@ access(all) struct PoolStats {
 
     init(
         poolID: UInt64,
+        assetType: String,
         userPoolBalance: UFix64,
         prizePoolBalance: UFix64,
         totalProtocolFeeForwarded: UFix64,
@@ -49,6 +51,7 @@ access(all) struct PoolStats {
         isInIntermission: Bool
     ) {
         self.poolID = poolID
+        self.assetType = assetType
         self.userPoolBalance = userPoolBalance
         self.prizePoolBalance = prizePoolBalance
         self.totalProtocolFeeForwarded = totalProtocolFeeForwarded
@@ -86,6 +89,7 @@ access(all) fun main(poolID: UInt64): PoolStats {
     
     return PoolStats(
         poolID: poolID,
+        assetType: config.assetType.identifier,
         userPoolBalance: poolRef.userPoolBalance,
         prizePoolBalance: poolRef.getPrizePoolBalance(),
         totalProtocolFeeForwarded: poolRef.getTotalProtocolFeeForwarded(),
