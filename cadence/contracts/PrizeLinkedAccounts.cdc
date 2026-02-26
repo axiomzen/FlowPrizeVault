@@ -5190,45 +5190,46 @@ access(all) contract PrizeLinkedAccounts {
         // ============================================================
         // ENTRY VIEW FUNCTIONS - Human-readable UI helpers
         // ============================================================
-        // "Entries" represent the user's PROJECTED prize weight at round end.
-        // 
-        // Key distinction:
-        // - TWAB (accumulated): Historical weight from actual balance changes
-        // - Entries (projected): TWAB projected to round end assuming current
-        //   balance is maintained until the draw
-        // 
-        // With NORMALIZED TWAB, entries ≈ average shares over the full round:
-        // - 10 shares held for full round → 10 entries
-        // - 10 shares deposited halfway → ~5 entries (only half the round)
-        // - At next round: same 10 shares → 10 entries immediately (fresh start)
+        // "Entries" represent the user's EARNED prize weight so far this round.
         //
-        // The projection provides immediate UI feedback after deposits:
-        // - User deposits → sees projected entries right away
-        // - Actual prize weight is finalized during processBatch
+        // Entries grow passively over time as the user holds their deposit:
+        // - Every deposit starts at 0 entries
+        // - Entries accumulate linearly: shares × (timeHeld / roundDuration)
+        // - At draw time, entries equal the finalized TWAB weight
+        //
+        // With NORMALIZED TWAB, entries ≈ average shares scaled by round progress:
+        // - 10 shares held for full round → 10 entries at draw time
+        // - 10 shares deposited halfway → grows from 0 to ~5 entries by draw
+        // - At next round: same 10 shares → starts at 0, earns toward 10
+        //
+        // Withdrawing reduces future entry accumulation (fewer shares earning).
+        // Actual prize weight is finalized during processDrawBatch.
         // ============================================================
-        
-        /// Returns the user's projected entries at round end.
-        /// Uses NORMALIZED projected TWAB assuming current shares are held until round end.
-        /// With normalized TWAB, the result is already in "average shares" units.
-        /// 
-        /// This projection shows what the user's entries WILL be if they maintain
-        /// their current balance until the draw. This provides immediate feedback
-        /// after deposits/withdrawals.
-        /// 
-        /// During intermission, returns the user's share balance since that will be
-        /// their full TWAB/entries at the beginning of the next round.
-        /// 
-        /// Examples:
-        /// - 10 shares deposited at round start → 10 entries (immediately)
-        /// - 10 shares deposited at halfway point → ~5 entries (prorated)
-        /// - 10 shares held for full round → 10 entries
-        /// - During intermission: returns current share balance
+
+        /// Returns the user's earned entries so far this round, in asset (token) units.
+        /// Entries grow passively over time based on deposit value and hold duration.
+        ///
+        /// Formula: convertToAssets(getCurrentTWAB(now) × (elapsed / roundDuration))
+        /// The TWAB tracks shares internally, but entries are converted to asset value
+        /// so that depositing 100 tokens → entries grow toward ~100 regardless of share price.
+        ///
+        /// At draw time (elapsed == roundDuration), this equals the asset value of
+        /// the finalized TWAB weight.
+        /// During gap periods (now > roundEndTime), caps at the round end value.
+        /// During intermission, returns the user's asset value (full potential
+        /// for the next round).
+        ///
+        /// Examples (10-day round, 100 tokens deposited at start):
+        /// - Day 0: 0 entries (just deposited)
+        /// - Day 3: ~30 entries
+        /// - Day 7: ~70 entries
+        /// - Day 10 (draw): ~100 entries
         access(all) view fun getUserEntries(receiverID: UInt64): UFix64 {
-            // During intermission, return share balance (their full entries for next round)
+            // During intermission, return asset value (their full potential for next round)
             if self.activeRound == nil {
-                return self.shareTracker.getUserShares(receiverID: receiverID)
+                return self.shareTracker.getUserAssetValue(receiverID: receiverID)
             }
-            
+
             if let round = &self.activeRound as &Round? {
                 let roundDuration = round.getDuration()
                 if roundDuration == 0.0 {
@@ -5236,18 +5237,29 @@ access(all) contract PrizeLinkedAccounts {
                 }
 
                 let roundEndTime = round.getEndTime()
+                let now = getCurrentBlock().timestamp
                 let shares = self.shareTracker.getUserShares(receiverID: receiverID)
 
-                // Project NORMALIZED TWAB forward to round end (assumes current shares held until end)
-                // With normalized TWAB, result is already "average shares" - no division needed
-                let projectedNormalizedWeight = round.getCurrentTWAB(
+                // Cap at round end time so entries don't exceed final value during gap periods
+                let effectiveTime = now < roundEndTime ? now : roundEndTime
+
+                // Get current TWAB normalized by elapsed time (= average shares held so far)
+                let currentWeight = round.getCurrentTWAB(
                     receiverID: receiverID,
                     currentShares: shares,
-                    atTime: roundEndTime
+                    atTime: effectiveTime
                 )
 
-                // TWAB is already normalized (divided by duration internally)
-                return projectedNormalizedWeight
+                // Scale from "average shares over elapsed" to "earned entries over round"
+                // This converts getCurrentTWAB's normalization-by-elapsed to normalization-by-roundDuration
+                let elapsedFromStart = effectiveTime - round.getStartTime()
+                if elapsedFromStart == 0.0 {
+                    return 0.0
+                }
+
+                let shareBasedEntries = currentWeight * (elapsedFromStart / roundDuration)
+                // Convert from share units to asset (token) units so entries map to deposit value
+                return self.shareTracker.convertToAssets(shareBasedEntries)
             }
             return 0.0
         }

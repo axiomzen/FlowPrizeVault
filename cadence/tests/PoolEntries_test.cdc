@@ -26,9 +26,12 @@ access(all) fun testEntriesReturnValidAmount() {
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
     
+    // Advance some time so earned entries accumulate (earned model: entries start at 0)
+    Test.moveTime(by: 30.0)
+
     // Get entries - should be a positive number
     let entries = getUserEntries(user.address, poolID)
-    
+
     Test.assert(entries > 0.0, message: "Entries should be positive after deposit")
     Test.assert(entries <= depositAmount, message: "Entries should not exceed deposit amount")
 }
@@ -145,8 +148,11 @@ access(all) fun testEntriesIncreaseWithAdditionalDeposit() {
     
     // Second deposit
     depositToPool(user, poolID: poolID, amount: additionalDeposit)
-    
-    // Get entries immediately after second deposit
+
+    // Advance more time so the additional deposit earns entries
+    Test.moveTime(by: 15.0)
+
+    // Get entries after additional time
     let entriesAfterSecond = getUserEntries(user.address, poolID)
     
     // Entries should have increased (due to higher balance for remaining time)

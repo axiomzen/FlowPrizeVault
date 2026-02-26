@@ -34,6 +34,9 @@ access(all) fun testCleanupWithNoStaleEntries() {
     let finalReceiverCount = getRegisteredReceiverCount(poolID)
     Test.assertEqual(1, finalReceiverCount)
     
+    // Advance time so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // Verify user still has balance via entries (which uses shares)
     let entries = getUserEntries(participant.address, poolID)
     Test.assert(entries > 0.0, message: "User should still have entries")
@@ -261,6 +264,9 @@ access(all) fun testCleanupDoesNotAffectActiveUsers() {
     let finalCount = getRegisteredReceiverCount(poolID)
     Test.assert(finalCount >= 2, message: "At least 2 active users should remain")
     
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // Verify active users still have entries (share-based)
     let entries1 = getUserEntries(active1.address, poolID)
     let entries2 = getUserEntries(active2.address, poolID)
@@ -304,6 +310,9 @@ access(all) fun testCleanupAfterUserRedeposits() {
     let finalCount = getRegisteredReceiverCount(poolID)
     Test.assertEqual(1, finalCount)
     
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // Verify user has entries (share-based)
     let entries = getUserEntries(participant.address, poolID)
     Test.assert(entries > 0.0, message: "User should have entries after re-deposit")

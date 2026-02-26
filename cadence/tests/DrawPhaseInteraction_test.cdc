@@ -294,6 +294,9 @@ access(all) fun testNewUserJoinsDuringDraw() {
     // Start next round to exit intermission
     startNextRound(existingUser, poolID: poolID)
     
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // New user should be in the new round with entries
     let newUserEntries = getUserEntries(newUser.address, poolID)
     Test.assert(newUserEntries > 0.0, message: "New user should have entries in new round")
@@ -364,32 +367,32 @@ access(all) fun testUserNotAffectedByOthersDuringDraw() {
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     depositToPool(user2, poolID: poolID, amount: depositAmount)
     depositToPool(user3, poolID: poolID, amount: depositAmount)
-    
-    // Get user1's entries before draw
-    let user1EntriesBefore = getUserEntries(user1.address, poolID)
-    
+
     // Fund prize and advance time
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
     Test.moveTime(by: 61.0)
-    
+
     // Start draw
     startDraw(user1, poolID: poolID)
-    
+
     // User2 withdraws and re-deposits during draw
     withdrawFromPool(user2, poolID: poolID, amount: 50.0)
     depositToPool(user2, poolID: poolID, amount: 50.0)
-    
+
     // User3 makes additional deposit during draw
     depositToPool(user3, poolID: poolID, amount: depositAmount)
-    
+
     // Complete draw
     processAllDrawBatches(user1, poolID: poolID, batchSize: 1000)
     commitBlocksForRandomness()
     completeDraw(user1, poolID: poolID)
-    
+
     // Start next round to exit intermission
     startNextRound(user1, poolID: poolID)
-    
+
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // User1 should still have entries in new round (unaffected by others)
     let user1EntriesAfter = getUserEntries(user1.address, poolID)
     Test.assert(user1EntriesAfter > 0.0, message: "User1 should have entries after draw")
@@ -440,10 +443,13 @@ access(all) fun testDifferentUsersDifferentPhases() {
     let state = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(2), state["currentRoundID"]! as! UInt64)
     
+    // Advance time in new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // Both users should have entries in new round
     let user1Entries = getUserEntries(user1.address, poolID)
     let user2Entries = getUserEntries(user2.address, poolID)
-    
+
     Test.assert(user1Entries > 0.0, message: "User1 should have entries")
     Test.assert(user2Entries > 0.0, message: "User2 should have entries")
 }

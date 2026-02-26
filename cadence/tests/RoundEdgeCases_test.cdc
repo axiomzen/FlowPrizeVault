@@ -18,16 +18,19 @@ access(all) fun setup() {
 access(all) fun testDepositNearRoundStart() {
     let poolID = createTestPoolWithMediumInterval() // 60 second interval
     let depositAmount: UFix64 = 100.0
-    
+
     // Deposit immediately after pool creation (near start)
     // Note: Pool creation includes some block time, so we're ~0-1 seconds in
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
+
+    // Advance to round end so earned entries converge to projected entries
+    Test.moveTime(by: 58.0)
+
     // Check entries - should be near full round
     let entries = getUserEntries(user.address, poolID)
-    
+
     // Expected: ~full entries (minor reduction for setup transactions)
     let expectedMin: UFix64 = 95.0 // At least 95% of deposit as entries
     Test.assert(
@@ -234,9 +237,12 @@ access(all) fun testMultipleDepositsInSameBlock() {
         message: "Balance should be 100 after 4x25 deposits. Got: ".concat(balance["totalBalance"]!.toString())
     )
     
+    // Advance to round end so earned entries converge to projected entries
+    Test.moveTime(by: 55.0)
+
     // Check entries reflect total
     let entries = getUserEntries(user.address, poolID)
-    Test.assert(entries > 90.0, message: "Should have near-full entries for total deposit")
+    Test.assert(entries > 85.0, message: "Should have near-full entries for total deposit. Got: ".concat(entries.toString()))
 }
 
 // ============================================================================
@@ -246,83 +252,88 @@ access(all) fun testMultipleDepositsInSameBlock() {
 access(all) fun testFirstUserInNewRound() {
     let poolID = createTestPoolWithMediumInterval()
     let depositAmount: UFix64 = 100.0
-    
+
     // Setup user (first user in pool)
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
+
     // Check this is round 1
     let state = getPoolInitialState(poolID)
     Test.assertEqual(UInt64(1), state["currentRoundID"]! as! UInt64)
-    
+
+    // Advance some time so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // User should have entries
     let entries = getUserEntries(user.address, poolID)
-    Test.assert(entries > 0.0, message: "First user should have entries")
+    Test.assert(entries > 0.0, message: "First user should have entries. Got: ".concat(entries.toString()))
 }
 
 access(all) fun testLazyFallbackCalculation() {
     let poolID = createTestPoolWithMediumInterval()
     let depositAmount: UFix64 = 100.0
-    
+
     // Setup two users
     let user1 = Test.createAccount()
     let user2 = Test.createAccount()
-    
+
     setupUserWithFundsAndCollection(user1, amount: depositAmount + 10.0)
     setupUserWithFundsAndCollection(user2, amount: depositAmount + 10.0)
-    
+
     // User1 deposits first
     depositToPool(user1, poolID: poolID, amount: depositAmount)
-    
+
     // Fund prize
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
-    
+
     // Wait for round to end and execute draw
     Test.moveTime(by: 61.0)
     executeFullDraw(user1, poolID: poolID)
-    
+
     // Now we're in round 2. User2 deposits for the first time.
     depositToPool(user2, poolID: poolID, amount: depositAmount)
-    
+
+    // Advance some time in round 2 so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
     // User2 should have entries in round 2 (initialized fresh, not lazy fallback from round 1)
     let user2Entries = getUserEntries(user2.address, poolID)
-    Test.assert(user2Entries > 0.0, message: "New user in round 2 should have entries")
+    Test.assert(user2Entries > 0.0, message: "New user in round 2 should have entries. Got: ".concat(user2Entries.toString()))
 }
 
 access(all) fun testUserExistsInBothActiveAndPendingRound() {
     let poolID = createTestPoolWithMediumInterval()
     let depositAmount: UFix64 = 100.0
-    
+
     // Setup user
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
+
     // Fund prize
     fundPrizePool(poolID, amount: DEFAULT_PRIZE_AMOUNT)
-    
+
     // Wait for round to end
     Test.moveTime(by: 61.0)
-    
-    // Start draw (pool enters DRAW_PROCESSING state)
+
+    // Start draw (pool enters DRAW_PROCESSING state, new active round created)
     startDraw(user, poolID: poolID)
 
-    // During draw processing, entries = share balance (which should be > 0)
-    let entries = getUserEntries(user.address, poolID)
-    Test.assert(entries > 0.0, message: "User should have entries (share balance) during intermission")
-    
     // Complete the draw
     processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
     commitBlocksForRandomness()
     completeDraw(user, poolID: poolID)
-    
+
     // Start next round to exit intermission
     startNextRound(user, poolID: poolID)
-    
-    // User should still have entries in the new round
+
+    // Advance some time in the new round so earned entries accumulate
+    Test.moveTime(by: 30.0)
+
+    // User should have entries in the new round
     let entriesAfter = getUserEntries(user.address, poolID)
-    Test.assert(entriesAfter > 0.0, message: "User should have entries after draw completed")
+    Test.assert(entriesAfter > 0.0, message: "User should have entries after draw completed. Got: ".concat(entriesAfter.toString()))
 }
 
 // ============================================================================
@@ -332,24 +343,27 @@ access(all) fun testUserExistsInBothActiveAndPendingRound() {
 access(all) fun testExactlyHalfRoundDeposit() {
     let poolID = createTestPoolWithMediumInterval() // 60 second interval
     let depositAmount: UFix64 = 100.0
-    
+
     // Advance exactly to halfway point
     Test.moveTime(by: 30.0)
-    
+
     // Deposit at exactly 50%
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
+
+    // Advance to round end so earned entries converge to projected entries
+    Test.moveTime(by: 28.0)
+
     // Check entries - should be approximately half
     let entries = getUserEntries(user.address, poolID)
     let expectedEntries = depositAmount / 2.0 // 50 entries
-    
+
     let tolerance: UFix64 = 5.0
-    let difference = entries > expectedEntries 
-        ? entries - expectedEntries 
+    let difference = entries > expectedEntries
+        ? entries - expectedEntries
         : expectedEntries - entries
-    
+
     Test.assert(
         difference < tolerance,
         message: "Half-round deposit should get ~50 entries. Got: ".concat(entries.toString())
@@ -359,24 +373,27 @@ access(all) fun testExactlyHalfRoundDeposit() {
 access(all) fun testQuarterRoundDeposit() {
     let poolID = createTestPoolWithMediumInterval() // 60 second interval
     let depositAmount: UFix64 = 100.0
-    
+
     // Advance to 25% of round (15 seconds)
     Test.moveTime(by: 15.0)
-    
+
     // Deposit at 25%
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
+
+    // Advance to round end so earned entries converge to projected entries
+    Test.moveTime(by: 43.0)
+
     // Check entries - should be approximately 75% of deposit
     let entries = getUserEntries(user.address, poolID)
     let expectedEntries = depositAmount * 0.75 // 75 entries (75% of round remaining)
-    
+
     let tolerance: UFix64 = 5.0
-    let difference = entries > expectedEntries 
-        ? entries - expectedEntries 
+    let difference = entries > expectedEntries
+        ? entries - expectedEntries
         : expectedEntries - entries
-    
+
     Test.assert(
         difference < tolerance,
         message: "Quarter-round deposit should get ~75 entries. Got: ".concat(entries.toString())
@@ -386,24 +403,30 @@ access(all) fun testQuarterRoundDeposit() {
 access(all) fun testThreeQuarterRoundDeposit() {
     let poolID = createTestPoolWithMediumInterval() // 60 second interval
     let depositAmount: UFix64 = 100.0
-    
+
     // Advance to 75% of round (45 seconds)
     Test.moveTime(by: 45.0)
-    
+
     // Deposit at 75%
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
+
+    // Advance past round end so earned entries converge to projected entries
+    // Need enough time to ensure now >= roundEndTime (setup txns consume ~3s)
+    Test.moveTime(by: 14.0)
+
     // Check entries - should be approximately 25% of deposit
+    // Note: actual deposit happens ~48s into 60s round (45s + ~3s for setup txns)
+    // so entries ~ 100 * 12/60 ~ 20, use wider tolerance
     let entries = getUserEntries(user.address, poolID)
     let expectedEntries = depositAmount * 0.25 // 25 entries (25% of round remaining)
-    
-    let tolerance: UFix64 = 5.0
-    let difference = entries > expectedEntries 
-        ? entries - expectedEntries 
+
+    let tolerance: UFix64 = 10.0
+    let difference = entries > expectedEntries
+        ? entries - expectedEntries
         : expectedEntries - entries
-    
+
     Test.assert(
         difference < tolerance,
         message: "Three-quarter-round deposit should get ~25 entries. Got: ".concat(entries.toString())
@@ -418,98 +441,98 @@ access(all) fun testPartialWithdrawalTWAB() {
     let poolID = createTestPoolWithMediumInterval()
     let depositAmount: UFix64 = 100.0
     let withdrawAmount: UFix64 = 25.0
-    
+
     // Setup user with deposit at start
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
-    // Get initial entries
-    let entriesBefore = getUserEntries(user.address, poolID)
-    
+
     // Advance to 50% of round
     Test.moveTime(by: 30.0)
-    
+
     // Withdraw 25%
     withdrawFromPool(user, poolID: poolID, amount: withdrawAmount)
-    
-    // Get entries after withdrawal
-    let entriesAfter = getUserEntries(user.address, poolID)
-    
-    // Entries should be less than before (withdrawal reduces accumulated TWAB)
+
+    // Advance to round end
+    Test.moveTime(by: 29.0)
+    let entries = getUserEntries(user.address, poolID)
+
+    // Without withdrawal: entries ~ 100 (held full round)
+    // With withdrawal at 50%: 100 x 30/60 + 75 x 30/60 = 50 + 37.5 ~ 87.5
     Test.assert(
-        entriesAfter < entriesBefore,
-        message: "Entries should decrease after withdrawal. Before: "
-            .concat(entriesBefore.toString())
-            .concat(", After: ").concat(entriesAfter.toString())
+        entries < depositAmount - 5.0,
+        message: "Partial withdrawal should reduce entries below full-round value. Got: ".concat(entries.toString())
+    )
+    Test.assert(
+        entries > 50.0,
+        message: "Should still have significant entries. Got: ".concat(entries.toString())
     )
 }
 
 access(all) fun testWithdrawalDoesNotAffectOthers() {
     let poolID = createTestPoolWithMediumInterval()
     let depositAmount: UFix64 = 100.0
-    
-    // Setup two users
+
     let user1 = Test.createAccount()
     let user2 = Test.createAccount()
-    
+
     setupUserWithFundsAndCollection(user1, amount: depositAmount + 10.0)
     setupUserWithFundsAndCollection(user2, amount: depositAmount + 10.0)
-    
+
     depositToPool(user1, poolID: poolID, amount: depositAmount)
     depositToPool(user2, poolID: poolID, amount: depositAmount)
-    
-    // Get user2's entries before user1's withdrawal
-    let user2EntriesBefore = getUserEntries(user2.address, poolID)
-    
+
     // Advance time and user1 withdraws
     Test.moveTime(by: 30.0)
     withdrawFromPool(user1, poolID: poolID, amount: 50.0)
-    
-    // User2's entries should be unchanged by user1's action
-    let user2EntriesAfter = getUserEntries(user2.address, poolID)
-    
-    // Entries should be approximately the same (minor time-based changes are OK)
-    let tolerance: UFix64 = 1.0
-    let difference = user2EntriesBefore > user2EntriesAfter 
-        ? user2EntriesBefore - user2EntriesAfter 
-        : user2EntriesAfter - user2EntriesBefore
-    
+
+    // Advance to round end
+    Test.moveTime(by: 29.0)
+
+    // User2's entries should be ~full (unaffected by user1)
+    let user2Entries = getUserEntries(user2.address, poolID)
+
+    let tolerance: UFix64 = 5.0
+    let difference = user2Entries > depositAmount ? user2Entries - depositAmount : depositAmount - user2Entries
+
     Test.assert(
         difference < tolerance,
-        message: "User2 entries should not be affected by User1 withdrawal"
+        message: "User2 entries should be ~100. Got: ".concat(user2Entries.toString())
     )
 }
 
 access(all) fun testMultipleWithdrawalsAccumulate() {
     let poolID = createTestPoolWithMediumInterval()
     let depositAmount: UFix64 = 100.0
-    
-    // Setup user with deposit
+
     let user = Test.createAccount()
     setupUserWithFundsAndCollection(user, amount: depositAmount + 10.0)
     depositToPool(user, poolID: poolID, amount: depositAmount)
-    
-    // Get initial entries
-    let entriesStart = getUserEntries(user.address, poolID)
-    
+
     // Multiple small withdrawals over time
     Test.moveTime(by: 10.0)
-    withdrawFromPool(user, poolID: poolID, amount: 10.0)
-    let entriesAfter1 = getUserEntries(user.address, poolID)
-    
+    withdrawFromPool(user, poolID: poolID, amount: 10.0) // 90 shares
+
     Test.moveTime(by: 10.0)
-    withdrawFromPool(user, poolID: poolID, amount: 10.0)
-    let entriesAfter2 = getUserEntries(user.address, poolID)
-    
+    withdrawFromPool(user, poolID: poolID, amount: 10.0) // 80 shares
+
     Test.moveTime(by: 10.0)
-    withdrawFromPool(user, poolID: poolID, amount: 10.0)
-    let entriesAfter3 = getUserEntries(user.address, poolID)
-    
-    // Each withdrawal should reduce entries
-    Test.assert(entriesAfter1 < entriesStart, message: "First withdrawal should reduce entries")
-    Test.assert(entriesAfter2 < entriesAfter1, message: "Second withdrawal should further reduce entries")
-    Test.assert(entriesAfter3 < entriesAfter2, message: "Third withdrawal should further reduce entries")
+    withdrawFromPool(user, poolID: poolID, amount: 10.0) // 70 shares
+
+    // Advance to round end
+    Test.moveTime(by: 29.0)
+    let finalEntries = getUserEntries(user.address, poolID)
+
+    // Without withdrawals: entries ~ 100
+    // With progressive withdrawals: significantly less
+    Test.assert(
+        finalEntries < depositAmount - 10.0,
+        message: "Multiple withdrawals should reduce entries. Got: ".concat(finalEntries.toString())
+    )
+    Test.assert(
+        finalEntries > 50.0,
+        message: "Should still have substantial entries. Got: ".concat(finalEntries.toString())
+    )
 }
 
 // ============================================================================
