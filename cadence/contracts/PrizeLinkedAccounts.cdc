@@ -4144,6 +4144,9 @@ access(all) contract PrizeLinkedAccounts {
                 self.syncWithYieldSource()
             }
 
+            // Check prize availability BEFORE any state mutations (AZ-75)
+            assert(self.allocatedPrizeYield > 0.0, message: "No prize pool funds. allocatedPrizeYield: \(self.allocatedPrizeYield)")
+
             let now = getCurrentBlock().timestamp
 
             // Get the current round's info
@@ -4191,9 +4194,8 @@ access(all) contract PrizeLinkedAccounts {
                 }
             }
             
-            // Prize amount is the allocated yield
+            // Prize amount is the allocated yield (already validated > 0.0 above)
             let prizeAmount = self.allocatedPrizeYield
-            assert(prizeAmount > 0.0, message: "No prize pool funds. allocatedPrizeYield: \(self.allocatedPrizeYield)")
             
             // Request randomness now - will be fulfilled in completeDraw() after batch processing
             let randomRequest <- self.randomConsumer.requestRandomness()
