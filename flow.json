@@ -466,6 +466,12 @@
       "aliases": {
         "mainnet": "b1d63873c3cc9f79"
       }
+    },
+    "PMStrategiesV1": {
+      "source": "mainnet://b1d63873c3cc9f79.PMStrategiesV1",
+      "aliases": {
+        "mainnet": "b1d63873c3cc9f79"
+      }
     }
   },
   "networks": {

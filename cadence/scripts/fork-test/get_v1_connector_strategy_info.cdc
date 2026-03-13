@@ -1,7 +1,6 @@
-import FlowYieldVaultsConnector from 0xa092c4aab33daeda
+import "FlowYieldVaultsConnector"
 
 /// Fork-test: Query the V1 connector's strategy and vault type (used by PrizeSavings).
-/// Uses hardcoded address import since V1 connector has no flow.json alias.
 ///
 /// The strategyType tells us whether it uses ERC4626 or AMM-based yield.
 ///

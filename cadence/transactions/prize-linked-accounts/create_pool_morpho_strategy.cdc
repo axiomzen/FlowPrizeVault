@@ -1,9 +1,9 @@
 import "PrizeLinkedAccounts"
 import "FlowYieldVaultsConnectorV2"
 import "FungibleToken"
-import FlowYieldVaults from 0xb1d63873c3cc9f79
-import FlowYieldVaultsClosedBeta from 0xb1d63873c3cc9f79
-import PMStrategiesV1 from 0xb1d63873c3cc9f79
+import "FlowYieldVaults"
+import "FlowYieldVaultsClosedBeta"
+import "PMStrategiesV1"
 
 /// Create a new pool using a FRESH PMStrategiesV1.FUSDEVStrategy resource.
 ///
