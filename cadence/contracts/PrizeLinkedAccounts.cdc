@@ -1138,15 +1138,16 @@ access(all) contract PrizeLinkedAccounts {
             recipient: Capability<&{FungibleToken.Receiver}>
         ): UFix64 {
             pre {
-                recipient.check(): "Recipient capability is invalid"
                 amount > 0.0: "Amount must be greater than 0"
             }
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
             let withdrawn <- poolRef.withdrawUnclaimedProtocolFee(amount: amount)
             let actualAmount = withdrawn.balance
-            
+
             if actualAmount > 0.0 {
-                recipient.borrow()!.deposit(from: <- withdrawn)
+                let receiverRef = recipient.borrow()
+                    ?? panic("Failed to borrow recipient capability")
+                receiverRef.deposit(from: <- withdrawn)
                 emit ProtocolFeeForwarded(
                     poolID: poolID,
                     amount: actualAmount,
