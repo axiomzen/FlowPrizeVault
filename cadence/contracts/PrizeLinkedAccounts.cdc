@@ -2813,15 +2813,12 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Creates a PRNG from a seed for deterministic multi-winner selection.
         access(self) fun createPRNG(seed: UInt64): Xorshift128plus.PRG {
-            var randomBytes = seed.toBigEndianBytes()
-            while randomBytes.length < 16 {
-                randomBytes.appendAll(seed.toBigEndianBytes())
-            }
-            var paddedBytes: [UInt8] = []
-            for idx in InclusiveRange(0, 15) {
-                paddedBytes.append(randomBytes[idx % randomBytes.length])
-            }
-            return Xorshift128plus.PRG(sourceOfRandomness: paddedBytes, salt: [])
+            let seedBytes = seed.toBigEndianBytes()                    // 8 bytes: s0
+            let mixedSeed: UInt64 = seed ^ 0x9e3779b97f4a7c15         // Fibonacci hashing constant
+            let mixedBytes = mixedSeed.toBigEndianBytes()              // 8 bytes: s1
+            var randomBytes = seedBytes
+            randomBytes.appendAll(mixedBytes)                          // 16 bytes, s0 != s1
+            return Xorshift128plus.PRG(sourceOfRandomness: randomBytes, salt: [])
         }
     }
     
