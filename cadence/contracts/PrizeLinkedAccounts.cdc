@@ -208,6 +208,8 @@ access(all) contract PrizeLinkedAccounts {
     /// @param winnerAddresses - Array of winner addresses (nil = resource transferred/destroyed, parallel to winners)
     /// @param amounts - Array of prize amounts (parallel to winners)
     /// @param round - Draw round number
+    access(all) event DrawSkippedInsufficientPrizePool(poolID: UInt64, availableAmount: UFix64, eligibleWinners: Int, round: UInt64)
+
     access(all) event PrizesAwarded(poolID: UInt64, winners: [UInt64], winnerAddresses: [Address?], amounts: [UFix64], round: UInt64)
     
     /// Emitted when the prize pool receives funding.
@@ -4387,8 +4389,19 @@ access(all) contract PrizeLinkedAccounts {
             let prizeAmounts = selectionResult.amounts
             let nftIDsPerWinner = selectionResult.nftIDs
             
-            // Handle case of no winners (e.g., no eligible participants)
+            // Handle case of no winners (e.g., no eligible participants or insufficient prize pool)
             if distributedWinners.length == 0 {
+                // If winners were selected but distribution returned empty, prize pool was insufficient
+                // (e.g., FixedAmountTiers requires totalPrizeAmount >= sum of tier amounts)
+                // allocatedPrizeYield remains unchanged — funds carry over to next draw
+                if winners.length > 0 {
+                    emit DrawSkippedInsufficientPrizePool(
+                        poolID: self.poolID,
+                        availableAmount: totalPrizeAmount,
+                        eligibleWinners: winners.length,
+                        round: self.prizeDistributor.getPrizeRound()
+                    )
+                }
                 emit PrizesAwarded(
                     poolID: self.poolID,
                     winners: [],
