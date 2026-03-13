@@ -39,6 +39,7 @@ access(all) contract FlowYieldVaultsConnectorV2 {
     access(all) event ConnectorCreated(managerAddress: Address, strategyType: String, vaultType: String)
     access(all) event DepositedToYieldVault(yieldVaultID: UInt64, amount: UFix64, vaultType: String)
     access(all) event WithdrawnFromYieldVault(yieldVaultID: UInt64, amount: UFix64, vaultType: String)
+    access(all) event PartialWithdrawal(yieldVaultID: UInt64, requestedAmount: UFix64, actualAmount: UFix64, vaultType: String)
     access(all) event YieldVaultCreated(yieldVaultID: UInt64, strategyType: String, initialAmount: UFix64)
 
     /// YieldVaultManagerWrapper Resource
@@ -157,10 +158,21 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             assert(withdrawAmount > 0.0, message: "Insufficient balance in YieldVault")
 
             let vault <- yieldVaultManager.withdrawFromYieldVault(self.yieldVaultID!, amount: withdrawAmount)
+            let actualAmount = vault.balance
+
+            // Emit warning if yield source returned less than requested (partial fill)
+            if actualAmount < withdrawAmount {
+                emit PartialWithdrawal(
+                    yieldVaultID: self.yieldVaultID!,
+                    requestedAmount: withdrawAmount,
+                    actualAmount: actualAmount,
+                    vaultType: vault.getType().identifier
+                )
+            }
 
             emit WithdrawnFromYieldVault(
                 yieldVaultID: self.yieldVaultID!,
-                amount: withdrawAmount,
+                amount: actualAmount,
                 vaultType: vault.getType().identifier
             )
 
