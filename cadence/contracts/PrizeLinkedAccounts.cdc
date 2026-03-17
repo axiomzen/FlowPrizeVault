@@ -4183,6 +4183,7 @@ access(all) contract PrizeLinkedAccounts {
                         )
                     } else {
                         // Recipient capability invalid - store in unclaimed vault
+                        log("ProtocolFeeRecipientBorrowFailed: poolID=".concat(self.poolID.toString()).concat(" amount=").concat(protocolVault.balance.toString()).concat(" recipient=").concat(cap.address.toString()))
                         self.unclaimedProtocolFeeVault.deposit(from: <- protocolVault)
                     }
                 } else {
