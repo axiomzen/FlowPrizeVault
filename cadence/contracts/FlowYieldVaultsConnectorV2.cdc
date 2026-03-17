@@ -273,11 +273,8 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             message: "Strategy does not support vault type"
         )
 
-        // Ensure nothing already exists at the storage path
-        assert(
-            account.storage.type(at: self.ManagerStoragePath) == nil,
-            message: "Resource already exists at ".concat(self.ManagerStoragePath.toString()).concat(". Remove existing resource before creating a new connector.")
-        )
+        assert(account.storage.type(at: self.ManagerStoragePath) == nil,
+            message: "createConnectorAndManager: resource already exists at ".concat(self.ManagerStoragePath.toString()))
 
         // Create and store the YieldVaultManagerWrapper resource
         let manager <- create YieldVaultManagerWrapper(
@@ -327,11 +324,8 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         let storagePath = StoragePath(identifier: pathIdentifier)!
         let publicPath = PublicPath(identifier: pathIdentifier)!
 
-        // Ensure nothing already exists at the custom storage path
-        assert(
-            account.storage.type(at: storagePath) == nil,
-            message: "Resource already exists at path '".concat(pathIdentifier).concat("'. Use a unique pathIdentifier or remove the existing resource first.")
-        )
+        assert(account.storage.type(at: storagePath) == nil,
+            message: "createConnectorAndManagerAtPath: resource already exists at '".concat(pathIdentifier).concat("'"))
 
         let manager <- create YieldVaultManagerWrapper(
             yieldVaultManagerCap: yieldVaultManagerCap,
