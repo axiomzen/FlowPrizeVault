@@ -16,7 +16,8 @@ access(all) fun main(address: Address): [UInt64] {
         return []
     }
     
-    let collectionRef = collectionCap.borrow()!
+    let collectionRef = collectionCap.borrow()
+        ?? panic("Failed to borrow PoolPositionCollection from address: ".concat(address.toString()))
     return collectionRef.getRegisteredPoolIDs()
 }
 
