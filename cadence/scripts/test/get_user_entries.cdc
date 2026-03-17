@@ -6,11 +6,11 @@ access(all) fun main(userAddress: Address, poolID: UInt64): UFix64 {
     let account = getAccount(userAddress)
     
     // Get the user's receiver ID from their collection
-    let collectionRef = account.capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
+    let collectionRef = account.capabilities.borrow<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
         PrizeLinkedAccounts.PoolPositionCollectionPublicPath
     ) ?? panic("No PoolPositionCollection found at address")
     
-    let receiverID = collectionRef.getReceiverID()
+    let receiverID = collectionRef.uuid
     
     // Borrow the pool and get entries
     let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID)

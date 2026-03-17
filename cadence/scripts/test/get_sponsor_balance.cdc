@@ -8,7 +8,7 @@ import "PrizeLinkedAccounts"
 access(all) fun main(sponsorAddress: Address, poolID: UInt64): {String: UFix64} {
     let account = getAccount(sponsorAddress)
     
-    if let collection = account.capabilities.borrow<&PrizeLinkedAccounts.SponsorPositionCollection>(
+    if let collection = account.capabilities.borrow<&{PrizeLinkedAccounts.SponsorPositionCollectionPublic}>(
         PrizeLinkedAccounts.SponsorPositionCollectionPublicPath
     ) {
         let balance = collection.getPoolBalance(poolID: poolID)

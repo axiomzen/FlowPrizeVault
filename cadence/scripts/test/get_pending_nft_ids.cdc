@@ -5,7 +5,7 @@ access(all) fun main(userAddress: Address, poolID: UInt64): [UInt64] {
     let account = getAccount(userAddress)
 
     let collectionRef = account
-        .capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
+        .capabilities.borrow<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
             PrizeLinkedAccounts.PoolPositionCollectionPublicPath
         )
 

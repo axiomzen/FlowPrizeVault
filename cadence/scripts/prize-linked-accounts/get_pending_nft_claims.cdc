@@ -10,7 +10,7 @@ import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
 access(all) fun main(userAddress: Address, poolID: UInt64): {String: AnyStruct} {
     // Get user's collection
     let account = getAccount(userAddress)
-    let collectionRef = account.capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
+    let collectionRef = account.capabilities.borrow<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
         PrizeLinkedAccounts.PoolPositionCollectionPublicPath
     )
     

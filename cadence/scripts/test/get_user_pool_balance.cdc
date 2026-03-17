@@ -4,7 +4,7 @@ import "PrizeLinkedAccounts"
 access(all) fun main(userAddress: Address, poolID: UInt64): {String: UFix64} {
     let account = getAccount(userAddress)
     
-    let collectionRef = account.capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
+    let collectionRef = account.capabilities.borrow<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
         PrizeLinkedAccounts.PoolPositionCollectionPublicPath
     ) ?? panic("No PoolPositionCollection found at address")
     

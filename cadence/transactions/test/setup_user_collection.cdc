@@ -14,7 +14,7 @@ transaction {
         signer.storage.save(<-collection, to: PrizeLinkedAccounts.PoolPositionCollectionStoragePath)
         
         // Create public capability
-        let cap = signer.capabilities.storage.issue<&PrizeLinkedAccounts.PoolPositionCollection>(
+        let cap = signer.capabilities.storage.issue<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
             PrizeLinkedAccounts.PoolPositionCollectionStoragePath
         )
         signer.capabilities.publish(cap, at: PrizeLinkedAccounts.PoolPositionCollectionPublicPath)

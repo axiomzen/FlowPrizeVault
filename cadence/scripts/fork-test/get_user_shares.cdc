@@ -39,7 +39,7 @@ access(all) struct UserSharesInfo {
 access(all) fun main(address: Address, poolID: UInt64): UserSharesInfo {
     // Get the user's collection to find their receiverID
     let collectionRef = getAccount(address)
-        .capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
+        .capabilities.borrow<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
             PrizeLinkedAccounts.PoolPositionCollectionPublicPath
         ) ?? panic("No collection found at address")
 
@@ -50,7 +50,7 @@ access(all) fun main(address: Address, poolID: UInt64): UserSharesInfo {
     let balance = collectionRef.getPoolBalance(poolID: poolID)
 
     // Get receiverID from the collection
-    let receiverID = collectionRef.getReceiverID()
+    let receiverID = collectionRef.uuid
 
     // Check if user is registered in pool
     let registeredIDs = poolRef.getRegisteredReceiverIDs()

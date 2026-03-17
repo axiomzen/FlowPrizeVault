@@ -5321,9 +5321,53 @@ access(all) contract PrizeLinkedAccounts {
     }
     
     // ============================================================
+    // POOL POSITION COLLECTION PUBLIC INTERFACE
+    // ============================================================
+
+    /// Minimal public interface for PoolPositionCollection.
+    /// Only exposes read-only query functions needed by external scripts.
+    /// Capabilities published at PoolPositionCollectionPublicPath should use this type
+    /// to avoid exposing internal identifiers or mutating functions.
+    access(all) resource interface PoolPositionCollectionPublic {
+        /// Returns list of pool IDs this collection is registered with.
+        access(all) view fun getRegisteredPoolIDs(): [UInt64]
+        /// Checks if this collection is registered with a specific pool.
+        access(all) view fun isRegisteredWithPool(poolID: UInt64): Bool
+        /// Returns count of pending NFT claims for this user in a pool.
+        access(all) view fun getPendingNFTCount(poolID: UInt64): Int
+        /// Returns UUIDs of all pending NFT claims for this user in a pool.
+        access(all) fun getPendingNFTIDs(poolID: UInt64): [UInt64]
+        /// Returns a complete balance breakdown for this user in a pool.
+        access(all) fun getPoolBalance(poolID: UInt64): PoolBalance
+        /// Returns the user's projected entry count for the current draw.
+        access(all) view fun getPoolEntries(poolID: UInt64): UFix64
+    }
+
+    // ============================================================
+    // SPONSOR POSITION COLLECTION PUBLIC INTERFACE
+    // ============================================================
+
+    /// Minimal public interface for SponsorPositionCollection.
+    /// Only exposes read-only query functions needed by external scripts.
+    access(all) resource interface SponsorPositionCollectionPublic {
+        /// Returns list of pool IDs this collection is registered with.
+        access(all) view fun getRegisteredPoolIDs(): [UInt64]
+        /// Checks if this collection is registered with a specific pool.
+        access(all) view fun isRegisteredWithPool(poolID: UInt64): Bool
+        /// Returns the sponsor's share balance in a pool.
+        access(all) view fun getPoolShares(poolID: UInt64): UFix64
+        /// Returns the sponsor's asset balance in a pool.
+        access(all) view fun getPoolAssetBalance(poolID: UInt64): UFix64
+        /// Returns 0.0 - sponsors have no prize entries by design.
+        access(all) view fun getPoolEntries(poolID: UInt64): UFix64
+        /// Returns a complete balance breakdown for this sponsor in a pool.
+        access(all) fun getPoolBalance(poolID: UInt64): PoolBalance
+    }
+
+    // ============================================================
     // POOL POSITION COLLECTION RESOURCE
     // ============================================================
-    
+
     /// User's position collection for interacting with prize-linked accounts pools.
     /// 
     /// This resource represents a user's account in the prize rewards protocol.
@@ -5341,7 +5385,7 @@ access(all) contract PrizeLinkedAccounts {
     /// 2. Deposit: collection.deposit(poolID: 0, from: <- vault)
     /// 3. Withdraw: let vault <- collection.withdraw(poolID: 0, amount: 10.0)
     /// 4. Claim NFTs: let nft <- collection.claimPendingNFT(poolID: 0, nftIndex: 0)
-    access(all) resource PoolPositionCollection {
+    access(all) resource PoolPositionCollection: PoolPositionCollectionPublic {
         /// Tracks which pools this collection is registered with.
         /// Registration happens automatically on first deposit.
         access(self) let registeredPools: {UInt64: Bool}
@@ -5525,7 +5569,7 @@ access(all) contract PrizeLinkedAccounts {
     /// 1. Create and store: account.storage.save(<- createSponsorPositionCollection(), to: path)
     /// 2. Deposit: collection.deposit(poolID: 0, from: <- vault)
     /// 3. Withdraw: let vault <- collection.withdraw(poolID: 0, amount: 10.0)
-    access(all) resource SponsorPositionCollection {
+    access(all) resource SponsorPositionCollection: SponsorPositionCollectionPublic {
         /// Tracks which pools this collection is registered with.
         access(self) let registeredPools: {UInt64: Bool}
         

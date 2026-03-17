@@ -4,7 +4,7 @@ import "PrizeLinkedAccounts"
 /// Returns the projected asset value accounting for unsync'd yield or deficit.
 access(all) fun main(userAddress: Address, poolID: UInt64): UFix64 {
     let account = getAccount(userAddress)
-    let collectionRef = account.capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
+    let collectionRef = account.capabilities.borrow<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
         PrizeLinkedAccounts.PoolPositionCollectionPublicPath
     )
 
@@ -12,6 +12,6 @@ access(all) fun main(userAddress: Address, poolID: UInt64): UFix64 {
         return 0.0
     }
 
-    let receiverID = collectionRef!.getReceiverID()
+    let receiverID = collectionRef!.uuid
     return PrizeLinkedAccounts.getProjectedUserBalance(poolID: poolID, receiverID: receiverID)
 }

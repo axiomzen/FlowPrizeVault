@@ -51,7 +51,7 @@ transaction(poolID: UInt64, depositAmount: UFix64, accountKey: String) {
         newAccount.storage.save(<-collection, to: PrizeLinkedAccounts.PoolPositionCollectionStoragePath)
         
         // Publish collection capability
-        let collectionCap = newAccount.capabilities.storage.issue<&PrizeLinkedAccounts.PoolPositionCollection>(
+        let collectionCap = newAccount.capabilities.storage.issue<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
             PrizeLinkedAccounts.PoolPositionCollectionStoragePath
         )
         newAccount.capabilities.publish(collectionCap, at: PrizeLinkedAccounts.PoolPositionCollectionPublicPath)

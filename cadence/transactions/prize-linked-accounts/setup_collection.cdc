@@ -18,7 +18,7 @@ transaction {
         )
         
         // Link public capability with public interface
-        let cap = signer.capabilities.storage.issue<&PrizeLinkedAccounts.PoolPositionCollection>(
+        let cap = signer.capabilities.storage.issue<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
             PrizeLinkedAccounts.PoolPositionCollectionStoragePath
         )
         signer.capabilities.publish(

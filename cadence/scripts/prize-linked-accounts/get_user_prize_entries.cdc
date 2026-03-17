@@ -58,7 +58,7 @@ access(all) struct UserPrizeEntries {
 access(all) fun main(address: Address, poolID: UInt64): UserPrizeEntries {
     // Get the user's collection
     let collectionRef = getAccount(address)
-        .capabilities.borrow<&PrizeLinkedAccounts.PoolPositionCollection>(
+        .capabilities.borrow<&{PrizeLinkedAccounts.PoolPositionCollectionPublic}>(
             PrizeLinkedAccounts.PoolPositionCollectionPublicPath
         ) ?? panic("No collection found at address")
     
@@ -66,7 +66,7 @@ access(all) fun main(address: Address, poolID: UInt64): UserPrizeEntries {
         ?? panic("Pool does not exist")
     
     // Get receiverID from the collection
-    let receiverID = collectionRef.getReceiverID()
+    let receiverID = collectionRef.uuid
     
     // Check if user is registered in pool
     let registeredIDs = poolRef.getRegisteredReceiverIDs()

@@ -22,7 +22,7 @@ transaction {
         signer.storage.save(<- collection, to: PrizeLinkedAccounts.SponsorPositionCollectionStoragePath)
         
         // Issue and publish public capability for scripts to access
-        let cap = signer.capabilities.storage.issue<&PrizeLinkedAccounts.SponsorPositionCollection>(
+        let cap = signer.capabilities.storage.issue<&{PrizeLinkedAccounts.SponsorPositionCollectionPublic}>(
             PrizeLinkedAccounts.SponsorPositionCollectionStoragePath
         )
         signer.capabilities.publish(cap, at: PrizeLinkedAccounts.SponsorPositionCollectionPublicPath)
