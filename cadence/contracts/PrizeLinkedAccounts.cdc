@@ -3174,7 +3174,7 @@ access(all) contract PrizeLinkedAccounts {
         /// 2. userShares entries with 0.0 value
         /// 3. Empty pendingNFTClaims arrays
         /// 
-        /// IMPORTANT: Cannot be called during active draw processing (would corrupt indices).
+        /// IMPORTANT: Cannot be called while batch selection data exists (during processDrawBatch phase — would corrupt indices).
         /// Should be called periodically (e.g., after draws, weekly) by admin.
         /// Uses limit to avoid gas limits - call multiple times if needed.
         /// 
