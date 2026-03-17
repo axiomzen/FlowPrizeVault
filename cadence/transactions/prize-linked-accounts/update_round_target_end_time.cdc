@@ -19,7 +19,7 @@ transaction(poolID: UInt64, newTargetEndTime: UFix64) {
 
     let adminRef: auth(PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin
 
-    prepare(signer: auth(Storage, BorrowValue) &Account) {
+    prepare(signer: auth(BorrowValue) &Account) {
         // Borrow the Admin resource with ConfigOps entitlement
         self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin>(
             from: PrizeLinkedAccounts.AdminStoragePath
