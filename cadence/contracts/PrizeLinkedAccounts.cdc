@@ -4648,6 +4648,8 @@ access(all) contract PrizeLinkedAccounts {
         /// @param adminUUID - Admin performing the action
         access(contract) fun setBonusWeight(receiverID: UInt64, bonusWeight: UFix64, reason: String, adminUUID: UInt64) {
             pre {
+                self.registeredReceivers[receiverID] != nil:
+                    "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
                 bonusWeight <= PrizeLinkedAccounts.MAX_BONUS_WEIGHT_PER_USER:
                     "Bonus weight exceeds maximum. Max: \(PrizeLinkedAccounts.MAX_BONUS_WEIGHT_PER_USER), got: \(bonusWeight)"
             }
@@ -4671,6 +4673,10 @@ access(all) contract PrizeLinkedAccounts {
         /// @param reason - Reason for addition (emitted in event)
         /// @param adminUUID - Admin performing the action
         access(contract) fun addBonusWeight(receiverID: UInt64, additionalWeight: UFix64, reason: String, adminUUID: UInt64) {
+            pre {
+                self.registeredReceivers[receiverID] != nil:
+                    "Receiver not registered. ReceiverID: ".concat(receiverID.toString())
+            }
             let timestamp = getCurrentBlock().timestamp
             let currentBonus = self.receiverBonusWeights[receiverID] ?? 0.0
             let newTotalBonus = currentBonus + additionalWeight
