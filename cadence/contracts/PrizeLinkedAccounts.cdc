@@ -1629,7 +1629,7 @@ access(all) contract PrizeLinkedAccounts {
         access(self) let userShares: {UInt64: UFix64}
         
         /// Cumulative yield distributed since pool creation (for statistics).
-        access(all) var totalDistributed: UFix64
+        access(self) var totalDistributed: UFix64
         
         /// Type of fungible token vault this tracker handles.
         access(self) let vaultType: Type
@@ -1888,13 +1888,18 @@ access(all) contract PrizeLinkedAccounts {
         access(self) var _prizeRound: UInt64
         
         /// Cumulative prizes distributed since pool creation (for statistics).
-        access(all) var totalPrizesDistributed: UFix64
+        access(self) var totalPrizesDistributed: UFix64
         
         /// Returns the current draw round number.
         access(all) view fun getPrizeRound(): UInt64 {
             return self._prizeRound
         }
-        
+
+        /// Returns cumulative prizes distributed since pool creation.
+        access(all) view fun getTotalPrizesDistributed(): UFix64 {
+            return self.totalPrizesDistributed
+        }
+
         /// Updates the draw round number.
         /// Called when a draw completes successfully.
         /// @param round - New round number
@@ -2944,12 +2949,12 @@ access(all) contract PrizeLinkedAccounts {
         // User portion of yield source balance
         //   - Includes deposits + won prizes + accrued rewards yield
         //   - Updated on: deposit (+), prize (+), rewards yield (+), withdraw (-)
-        access(all) var userPoolBalance: UFix64
+        access(self) var userPoolBalance: UFix64
         //
         // allocatedPrizeYield: Prize portion awaiting transfer to prize pool
         //   - Accumulates as yield is earned
         //   - Transferred to prize pool vault at draw time
-        access(all) var allocatedPrizeYield: UFix64
+        access(self) var allocatedPrizeYield: UFix64
         //
         // allocatedProtocolFee: Protocol portion awaiting transfer to recipient
         //   - Accumulates as yield is earned (includes rounding dust)
@@ -2958,7 +2963,7 @@ access(all) contract PrizeLinkedAccounts {
         // ============================================================
 
         /// Timestamp of the last completed prize draw.
-        access(all) var lastDrawTimestamp: UFix64
+        access(self) var lastDrawTimestamp: UFix64
         
         // ============================================================
         // YIELD ALLOCATION VARIABLES
@@ -2976,14 +2981,14 @@ access(all) contract PrizeLinkedAccounts {
         /// for the current draw period. Reset to 0.0 when a new round starts.
         /// Use this to distinguish organic yield from direct contributions:
         ///   organicPrizeYield = allocatedPrizeYield - directPrizeFundingThisDraw
-        access(all) var directPrizeFundingThisDraw: UFix64
+        access(self) var directPrizeFundingThisDraw: UFix64
         
         /// Protocol allocation: yield awaiting transfer to recipient at draw time.
         /// Stays in yield source earning until materialized during draw.
-        access(all) var allocatedProtocolFee: UFix64
+        access(self) var allocatedProtocolFee: UFix64
         
         /// Cumulative protocol fee amount forwarded to recipient.
-        access(all) var totalProtocolFeeForwarded: UFix64
+        access(self) var totalProtocolFeeForwarded: UFix64
         
         /// Capability to protocol fee recipient for forwarding at draw time.
         /// If nil, protocol fee goes to unclaimedProtocolFeeVault instead.
@@ -5159,6 +5164,11 @@ access(all) contract PrizeLinkedAccounts {
         
         access(all) view fun getTotalProtocolFeeForwarded(): UFix64 {
             return self.totalProtocolFeeForwarded
+        }
+
+        /// Returns the timestamp of the last completed prize draw.
+        access(all) view fun getLastDrawTimestamp(): UFix64 {
+            return self.lastDrawTimestamp
         }
         
         /// Set protocol fee recipient for forwarding at draw time.

@@ -7,8 +7,8 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
     
     return {
         "emergencyState": poolRef.getEmergencyState().rawValue,
-        "userPoolBalance": poolRef.userPoolBalance,
-        "lastDrawTimestamp": poolRef.lastDrawTimestamp,
+        "userPoolBalance": poolRef.getUserPoolBalance(),
+        "lastDrawTimestamp": poolRef.getLastDrawTimestamp(),
         "allocatedPrizeYield": poolRef.getAllocatedPrizeYield(),
         "isDrawInProgress": poolRef.isDrawInProgress(),
         "canDrawNow": poolRef.canDrawNow(),

@@ -101,7 +101,7 @@ access(all) fun main(poolID: UInt64): PoolStats {
     return PoolStats(
         poolID: poolID,
         assetType: config.assetType.identifier,
-        userPoolBalance: poolRef.userPoolBalance,
+        userPoolBalance: poolRef.getUserPoolBalance(),
         prizePoolBalance: poolRef.getPrizePoolBalance(),
         totalProtocolFeeForwarded: poolRef.getTotalProtocolFeeForwarded(),
         totalRewardsDistributed: poolRef.getTotalRewardsDistributed(),
@@ -112,7 +112,7 @@ access(all) fun main(poolID: UInt64): PoolStats {
         registeredUserCount: poolRef.getRegisteredReceiverIDs().length,
         isDrawInProgress: poolRef.isDrawInProgress(),
         canDrawNow: poolRef.canDrawNow(),
-        lastDrawTimestamp: poolRef.lastDrawTimestamp,
+        lastDrawTimestamp: poolRef.getLastDrawTimestamp(),
         roundDuration: poolRef.getRoundDuration(),
         minimumDeposit: config.minimumDeposit,
         emergencyState: poolRef.getEmergencyState().rawValue,

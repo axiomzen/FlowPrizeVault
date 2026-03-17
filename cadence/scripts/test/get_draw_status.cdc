@@ -28,7 +28,7 @@ access(all) fun main(poolID: UInt64): {String: AnyStruct} {
         "canDrawNow": poolRef.canDrawNow(),
         "isDrawInProgress": poolRef.isDrawInProgress(),
         "prizePoolBalance": poolRef.getPrizePoolBalance(),
-        "lastDrawTimestamp": poolRef.lastDrawTimestamp,
+        "lastDrawTimestamp": poolRef.getLastDrawTimestamp(),
         "currentRoundID": poolRef.getCurrentRoundID(),
         "isRoundEnded": poolRef.isRoundEnded(),
         "roundElapsedTime": poolRef.getRoundElapsedTime(),

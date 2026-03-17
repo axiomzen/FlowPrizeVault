@@ -169,7 +169,7 @@ access(all) fun main(poolID: UInt64): DrawStatus {
         // Detailed status
         isDrawInProgress: poolRef.isDrawInProgress(),
         canDrawNow: poolRef.canDrawNow(),
-        lastDrawTimestamp: poolRef.lastDrawTimestamp,
+        lastDrawTimestamp: poolRef.getLastDrawTimestamp(),
         roundDuration: poolRef.getRoundDuration(),
         roundEndTime: poolRef.getRoundEndTime(),
         secondsUntilNextDraw: poolRef.getTimeUntilNextDraw(),

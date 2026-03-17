@@ -6,7 +6,7 @@ access(all) fun main(poolID: UInt64): {String: UFix64} {
         ?? panic("Pool not found")
 
     return {
-        "userPoolBalance": poolRef.userPoolBalance,
+        "userPoolBalance": poolRef.getUserPoolBalance(),
         "prizeBalance": poolRef.getPrizePoolBalance(),
         "totalProtocolFeeForwarded": poolRef.getTotalProtocolFeeForwarded(),
         "totalStaked": poolRef.getTotalAllocatedFunds()
