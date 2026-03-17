@@ -2013,7 +2013,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns the UUIDs of all pending NFT claims for a receiver.
         /// @param receiverID - Receiver ID to check
         /// @return Array of NFT UUIDs
-        access(all) fun getPendingNFTIDs(receiverID: UInt64): [UInt64] {
+        access(all) view fun getPendingNFTIDs(receiverID: UInt64): [UInt64] {
             if let nfts = &self.pendingNFTClaims[receiverID] as &[{NonFungibleToken.NFT}]? {
                 var ids: [UInt64] = []
                 for nft in nfts {
@@ -4759,7 +4759,7 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Returns UUIDs of pending NFT claims for a user.
         /// @param receiverID - User's receiver ID
-        access(all) fun getPendingNFTIDs(receiverID: UInt64): [UInt64] {
+        access(all) view fun getPendingNFTIDs(receiverID: UInt64): [UInt64] {
             return self.prizeDistributor.getPendingNFTIDs(receiverID: receiverID)
         }
         
@@ -5448,7 +5448,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns UUIDs of all pending NFT claims for this user in a pool.
         /// @param poolID - Pool ID to check
         /// @return Array of NFT UUIDs
-        access(all) fun getPendingNFTIDs(poolID: UInt64): [UInt64] {
+        access(all) view fun getPendingNFTIDs(poolID: UInt64): [UInt64] {
             if let poolRef = PrizeLinkedAccounts.borrowPool(poolID: poolID) {
                 return poolRef.getPendingNFTIDs(receiverID: self.uuid)
             }
@@ -5464,7 +5464,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns a complete balance breakdown for this user in a pool.
         /// @param poolID - Pool ID to check
         /// @return PoolBalance struct with balance and lifetime prizes
-        access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
+        access(all) view fun getPoolBalance(poolID: UInt64): PoolBalance {
             // Return zero balance if not registered
             if self.registeredPools[poolID] == nil {
                 return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
@@ -5617,7 +5617,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Note: totalEarnedPrizes will always be 0 since sponsors cannot win.
         /// @param poolID - Pool ID to check
         /// @return PoolBalance struct with balance components
-        access(all) fun getPoolBalance(poolID: UInt64): PoolBalance {
+        access(all) view fun getPoolBalance(poolID: UInt64): PoolBalance {
             // Return zero balance if not registered
             if self.registeredPools[poolID] == nil {
                 return PoolBalance(totalBalance: 0.0, totalEarnedPrizes: 0.0)
