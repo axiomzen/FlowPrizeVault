@@ -4387,7 +4387,8 @@ access(all) contract PrizeLinkedAccounts {
             let prizeAmounts = selectionResult.amounts
             let nftIDsPerWinner = selectionResult.nftIDs
             
-            // Handle case of no winners (e.g., no eligible participants)
+            // Handle case of no winners (e.g., no eligible participants).
+            // allocatedPrizeYield carries forward to the next round if not distributed.
             if distributedWinners.length == 0 {
                 emit PrizesAwarded(
                     poolID: self.poolID,
@@ -4402,7 +4403,7 @@ access(all) contract PrizeLinkedAccounts {
                 let completedRoundID = usedRound?.getRoundID() ?? 0
                 self.lastCompletedRoundID = completedRoundID
                 destroy usedRound
-                
+
                 // Pool is now in intermission - emit event
                 emit IntermissionStarted(
                     poolID: self.poolID,
