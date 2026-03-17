@@ -102,17 +102,19 @@ access(all) contract PrizeLinkedAccounts {
     // ============================================================
     // STORAGE PATHS
     // ============================================================
-    
+
     /// Storage path where users store their PoolPositionCollection resource.
+    /// These paths are `let` fields set in `init()` — they persist through upgrades
+    /// since `init()` does not re-run. Use an Admin migration function to change paths.
     access(all) let PoolPositionCollectionStoragePath: StoragePath
-    
+
     /// Public path for PoolPositionCollection capability (read-only access).
     access(all) let PoolPositionCollectionPublicPath: PublicPath
-    
+
     /// Storage path where users store their SponsorPositionCollection resource.
     /// Sponsors earn rewards yield but are NOT eligible to win prizes.
     access(all) let SponsorPositionCollectionStoragePath: StoragePath
-    
+
     /// Public path for SponsorPositionCollection capability (read-only access).
     access(all) let SponsorPositionCollectionPublicPath: PublicPath
 
@@ -5905,14 +5907,14 @@ access(all) contract PrizeLinkedAccounts {
         // Prevents overflow when combined with TWAB during draw processing
         self.MAX_BONUS_WEIGHT_PER_USER = 14750000000.0
 
-        // Storage paths for user collections
+        // Storage paths for user collections (persist through upgrades — init() doesn't re-run)
         self.PoolPositionCollectionStoragePath = /storage/PrizeLinkedAccountsCollection
         self.PoolPositionCollectionPublicPath = /public/PrizeLinkedAccountsCollection
-        
+
         // Storage paths for sponsor collections (prize-ineligible)
         self.SponsorPositionCollectionStoragePath = /storage/PrizeLinkedAccountsSponsorCollection
         self.SponsorPositionCollectionPublicPath = /public/PrizeLinkedAccountsSponsorCollection
-        
+
         // Storage path for admin resource
         self.AdminStoragePath = /storage/PrizeLinkedAccountsAdmin
         
