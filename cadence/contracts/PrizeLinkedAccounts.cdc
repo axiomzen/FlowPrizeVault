@@ -4388,7 +4388,25 @@ access(all) contract PrizeLinkedAccounts {
             let nftIDsPerWinner = selectionResult.nftIDs
             
             // Handle case of no winners (e.g., no eligible participants)
+            //
+            // AZ-102: When there are no winners, allocatedPrizeYield is intentionally
+            // NOT reset to zero. The accrued prize yield carries forward to the next
+            // round's prize pool, preserving value for future participants. This is by
+            // design — no funds are lost or stuck.
+            //
+            // The IntermissionStarted event below includes prizePoolBalance which
+            // reflects the carried-forward amount. Dashboards should treat a
+            // PrizesAwarded event with empty winners[] combined with a non-zero
+            // prizePoolBalance in IntermissionStarted as a carry-forward signal.
             if distributedWinners.length == 0 {
+                log("PrizeYieldCarryForward: poolID="
+                    .concat(self.poolID.toString())
+                    .concat(" amount=")
+                    .concat(self.allocatedPrizeYield.toString())
+                    .concat(" round=")
+                    .concat(self.prizeDistributor.getPrizeRound().toString())
+                    .concat(" — no winners, prize yield carries forward to next round"))
+
                 emit PrizesAwarded(
                     poolID: self.poolID,
                     winners: [],
@@ -4402,7 +4420,7 @@ access(all) contract PrizeLinkedAccounts {
                 let completedRoundID = usedRound?.getRoundID() ?? 0
                 self.lastCompletedRoundID = completedRoundID
                 destroy usedRound
-                
+
                 // Pool is now in intermission - emit event
                 emit IntermissionStarted(
                     poolID: self.poolID,
