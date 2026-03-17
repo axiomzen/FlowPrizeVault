@@ -1,10 +1,10 @@
 import "PrizeLinkedAccounts"
 
 /// Sets up a SponsorPositionCollection for the signer.
-/// 
+///
 /// This enables the account to make sponsor deposits (prize-ineligible).
 /// Sponsors earn rewards yield but cannot win prize prizes.
-/// 
+///
 /// A single account can have both a PoolPositionCollection (prize-eligible)
 /// AND a SponsorPositionCollection (prize-ineligible) simultaneously.
 transaction {
@@ -16,18 +16,21 @@ transaction {
             log("SponsorPositionCollection already exists")
             return
         }
-        
+
         // Create and save
         let collection <- PrizeLinkedAccounts.createSponsorPositionCollection()
         signer.storage.save(<- collection, to: PrizeLinkedAccounts.SponsorPositionCollectionStoragePath)
-        
+
         // Issue and publish public capability for scripts to access
         let cap = signer.capabilities.storage.issue<&PrizeLinkedAccounts.SponsorPositionCollection>(
             PrizeLinkedAccounts.SponsorPositionCollectionStoragePath
         )
         signer.capabilities.publish(cap, at: PrizeLinkedAccounts.SponsorPositionCollectionPublicPath)
-        
+
         log("SponsorPositionCollection created successfully")
     }
-}
 
+    // Note: Setup transactions legitimately keep all logic in prepare because
+    // storage.save() and capabilities.publish() require direct signer access.
+    // This is an accepted exception to phase discipline (AZ-95).
+}
