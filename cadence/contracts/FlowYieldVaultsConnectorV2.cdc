@@ -133,12 +133,11 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             let yieldVaultManager = self.yieldVaultManagerCap.borrow()
                 ?? panic("Cannot borrow YieldVaultManager")
 
-            let yieldVaultRef = yieldVaultManager.borrowYieldVault(id: self.yieldVaultID!)
-            if yieldVaultRef == nil {
-                return 0.0
+            if let yieldVaultRef = yieldVaultManager.borrowYieldVault(id: self.yieldVaultID!) {
+                return yieldVaultRef.getYieldVaultBalance()
             }
 
-            return yieldVaultRef!.getYieldVaultBalance()
+            return 0.0
         }
 
         /// Withdraw tokens from the yield vault. Requires Operate entitlement.
