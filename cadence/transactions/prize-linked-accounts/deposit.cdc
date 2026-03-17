@@ -11,6 +11,10 @@ import FlowToken from "FlowToken"
 /// - maxSlippageBps: Maximum acceptable slippage in basis points (100 = 1%, 10000 = no protection)
 transaction(poolID: UInt64, amount: UFix64, maxSlippageBps: UInt64) {
 
+    pre {
+        amount > 0.0: "Amount must be greater than zero"
+    }
+
     let collectionRef: auth(PrizeLinkedAccounts.PositionOps) &PrizeLinkedAccounts.PoolPositionCollection
     let vaultRef: auth(FungibleToken.Withdraw) &FlowToken.Vault
 

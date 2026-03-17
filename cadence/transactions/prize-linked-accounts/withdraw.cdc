@@ -9,7 +9,11 @@ import FlowToken from "FlowToken"
 /// - poolID: The ID of the pool to withdraw from
 /// - amount: The amount of tokens to withdraw
 transaction(poolID: UInt64, amount: UFix64) {
-    
+
+    pre {
+        amount > 0.0: "Amount must be greater than zero"
+    }
+
     let collectionRef: auth(PrizeLinkedAccounts.PositionOps) &PrizeLinkedAccounts.PoolPositionCollection
     let receiverRef: &{FungibleToken.Receiver}
     
