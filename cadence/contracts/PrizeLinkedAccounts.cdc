@@ -104,14 +104,8 @@ access(all) contract PrizeLinkedAccounts {
     // ============================================================
 
     /// Storage path where users store their PoolPositionCollection resource.
-    ///
-    /// NOTE ON VERSIONING (AZ-106): These paths are `let` fields set once in `init()`.
-    /// On a contract upgrade, `init()` does NOT re-run, so the values established at
-    /// initial deployment persist for the lifetime of the contract. Changing the path
-    /// strings in init code would only affect fresh deployments, not existing ones.
-    /// If a future version requires different paths (e.g., for a breaking resource
-    /// schema change), use a dedicated Admin migration function to update storage —
-    /// do NOT rely on modifying init.
+    /// These paths are `let` fields set in `init()` — they persist through upgrades
+    /// since `init()` does not re-run. Use an Admin migration function to change paths.
     access(all) let PoolPositionCollectionStoragePath: StoragePath
 
     /// Public path for PoolPositionCollection capability (read-only access).
@@ -5912,12 +5906,7 @@ access(all) contract PrizeLinkedAccounts {
         // Prevents overflow when combined with TWAB during draw processing
         self.MAX_BONUS_WEIGHT_PER_USER = 14750000000.0
 
-        // Storage paths for user collections
-        // IMPORTANT: These are `let` fields — once set here during initial deployment,
-        // they persist through all future contract upgrades. Changing these values in
-        // source has NO effect on already-deployed contracts because init() does not
-        // re-run on upgrade. Any future path migration must use a dedicated Admin
-        // migration function (see AZ-106).
+        // Storage paths for user collections (persist through upgrades — init() doesn't re-run)
         self.PoolPositionCollectionStoragePath = /storage/PrizeLinkedAccountsCollection
         self.PoolPositionCollectionPublicPath = /public/PrizeLinkedAccountsCollection
 
