@@ -99,6 +99,11 @@ access(all) contract PrizeLinkedAccounts {
     /// Maximum bonus weight that can be assigned to a single user for promotional purposes.
     access(all) let MAX_BONUS_WEIGHT_PER_USER: UFix64
 
+    /// Minimum batch size for permissionless processDrawBatch calls.
+    /// Prevents griefing by forcing many tiny batches (e.g., limit=1).
+    /// When remaining receivers < this value, the caller may pass remaining count instead.
+    access(all) let MINIMUM_BATCH_SIZE: Int
+
     // ============================================================
     // STORAGE PATHS
     // ============================================================
@@ -4988,7 +4993,18 @@ access(all) contract PrizeLinkedAccounts {
             }
             return true  // No batch in progress = considered complete
         }
-        
+
+        /// Returns the number of receivers remaining to be processed in the current batch.
+        /// Returns 0 if no batch is in progress.
+        access(all) view fun getRemainingBatchCount(): Int {
+            if let selectionDataRef = &self.pendingSelectionData as &BatchSelectionData? {
+                let snapshot = selectionDataRef.getSnapshotReceiverCount()
+                let cursor = selectionDataRef.getCursor()
+                return snapshot > cursor ? snapshot - cursor : 0
+            }
+            return 0
+        }
+
         /// Returns whether batch processing is in progress (after startDraw, before batch complete).
         access(all) view fun isDrawBatchInProgress(): Bool {
             return self.pendingDrawReceipt != nil && self.pendingSelectionData != nil && !self.isBatchComplete()
@@ -5765,12 +5781,26 @@ access(all) contract PrizeLinkedAccounts {
     /// Preconditions (enforced internally):
     /// - Draw must be in progress
     /// - Batch processing not complete
+    /// - limit >= MINIMUM_BATCH_SIZE (or remaining receivers if fewer)
     ///
     /// @param poolID - ID of the pool
-    /// @param limit - Maximum receivers to process this batch
+    /// @param limit - Maximum receivers to process this batch (min: MINIMUM_BATCH_SIZE or remaining)
     /// @return Number of receivers remaining to process
     access(all) fun processDrawBatch(poolID: UInt64, limit: Int): Int {
         let poolRef = self.getPoolInternal(poolID)
+
+        // Enforce minimum batch size for permissionless calls to prevent griefing.
+        // If fewer receivers remain than the minimum, allow the caller to pass
+        // the remaining count (or higher) so the final batch can still complete.
+        let remaining = poolRef.getRemainingBatchCount()
+        let effectiveMinimum = remaining < self.MINIMUM_BATCH_SIZE ? remaining : self.MINIMUM_BATCH_SIZE
+        assert(
+            limit >= effectiveMinimum,
+            message: "Batch limit must be >= ".concat(effectiveMinimum.toString())
+                .concat(" (MINIMUM_BATCH_SIZE or remaining receivers, whichever is smaller). Got: ")
+                .concat(limit.toString())
+        )
+
         return poolRef.processDrawBatch(limit: limit)
     }
 
@@ -5903,6 +5933,10 @@ access(all) contract PrizeLinkedAccounts {
         // Maximum bonus weight per user (10% of SAFE_MAX_TVL ≈ 14.75 billion)
         // Prevents overflow when combined with TWAB during draw processing
         self.MAX_BONUS_WEIGHT_PER_USER = 14750000000.0
+
+        // Minimum batch size for permissionless processDrawBatch calls.
+        // Prevents griefing where attacker calls with limit=1 to slow down draw processing.
+        self.MINIMUM_BATCH_SIZE = 10
 
         // Storage paths for user collections
         self.PoolPositionCollectionStoragePath = /storage/PrizeLinkedAccountsCollection
