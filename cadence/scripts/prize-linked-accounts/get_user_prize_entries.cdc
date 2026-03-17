@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 
 /// Prize entries (normalized TWAB weight) information for a user.
 /// With normalized TWAB, entries ≈ average shares held over the round.

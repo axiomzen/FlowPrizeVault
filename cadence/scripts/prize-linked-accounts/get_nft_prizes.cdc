@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 
 /// Get information about NFT prizes in a pool
 ///

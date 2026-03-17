@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 
 /// Process Rewards transaction - Distributes accumulated yield from the yield source
 /// This is permissionless - anyone can call it to trigger reward distribution

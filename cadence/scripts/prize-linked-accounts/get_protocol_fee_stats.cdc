@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 
 /// Protocol statistics structure
 /// Note: Protocol auto-forwards to recipient during reward processing, so there's no balance held

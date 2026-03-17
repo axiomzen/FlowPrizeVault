@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 
 /// Setup transaction - Creates and stores a PoolPositionCollection for PrizeLinkedAccounts
 /// Users only need to run this once before interacting with any pools

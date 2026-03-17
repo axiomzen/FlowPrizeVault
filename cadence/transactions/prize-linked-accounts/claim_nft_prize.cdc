@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 import NonFungibleToken from "NonFungibleToken"
 
 /// Claim a pending NFT prize from prize winnings

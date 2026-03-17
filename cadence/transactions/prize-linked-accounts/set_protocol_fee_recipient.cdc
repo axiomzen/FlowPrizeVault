@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 import FungibleToken from "FungibleToken"
 
 /// Set the protocol recipient for automatic forwarding during syncWithYieldSource.
