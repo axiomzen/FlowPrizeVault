@@ -4073,7 +4073,7 @@ access(all) contract PrizeLinkedAccounts {
                 remainingDeficit = remainingDeficit - absorbedByProtocolFee
             }
 
-            // === STEP 2: Prize absorbs second (protocol fund) ===
+            // === STEP 2: Prize absorbs second (prize fund) ===
             var absorbedByPrize: UFix64 = 0.0
             if remainingDeficit > 0.0 && self.allocatedPrizeYield > 0.0 {
                 absorbedByPrize = remainingDeficit > self.allocatedPrizeYield
