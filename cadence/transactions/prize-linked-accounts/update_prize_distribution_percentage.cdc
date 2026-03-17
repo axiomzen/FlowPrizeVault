@@ -12,7 +12,7 @@ transaction(poolID: UInt64, prizeSplits: [UFix64]) {
 
     let adminRef: auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin
 
-    prepare(signer: auth(Storage, BorrowValue) &Account) {
+    prepare(signer: auth(BorrowValue) &Account) {
         self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
             from: PrizeLinkedAccounts.AdminStoragePath
         ) ?? panic("Admin resource not found")

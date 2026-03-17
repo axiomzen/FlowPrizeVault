@@ -18,7 +18,7 @@ transaction(poolID: UInt64) {
     let adminRef: auth(PrizeLinkedAccounts.CriticalOps, PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin
     let poolRef: &PrizeLinkedAccounts.Pool
 
-    prepare(signer: auth(Storage, BorrowValue) &Account) {
+    prepare(signer: auth(BorrowValue) &Account) {
         // Borrow the Admin resource with CriticalOps and ConfigOps entitlements
         self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps, PrizeLinkedAccounts.ConfigOps) &PrizeLinkedAccounts.Admin>(
             from: PrizeLinkedAccounts.AdminStoragePath

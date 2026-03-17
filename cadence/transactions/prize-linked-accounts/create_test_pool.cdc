@@ -24,7 +24,7 @@ transaction(
     let providerCap: Capability<auth(FungibleToken.Withdraw) &FlowToken.Vault>
     let receiverCap: Capability<&FlowToken.Vault>
     
-    prepare(signer: auth(Storage, BorrowValue, Capabilities) &Account) {
+    prepare(signer: auth(BorrowValue, Capabilities) &Account) {
         // Borrow the Admin resource
         self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
             from: PrizeLinkedAccounts.AdminStoragePath

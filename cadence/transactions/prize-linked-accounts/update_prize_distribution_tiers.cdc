@@ -20,7 +20,7 @@ transaction(
 
     let adminRef: auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin
 
-    prepare(signer: auth(Storage, BorrowValue) &Account) {
+    prepare(signer: auth(BorrowValue) &Account) {
         // Validate parallel arrays have same length
         assert(
             tierAmounts.length == tierCounts.length && tierCounts.length == tierNames.length,

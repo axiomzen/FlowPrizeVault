@@ -47,7 +47,7 @@ transaction(
     let providerCap: Capability<auth(FungibleToken.Withdraw) &FlowToken.Vault>
     let receiverCap: Capability<&FlowToken.Vault>
 
-    prepare(signer: auth(Storage, BorrowValue, Capabilities) &Account) {
+    prepare(signer: auth(BorrowValue, Capabilities) &Account) {
         // Validate parallel arrays have same length
         assert(
             tierAmounts.length == tierCounts.length && tierCounts.length == tierNames.length,

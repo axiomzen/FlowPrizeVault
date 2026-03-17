@@ -14,7 +14,7 @@ transaction(poolID: UInt64, amount: UFix64, purpose: String) {
     let adminRef: auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin
     let receiverCap: Capability<&{FungibleToken.Receiver}>
     
-    prepare(signer: auth(Storage, BorrowValue, Capabilities) &Account) {
+    prepare(signer: auth(BorrowValue, Capabilities) &Account) {
         // Borrow the Admin resource
         self.adminRef = signer.storage.borrow<auth(PrizeLinkedAccounts.CriticalOps) &PrizeLinkedAccounts.Admin>(
             from: PrizeLinkedAccounts.AdminStoragePath

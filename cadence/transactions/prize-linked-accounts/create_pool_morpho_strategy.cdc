@@ -28,7 +28,7 @@ import PMStrategiesV1 from 0xb1d63873c3cc9f79
 transaction {
 
     prepare(
-        deployer: auth(Storage, BorrowValue, Capabilities) &Account
+        deployer: auth(LoadValue, BorrowValue, Capabilities) &Account
     ) {
         // === Load existing BetaBadge capability from deployer's storage ===
         let betaBadgeCap = deployer.storage.copy<Capability<auth(FlowYieldVaultsClosedBeta.Beta) &FlowYieldVaultsClosedBeta.BetaBadge>>(
