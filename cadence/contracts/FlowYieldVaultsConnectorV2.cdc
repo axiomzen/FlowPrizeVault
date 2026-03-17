@@ -60,8 +60,8 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             strategyType: Type
         ) {
             pre {
-                yieldVaultManagerCap.check(): "Invalid YieldVaultManager capability"
-                betaBadgeCap.check(): "Invalid Beta badge capability"
+                yieldVaultManagerCap.check(): "YieldVaultManagerWrapper.init: yieldVaultManagerCap is invalid — capability check failed"
+                betaBadgeCap.check(): "YieldVaultManagerWrapper.init: betaBadgeCap is invalid — capability check failed"
             }
 
             self.yieldVaultManagerCap = yieldVaultManagerCap
@@ -74,15 +74,16 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         /// Deposit tokens into the yield vault. Requires Operate entitlement.
         access(Operate) fun depositToYieldVault(from: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}) {
             pre {
-                from.getType() == self.vaultType: "Vault type mismatch"
-                from.balance > 0.0: "Cannot deposit zero balance"
+                from.getType() == self.vaultType: "depositToYieldVault: vault type mismatch — expected "
+                    .concat(self.vaultType.identifier).concat(", got ").concat(from.getType().identifier)
+                from.balance > 0.0: "depositToYieldVault: cannot deposit zero balance"
             }
 
             let amount = from.balance
             let yieldVaultManager = self.yieldVaultManagerCap.borrow()
-                ?? panic("Cannot borrow YieldVaultManager")
+                ?? panic("depositToYieldVault: cannot borrow YieldVaultManager — capability may have been revoked")
             let betaBadge = self.betaBadgeCap.borrow()
-                ?? panic("Cannot borrow Beta badge")
+                ?? panic("depositToYieldVault: cannot borrow BetaBadge — capability may have been revoked")
 
             // If we don't have a YieldVault yet, create one
             if self.yieldVaultID == nil {
@@ -131,7 +132,7 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             }
 
             let yieldVaultManager = self.yieldVaultManagerCap.borrow()
-                ?? panic("Cannot borrow YieldVaultManager")
+                ?? panic("getYieldVaultBalance: cannot borrow YieldVaultManager — capability may have been revoked")
 
             let yieldVaultRef = yieldVaultManager.borrowYieldVault(id: self.yieldVaultID!)
             if yieldVaultRef == nil {
@@ -144,17 +145,21 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         /// Withdraw tokens from the yield vault. Requires Operate entitlement.
         access(Operate) fun withdrawFromYieldVault(maxAmount: UFix64): @{FungibleToken.Vault} {
             pre {
-                self.yieldVaultID != nil: "No YieldVault initialized"
-                maxAmount > 0.0: "Cannot withdraw zero amount"
+                self.yieldVaultID != nil: "withdrawFromYieldVault: no YieldVault initialized — deposit must be made first"
+                maxAmount > 0.0: "withdrawFromYieldVault: cannot withdraw zero amount"
             }
 
             let yieldVaultManager = self.yieldVaultManagerCap.borrow()
-                ?? panic("Cannot borrow YieldVaultManager")
+                ?? panic("withdrawFromYieldVault: cannot borrow YieldVaultManager — capability may have been revoked")
 
             let available = self.getYieldVaultBalance()
             let withdrawAmount = maxAmount < available ? maxAmount : available
 
-            assert(withdrawAmount > 0.0, message: "Insufficient balance in YieldVault")
+            assert(
+                withdrawAmount > 0.0,
+                message: "withdrawFromYieldVault: insufficient balance in YieldVault — requested "
+                    .concat(maxAmount.toString()).concat(", available ").concat(available.toString())
+            )
 
             let vault <- yieldVaultManager.withdrawFromYieldVault(self.yieldVaultID!, amount: withdrawAmount)
 
@@ -187,7 +192,7 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             vaultType: Type
         ) {
             pre {
-                operateCap.check(): "Invalid Operate capability for YieldVaultManagerWrapper"
+                operateCap.check(): "Connector.init: operateCap is invalid — Operate capability check failed for YieldVaultManagerWrapper"
             }
             self.managerAddress = managerAddress
             self.operateCap = operateCap
@@ -198,7 +203,7 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         /// DeFiActions.Sink Implementation — deposits through the entitled capability
         access(all) fun depositCapacity(from: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}) {
             let managerRef = self.operateCap.borrow()
-                ?? panic("Cannot borrow YieldVaultManagerWrapper via Operate capability")
+                ?? panic("Connector.depositCapacity: cannot borrow YieldVaultManagerWrapper — Operate capability may have been revoked")
 
             managerRef.depositToYieldVault(from: from)
         }
@@ -211,8 +216,14 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             return 0.0
         }
 
-        /// DeFiActions.Source Implementation — balance + withdraw via entitled capability
+        /// DeFiActions.Source Implementation — balance + withdraw via entitled capability.
         /// Uses operateCap directly so it reads from the correct wrapper regardless of storage path.
+        ///
+        /// NOTE: The returned balance is truncated to 6 decimal places because the EVM-Cadence
+        /// bridge only supports 6 decimals for bridged tokens (e.g., pyUSD). The last 2 decimals
+        /// of UFix64 precision (digits 7-8) are intentionally discarded. This means up to
+        /// 0.00000099 tokens may be unreportable per call — this dust remains in the vault and
+        /// is not lost, but cannot be withdrawn individually.
         access(all) fun minimumAvailable(): UFix64 {
             if let managerRef = self.operateCap.borrow() {
                 return FlowYieldVaultsConnectorV2.truncateTo6DecimalPrecision(
@@ -222,15 +233,31 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             return 0.0
         }
 
+        /// Withdraws up to maxAmount from the yield vault.
+        ///
+        /// NOTE: maxAmount is truncated to 6 decimal places before the withdrawal request
+        /// to match the EVM bridge's precision. Any sub-6-decimal remainder (up to 0.00000099)
+        /// stays in the vault. If truncation reduces the amount to zero, an empty vault is
+        /// returned instead of attempting a zero-amount bridge call.
         access(FungibleToken.Withdraw) fun withdrawAvailable(maxAmount: UFix64): @{FungibleToken.Vault} {
             let managerRef = self.operateCap.borrow()
-                ?? panic("Cannot borrow YieldVaultManagerWrapper via Operate capability")
+                ?? panic("Connector.withdrawAvailable: cannot borrow YieldVaultManagerWrapper — Operate capability may have been revoked")
 
+            // Truncate to 6 decimals to match EVM bridge precision (see truncateTo6DecimalPrecision docs)
             let truncatedAmount = FlowYieldVaultsConnectorV2.truncateTo6DecimalPrecision(maxAmount)
             if truncatedAmount == 0.0 {
                 // Sub-6-decimal dust — bridge can't move this. Return empty vault.
                 return <- DeFiActionsUtils.getEmptyVault(self.vaultType)
             }
+
+            // Validate that the yield vault has sufficient balance before attempting withdrawal
+            let available = managerRef.getYieldVaultBalance()
+            assert(
+                available > 0.0,
+                message: "Connector.withdrawAvailable: yield vault has zero balance — requested "
+                    .concat(truncatedAmount.toString())
+            )
+
             return <- managerRef.withdrawFromYieldVault(maxAmount: truncatedAmount)
         }
 
@@ -270,7 +297,8 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         let supportedVaults = FlowYieldVaults.getSupportedInitializationVaults(forStrategy: strategyType)
         assert(
             supportedVaults[vaultType] == true,
-            message: "Strategy does not support vault type"
+            message: "createConnectorAndManager: strategy ".concat(strategyType.identifier)
+                .concat(" does not support vault type ").concat(vaultType.identifier)
         )
 
         // Create and store the YieldVaultManagerWrapper resource
@@ -315,11 +343,34 @@ access(all) contract FlowYieldVaultsConnectorV2 {
         strategyType: Type,
         pathIdentifier: String
     ): Connector {
-        let supportedVaults = FlowYieldVaults.getSupportedInitializationVaults(forStrategy: strategyType)
-        assert(supportedVaults[vaultType] == true, message: "Strategy does not support vault type")
+        // Path validation: reject empty identifiers and identifiers that could collide
+        // with the default ManagerStoragePath or other well-known paths.
+        assert(
+            pathIdentifier.length > 0,
+            message: "createConnectorAndManagerAtPath: pathIdentifier must not be empty"
+        )
+        assert(
+            pathIdentifier != "flowYieldVaultsManagerV2_".concat(self.account.address.toString()),
+            message: "createConnectorAndManagerAtPath: pathIdentifier collides with default ManagerStoragePath — use createConnectorAndManager() instead"
+        )
 
-        let storagePath = StoragePath(identifier: pathIdentifier)!
-        let publicPath = PublicPath(identifier: pathIdentifier)!
+        let supportedVaults = FlowYieldVaults.getSupportedInitializationVaults(forStrategy: strategyType)
+        assert(
+            supportedVaults[vaultType] == true,
+            message: "createConnectorAndManagerAtPath: strategy ".concat(strategyType.identifier)
+                .concat(" does not support vault type ").concat(vaultType.identifier)
+        )
+
+        let storagePath = StoragePath(identifier: pathIdentifier)
+            ?? panic("createConnectorAndManagerAtPath: invalid pathIdentifier — cannot construct StoragePath from '".concat(pathIdentifier).concat("'"))
+        let publicPath = PublicPath(identifier: pathIdentifier)
+            ?? panic("createConnectorAndManagerAtPath: invalid pathIdentifier — cannot construct PublicPath from '".concat(pathIdentifier).concat("'"))
+
+        // Ensure the storage slot is not already occupied to prevent overwriting existing resources
+        assert(
+            account.storage.type(at: storagePath) == nil,
+            message: "createConnectorAndManagerAtPath: storage path '".concat(pathIdentifier).concat("' is already in use")
+        )
 
         let manager <- create YieldVaultManagerWrapper(
             yieldVaultManagerCap: yieldVaultManagerCap,
@@ -351,6 +402,16 @@ access(all) contract FlowYieldVaultsConnectorV2 {
     /// The EVM-Cadence bridge only supports 6 decimals; passing 8-decimal UFix64 values
     /// causes bridge panics. This floors DOWN — never over-reports or over-requests.
     /// Overflow-safe for any UFix64 value by separating integer/fractional parts.
+    ///
+    /// PRECISION LOSS: This function intentionally discards the 7th and 8th decimal digits
+    /// of UFix64. For example:
+    ///   - 1.12345678 -> 1.123456  (loss of 0.00000078)
+    ///   - 0.00000099 -> 0.000000  (entire sub-6-decimal amount lost)
+    ///
+    /// Maximum precision loss per call: 0.00000099 tokens.
+    /// This is an acceptable trade-off because the EVM bridge would panic on the full value.
+    /// The truncated dust remains in the source vault and accumulates over time — it is not
+    /// permanently lost, but cannot be individually withdrawn through the bridge.
     access(all) view fun truncateTo6DecimalPrecision(_ value: UFix64): UFix64 {
         if value == 0.0 { return 0.0 }
 
