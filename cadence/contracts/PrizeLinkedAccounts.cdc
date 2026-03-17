@@ -4500,7 +4500,7 @@ access(all) contract PrizeLinkedAccounts {
             }
             
             // Build winner addresses array from capabilities
-            let winnerAddresses: [Address?] = []
+            var winnerAddresses: [Address?] = []
             for winnerID in distributedWinners {
                 winnerAddresses.append(self.getReceiverOwnerAddress(receiverID: winnerID))
             }
