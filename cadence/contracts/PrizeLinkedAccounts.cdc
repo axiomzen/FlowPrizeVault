@@ -3113,7 +3113,7 @@ access(all) contract PrizeLinkedAccounts {
             self.registeredReceiverList.append(receiverID)
             
             // Store address for address resolution if provided
-            self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
+            self.updateReceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
         }
         
         /// Resolves the last known owner address of a receiver.
@@ -3129,7 +3129,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Saves storage write costs when address remains the same.
         /// @param receiverID - UUID of the PoolPositionCollection
         /// @param ownerAddress - Optional new owner address to store
-        access(contract) fun updatereceiverAddress(receiverID: UInt64, ownerAddress: Address?) {
+        access(contract) fun updateReceiverAddress(receiverID: UInt64, ownerAddress: Address?) {
             if let addr = ownerAddress {
                 if self.receiverAddresses[receiverID] != addr {
                     self.receiverAddresses[receiverID] = addr
@@ -3535,7 +3535,7 @@ access(all) contract PrizeLinkedAccounts {
                 self.registerReceiver(receiverID: receiverID, ownerAddress: ownerAddress)
             } else {
                 // Update address if provided (tracks current owner)
-                self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
+                self.updateReceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             }
 
             // Enforce state-specific deposit rules (validate on nominal amount before slippage)
@@ -3720,7 +3720,7 @@ access(all) contract PrizeLinkedAccounts {
             }
             
             // Update stored address if provided (tracks current owner)
-            self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
+            self.updateReceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             
             // Paused pool: nothing allowed
             assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. ReceiverID: \(receiverID), amount: \(amount)")
