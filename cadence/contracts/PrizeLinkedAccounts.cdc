@@ -2738,14 +2738,16 @@ access(all) contract PrizeLinkedAccounts {
         /// 
         /// @param count - Number of winners to select
         /// @param randomNumber - Initial seed for PRNG
-        /// @return Array of winner receiverIDs (may be shorter than count if insufficient participants)
+        /// @return Array of winner receiverIDs (always exactly count elements; panics if count > receiverCount)
         access(all) fun selectWinners(count: Int, randomNumber: UInt64): [UInt64] {
             let receiverCount = self.receiverIDs.length
             if receiverCount == 0 || count == 0 {
                 return []
             }
-            
-            let actualCount = count < receiverCount ? count : receiverCount
+
+            assert(count <= receiverCount, message: "selectWinners: count (".concat(count.toString()).concat(") must not exceed receiverCount (").concat(receiverCount.toString()).concat(")"))
+
+            let actualCount = count
             
             // Single participant case
             if receiverCount == 1 {
@@ -2794,19 +2796,9 @@ access(all) contract PrizeLinkedAccounts {
                 retries = 0  // Reset retry counter on success
             }
 
-            // Fallback: if we hit max retries (very unlikely), fill remaining with unselected
-            if selected < actualCount {
-                for i in InclusiveRange(0, receiverCount - 1) {
-                    if selected >= actualCount {
-                        break
-                    }
-                    if selectedIndices[i] == nil {
-                        winners.append(self.receiverIDs[i])
-                        selectedIndices[i] = true
-                        selected = selected + 1
-                    }
-                }
-            }
+            // Safety check: with count <= receiverCount, rejection sampling must always
+            // find enough distinct winners within maxRetries. If not, something is wrong.
+            assert(selected == actualCount, message: "selectWinners: rejection sampling failed to find enough winners. selected=".concat(selected.toString()).concat(" actualCount=").concat(actualCount.toString()))
 
             return winners
         }
