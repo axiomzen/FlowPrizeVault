@@ -2494,6 +2494,12 @@ access(all) contract PrizeLinkedAccounts {
     /// - Optional integrations (winner tracker)
     /// 
     /// Most parameters can be updated by admin after pool creation.
+    /// Pool configuration struct returned by `getConfig()`.
+    ///
+    /// **AZ-105 note:** This struct is returned as a copy from `Pool.getConfig()`.
+    /// Fields marked `access(contract)` are inaccessible to external callers on
+    /// the returned copy. However, any new `access(all)` field added here will be
+    /// automatically exposed externally. Use `access(contract)` for sensitive fields.
     access(all) struct PoolConfig {
         /// Type of fungible token this pool accepts (e.g., FlowToken.Vault type).
         /// Immutable after pool creation.
@@ -5067,6 +5073,27 @@ access(all) contract PrizeLinkedAccounts {
             return self.sponsorReceivers.keys.length
         }
         
+        /// Returns the pool configuration struct.
+        ///
+        /// **AZ-105 — Struct exposure note:**
+        /// This returns a copy of the full PoolConfig struct. While the
+        /// `access(contract)` fields (yieldConnector, distributionStrategy,
+        /// prizeDistribution) are not accessible to external callers, any
+        /// new `access(all)` field added to PoolConfig in the future will be
+        /// automatically exposed through this function.
+        ///
+        /// Externally accessible fields:
+        ///   - assetType: Type              (immutable, safe)
+        ///   - minimumDeposit: UFix64       (public config value, safe)
+        ///   - drawIntervalSeconds: UFix64  (public config value, safe)
+        ///
+        /// Contract-only fields (inaccessible to external callers on the returned copy):
+        ///   - yieldConnector: {DeFiActions.Sink, DeFiActions.Source}
+        ///   - distributionStrategy: {DistributionStrategy}
+        ///   - prizeDistribution: {PrizeDistribution}
+        ///
+        /// When adding new fields to PoolConfig, consider whether they should
+        /// use `access(contract)` to avoid unintended external exposure.
         access(all) view fun getConfig(): PoolConfig {
             return self.config
         }
