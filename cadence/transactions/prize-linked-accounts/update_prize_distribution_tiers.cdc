@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 
 /// Update Prize Distribution (Fixed Tiers) - Multiple tiers with fixed amounts
 ///

@@ -1,5 +1,5 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
-import MockYieldConnector from "../../contracts/mock/MockYieldConnector.cdc"
+import "PrizeLinkedAccounts"
+import "MockYieldConnector"
 import FungibleToken from "FungibleToken"
 import FlowToken from "FlowToken"
 

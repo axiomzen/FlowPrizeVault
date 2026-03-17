@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 
 /// Enable Emergency Mode transaction - Enables emergency mode for a pool (Admin only)
 /// In emergency mode, only withdrawals are allowed (no deposits or draws)

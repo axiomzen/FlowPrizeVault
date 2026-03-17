@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 import NonFungibleToken from "NonFungibleToken"
 
 /// Admin transaction to withdraw an unclaimed NFT prize from the pool

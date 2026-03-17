@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 import FungibleToken from "FungibleToken"
 
 /// Clear the protocol recipient to disable automatic forwarding.

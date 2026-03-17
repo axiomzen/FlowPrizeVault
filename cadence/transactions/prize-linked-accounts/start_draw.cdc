@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 
 /// Start Draw transaction - Initiates a prize draw for a pool (Admin only)
 /// This commits to a future block's randomness and snapshots TWAB weights

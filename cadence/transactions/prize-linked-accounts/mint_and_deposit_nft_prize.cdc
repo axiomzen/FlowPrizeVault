@@ -1,5 +1,5 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
-import MockNFT from "../../contracts/mock/MockNFT.cdc"
+import "PrizeLinkedAccounts"
+import "MockNFT"
 import NonFungibleToken from "NonFungibleToken"
 
 /// Mint a MockNFT and deposit it as an NFT prize for the prize

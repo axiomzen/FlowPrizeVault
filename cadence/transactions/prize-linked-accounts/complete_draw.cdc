@@ -1,4 +1,4 @@
-import PrizeLinkedAccounts from "../../contracts/PrizeLinkedAccounts.cdc"
+import "PrizeLinkedAccounts"
 
 /// Complete Draw transaction - Finalizes a prize draw for a pool (Admin only)
 /// This reveals the random number and selects winner(s)
