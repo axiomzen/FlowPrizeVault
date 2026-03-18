@@ -5073,7 +5073,7 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Returns the total number of sponsors in this pool.
         access(all) view fun getSponsorCount(): Int {
-            return self.sponsorReceivers.keys.length
+            return self.sponsorReceivers.length
         }
         
         access(all) view fun getConfig(): PoolConfig {
