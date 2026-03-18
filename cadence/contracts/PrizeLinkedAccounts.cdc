@@ -1066,8 +1066,6 @@ access(all) contract PrizeLinkedAccounts {
         }
         
         // ============================================================
-        // BATCH DRAW FUNCTIONS
-        // ============================================================
         // BATCHED DRAW OPERATIONS
         // ============================================================
         // Breaks draw into multiple transactions to avoid gas limits for large pools.
