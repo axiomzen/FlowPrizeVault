@@ -2323,8 +2323,12 @@ access(all) contract PrizeLinkedAccounts {
                 }
             }
             
-            // Last winner gets remainder
-            prizeAmounts.append(totalPrizeAmount - calculatedSum)
+            // Last winner gets remainder (guard against rounding overflow)
+            if calculatedSum >= totalPrizeAmount {
+                prizeAmounts.append(0.0)
+            } else {
+                prizeAmounts.append(totalPrizeAmount - calculatedSum)
+            }
             
             return WinnerSelectionResult(
                 winners: winners,
