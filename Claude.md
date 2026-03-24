@@ -32,7 +32,7 @@ flow test cadence/tests/*.cdc 2>&1 | grep -E "^(Test results:|- PASS|- FAIL)"
 
 ## Architecture
 
-### Main Contract: `PrizeLinkedAccounts.cdc` (~5,800 lines)
+### Main Contract: `PrizeLinkedAccounts.cdc` (~5,900 lines)
 
 ```
 PrizeLinkedAccounts (Contract)
@@ -52,12 +52,12 @@ Total Yield → DistributionStrategy.calculateDistribution()
            → Savings (share price ↑) + Lottery (prize pool) + Treasury (protocol fees)
 ```
 
-### Draw Process (4 Phases)
+### Draw Process (3 Phases + Round Start)
 
-1. `startDraw()` - Move ended round to pending, enter intermission
-2. `processDrawBatch()` - Finalize TWAB for users (repeat until complete)
-3. `requestDrawRandomness()` - Materialize yield, request Flow randomness
-4. `completeDraw()` - Select winners, distribute prizes, cleanup
+1. `startDraw()` - Set `actualEndTime`, sync yield, materialize protocol fee, request randomness, create batch data
+2. `processDrawBatch()` - Finalize TWAB per user, build cumulative weight array (repeat until complete)
+3. `completeDraw()` - Fulfill randomness (must be different block), select winners, distribute prizes, enter intermission
+4. `startNextRound()` - Admin creates new round, exits intermission (ConfigOps)
 
 ### TWAB (Time-Weighted Average Balance)
 
@@ -110,7 +110,7 @@ PartialMode   // Limited deposits, no draws
 
 ## Important Invariants
 
-1. `allocatedRewards + allocatedPrizeYield + allocatedProtocolFee == yieldSourceBalance` (after sync)
+1. `userPoolBalance + allocatedPrizeYield + allocatedProtocolFee == yieldSourceBalance` (after sync)
 2. `normalizedWeight <= shares` (TWAB safety cap)
 3. `sharePrice = (totalAssets + 0.0001) / (totalShares + 0.0001)` (virtual offset)
 
@@ -131,12 +131,12 @@ PartialMode   // Limited deposits, no draws
 3. **Test deficit scenarios**: Ensure losses are socialized fairly (protocol → prize → rewards)
 4. **Check emergency transitions**: All state transitions must be valid
 5. **Preserve batch processing**: Don't corrupt indices during `processDrawBatch()`
-6. **Respect draw phases**: The 4-phase draw (`startDraw` → `processDrawBatch` → `requestDrawRandomness` → `completeDraw`) must complete in order
+6. **Respect draw phases**: The 3-phase draw (`startDraw` → `processDrawBatch` → `completeDraw`) must complete in order, then `startNextRound()` begins the next round
 
 ## Deployment
 
 | Network | Contract Address | Status |
 |---------|------------------|--------|
 | Emulator | `f8d6e0586b0a20c7` | Development |
-| Testnet | `c24c9fd9b176ea87` | Testing |
-| Mainnet | TBD | Pending Audit |
+| Testnet | `839535ddeb5acf17` | Testing |
+| Mainnet | `a092c4aab33daeda` | Pending Audit |

@@ -1,7 +1,7 @@
 /*
 FlowYieldVaultsConnectorV2 - Mainnet FlowYieldVaults Integration (Secured)
 
-PURPOSE: Connector for EVM-bridged tokens with 6 decimal precision (e.g., pyUSD).
+PURPOSE: Connector for EVM-bridged PYUSD tokens with 6 decimal precision.
 The EVM-Cadence bridge truncates to 6 decimals on withdrawal, while Cadence's UFix64
 has 8 decimals. This connector truncates amounts before bridge calls to prevent panics.
 

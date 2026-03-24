@@ -18,8 +18,9 @@ This document provides an in-depth explanation of the accounting system and ERC4
 - [Edge Cases & Protections](#edge-cases--protections)
   - [ERC4626 Donation Attack Protection](#erc4626-donation-attack-protection)
 - [Round-Based TWAB Tracking](#round-based-twab-tracking)
-  - [Projection-Based TWAB](#projection-based-twab)
+  - [Scaled Cumulative TWAB](#scaled-cumulative-twab)
   - [Round Lifecycle](#round-lifecycle)
+  - [3-Phase Draw Process](#3-phase-draw-process)
   - [Gap Period Handling](#gap-period-handling)
 
 ---
@@ -73,12 +74,10 @@ userBalance = (userShares / totalShares) × totalAssets
 ### Pool-Level Variables
 
 ```cadence
-/// Sum of all user principal deposits (excludes earned interest)
-access(all) var totalDeposited: UFix64
-
-/// Amount tracked as being in the yield source
-/// Includes: principal + reinvested rewards yield
-access(all) var totalStaked: UFix64
+/// User portion of yield source balance
+/// Includes: deposits + won prizes + accrued rewards yield
+/// Updated on: deposit (+), prize (+), rewards yield (+), withdraw (-)
+access(all) var userPoolBalance: UFix64
 
 /// Prize funds still earning in yield source (not yet withdrawn)
 /// Materialized to prize pool at draw time
@@ -89,7 +88,7 @@ access(all) var allocatedPrizeYield: UFix64
 access(all) var allocatedProtocolFee: UFix64
 ```
 
-### RewardsDistributor Variables
+### ShareTracker Variables
 
 ```cadence
 /// Total shares minted across all users
@@ -107,11 +106,13 @@ access(all) var totalDistributed: UFix64
 
 ### Per-User Tracking
 
-```cadence
-/// Original principal deposited (excludes earned interest)
-access(self) let receiverDeposits: {UInt64: UFix64}
+Per-user balances are derived from `ShareTracker.userShares` via `convertToAssets()`. There is no separate principal tracking — the pool tracks only shares, and the asset value is computed on-demand from the share price.
 
-/// Total prizes won over all time
+```cadence
+/// Per-user share balances (in ShareTracker)
+access(self) let userShares: {UInt64: UFix64}
+
+/// Total prizes won over all time (for analytics)
 access(self) let receiverTotalEarnedPrizes: {UInt64: UFix64}
 ```
 
@@ -122,21 +123,17 @@ access(self) let receiverTotalEarnedPrizes: {UInt64: UFix64}
 │                    ACCOUNTING RELATIONSHIPS                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  allocatedFunds = totalStaked + allocatedPrizeYield             │
+│  allocatedFunds = userPoolBalance + allocatedPrizeYield         │
 │                 + allocatedProtocolFee                          │
 │                                                                 │
 │  allocatedFunds = yieldSource.balance()                         │
 │  (must be equal after every sync)                               │
 │                                                                 │
-│  totalStaked >= totalDeposited                                  │
-│  (difference = reinvested rewards yield)                        │
+│  ShareTracker.totalAssets ≈ userPoolBalance                     │
 │                                                                 │
-│  RewardsDistributor.totalAssets = totalStaked                   │
+│  Σ(userShareValues) ≈ totalAssets                               │
 │                                                                 │
-│  Σ(userShareValues) = totalAssets                               │
-│                                                                 │
-│  userBalance = principal + rewardsInterest                      │
-│              = receiverDeposits[id] + (shareValue - principal)  │
+│  userBalance = shareTracker.convertToAssets(userShares[id])     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -155,43 +152,26 @@ The implementation uses a **virtual offset pattern** to prevent the ERC4626 "inf
 access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
     // Virtual offset: prevents inflation attacks by ensuring share price 
     // starts near 1:1 and can't be manipulated when totalShares is small
-    let effectiveShares = self.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES  // +1.0
-    let effectiveAssets = self.totalAssets + PrizeLinkedAccounts.VIRTUAL_ASSETS  // +1.0
-    
-    if assets > 0.0 {
-        let maxSafeAssets = UFix64.max / effectiveShares
-        assert(assets <= maxSafeAssets, message: "Deposit amount too large - would cause overflow")
-    }
-    
-    return (assets * effectiveShares) / effectiveAssets
+    return assets / self.getSharePrice()
 }
 ```
 
-**Formula**: `shares = (depositAmount × (totalShares + 1)) / (totalAssets + 1)`
+**Formula**: `shares = assets / sharePrice` where `sharePrice = (totalAssets + 0.0001) / (totalShares + 0.0001)`
 
 #### Converting Shares to Assets (Value Lookup)
 
 ```cadence
 access(all) view fun convertToAssets(_ shares: UFix64): UFix64 {
-    // Virtual offset: (shares * (totalAssets + 1)) / (totalShares + 1)
-    let effectiveShares = self.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES  // +1.0
-    let effectiveAssets = self.totalAssets + PrizeLinkedAccounts.VIRTUAL_ASSETS  // +1.0
-    
-    if shares > 0.0 {
-        let maxSafeShares = UFix64.max / effectiveAssets
-        assert(shares <= maxSafeShares, message: "Share amount too large - would cause overflow")
-    }
-    
-    return (shares * effectiveAssets) / effectiveShares
+    return shares * self.getSharePrice()
 }
 ```
 
-**Formula**: `value = (userShares × (totalAssets + 1)) / (totalShares + 1)`
+**Formula**: `value = shares × sharePrice` where `sharePrice = (totalAssets + 0.0001) / (totalShares + 0.0001)`
 
 #### Share Price
 
 ```
-sharePrice = (totalAssets + 1) / (totalShares + 1)
+sharePrice = (totalAssets + 0.0001) / (totalShares + 0.0001)
 ```
 
 When yield accrues, `totalAssets` increases while `totalShares` stays constant, so share price rises. The virtual offset ensures the price starts near 1:1 even for an empty pool.
@@ -211,37 +191,25 @@ When yield accrues, `totalAssets` increases while `totalShares` stays constant, 
 ### Step-by-Step Process
 
 ```cadence
+// Simplified for clarity — see contract for full implementation
 access(all) fun deposit(from: @{FungibleToken.Vault}, receiverID: UInt64) {
-    // 1. Validate
-    pre {
-        from.balance > 0.0: "Deposit amount must be positive"
-        from.getType() == self.config.assetType: "Invalid vault type"
-        self.registeredReceivers[receiverID] == true: "Receiver not registered"
-    }
-    
-    // 2. Process pending yield FIRST (prevents dilution)
-    if self.getAvailableYieldRewards() > 0.0 {
-        self.processRewards()
-    }
-    
-    // 3. Calculate shares to mint
+    // 1. Validate (positive amount, correct vault type, registered receiver)
+
+    // 2. Sync with yield source FIRST (prevents dilution)
+    self.syncWithYieldSource()
+
+    // 3. Mint shares at current share price
     let amount = from.balance
-    let sharesToMint = self.rewardsDistributor.convertToShares(amount)
-    
-    // 4. Update state
-    self.rewardsDistributor.deposit(receiverID: receiverID, amount: amount)
-    
-    // 5. Track principal separately
-    let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
-    self.receiverDeposits[receiverID] = currentPrincipal + amount
-    
-    // 6. Update pool totals
-    self.totalDeposited = self.totalDeposited + amount
-    self.totalStaked = self.totalStaked + amount
-    
-    // 7. Send to yield source
-    self.config.yieldConnector.depositCapacity(from: &from)
-    destroy from
+    self.shareTracker.deposit(receiverID: receiverID, amount: amount)
+
+    // 4. Update pool total
+    self.userPoolBalance = self.userPoolBalance + amount
+
+    // 5. Record TWAB share change in active round
+    self.activeRound.recordShareChange(receiverID, newShares)
+
+    // 6. Send to yield source
+    self.config.yieldConnector.deposit(from: <-from)
 }
 ```
 
@@ -271,63 +239,33 @@ With processing first:
 ### Step-by-Step Process
 
 ```cadence
+// Simplified for clarity — see contract for full implementation
 access(all) fun withdraw(amount: UFix64, receiverID: UInt64): @{FungibleToken.Vault} {
-    // 1. Process pending yield (so user gets their fair share)
-    if self.getAvailableYieldRewards() > 0.0 {
-        self.processRewards()
-    }
-    
-    // 2. Get user's total balance (principal + interest)
-    let totalBalance = self.rewardsDistributor.getUserAssetValue(receiverID: receiverID)
+    // 1. Sync with yield source (so user gets their fair share)
+    self.syncWithYieldSource()
+
+    // 2. Validate user has sufficient balance
+    let totalBalance = self.shareTracker.getUserAssetValue(receiverID: receiverID)
     assert(totalBalance >= amount, message: "Insufficient balance")
-    
+
     // 3. Withdraw from yield source
     let withdrawn <- self.config.yieldConnector.withdrawAvailable(maxAmount: amount)
     let actualWithdrawn = withdrawn.balance
-    
-    // 4. Calculate and burn shares
-    let sharesToBurn = (actualWithdrawn * self.totalShares) / self.totalAssets
-    self.rewardsDistributor.withdraw(receiverID: receiverID, amount: actualWithdrawn)
-    
-    // 5. Update principal tracking (interest is withdrawn first)
-    let currentPrincipal = self.receiverDeposits[receiverID] ?? 0.0
-    let interestEarned = totalBalance > currentPrincipal 
-        ? totalBalance - currentPrincipal 
-        : 0.0
-    let principalWithdrawn = actualWithdrawn > interestEarned 
-        ? actualWithdrawn - interestEarned 
-        : 0.0
-    
-    if principalWithdrawn > 0.0 {
-        self.receiverDeposits[receiverID] = currentPrincipal - principalWithdrawn
-        self.totalDeposited = self.totalDeposited - principalWithdrawn
-    }
-    
-    // 6. Update staked total
-    self.totalStaked = self.totalStaked - actualWithdrawn
-    
+
+    // 4. Burn shares proportional to withdrawal
+    self.shareTracker.withdraw(receiverID: receiverID, amount: actualWithdrawn)
+
+    // 5. Update pool total
+    self.userPoolBalance = self.userPoolBalance - actualWithdrawn
+
+    // 6. Record TWAB share change in active round
+    self.activeRound.recordShareChange(receiverID, newShares)
+
     return <- withdrawn
 }
 ```
 
-### Principal vs Interest Tracking
-
-When a user withdraws, we track whether they're withdrawing interest or principal:
-
-```
-User state:
-  principal (receiverDeposits): 100
-  shareValue: 115 (earned 15 in interest)
-
-Withdraw 20:
-  interestEarned = 115 - 100 = 15
-  principalWithdrawn = 20 - 15 = 5
-  
-  New principal = 100 - 5 = 95
-  Remaining shareValue = 95
-```
-
-This tracking enables analytics and ensures `totalDeposited` accurately reflects principal only.
+There is no separate principal tracking. User balances are derived entirely from `ShareTracker.userShares` via `convertToAssets()`.
 
 ---
 
@@ -340,7 +278,7 @@ The `syncWithYieldSource` function synchronizes internal accounting with the act
 ```cadence
 access(contract) fun syncWithYieldSource() {
     let yieldBalance = self.config.yieldConnector.minimumAvailable()
-    let allocatedFunds = self.totalStaked + self.allocatedPrizeYield + self.allocatedProtocolFee
+    let allocatedFunds = self.userPoolBalance + self.allocatedPrizeYield + self.allocatedProtocolFee
     
     if yieldBalance > allocatedFunds {
         // EXCESS: Yield source has more than we've tracked
@@ -366,8 +304,8 @@ access(self) fun applyExcess(amount: UFix64) {
     
     // 2. Distribute to rewards (O(1) - just update totalAssets)
     if plan.rewardsAmount > 0.0 {
-        self.rewardsDistributor.accrueYield(amount: plan.rewardsAmount)
-        self.totalStaked = self.totalStaked + plan.rewardsAmount
+        self.shareTracker.accrueYield(amount: plan.rewardsAmount)
+        self.userPoolBalance = self.userPoolBalance + plan.rewardsAmount
     }
     
     // 3. Track prize funds (stay in yield source until draw)
@@ -445,7 +383,7 @@ let strategy = FixedPercentageStrategy(
 )
 
 // With 100 FLOW yield:
-// rewards: 50 FLOW → increases share price (tracked in totalStaked)
+// rewards: 50 FLOW → increases share price (tracked in userPoolBalance)
 // prize: 30 FLOW → tracked in allocatedPrizeYield
 // protocolFee: 20 FLOW → tracked in allocatedProtocolFee
 ```
@@ -454,40 +392,37 @@ let strategy = FixedPercentageStrategy(
 
 | Destination | Storage | When Materialized |
 |-------------|---------|-------------------|
-| Rewards | Stays in yield source, tracked in `totalStaked` | Immediate (share price increases) |
+| Rewards | Stays in yield source, tracked in `userPoolBalance` | Immediate (share price increases) |
 | Prize | Stays in yield source, tracked in `allocatedPrizeYield` | At draw time → prize pool |
 | Protocol Fee | Stays in yield source, tracked in `allocatedProtocolFee` | At draw time → recipient or unclaimed vault |
 
 ### Draw-Time Materialization
 
-At the start of each prize draw, pending funds are materialized:
+During the draw process, pending funds are handled differently depending on their type:
+
+**Protocol fee** is materialized (withdrawn from yield source) in `startDraw()`:
 
 ```cadence
 // In startDraw():
-// 1. Materialize prize funds
-if self.allocatedPrizeYield > 0.0 {
-    let prizeVault <- self.config.yieldConnector.withdrawAvailable(
-        maxAmount: self.allocatedPrizeYield
-    )
-    self.prizeDistributor.fundPrizePool(vault: <- prizeVault)
-    self.allocatedPrizeYield = 0.0
-}
-
-// 2. Materialize protocol fee
 if self.allocatedProtocolFee > 0.0 {
-    let protocolFeeVault <- self.config.yieldConnector.withdrawAvailable(
+    let protocolVault <- self.config.yieldConnector.withdrawAvailable(
         maxAmount: self.allocatedProtocolFee
     )
-    self.allocatedProtocolFee = 0.0
-    
-    if let recipientRef = self.protocolFeeRecipientCap?.borrow() {
-        // Forward to configured recipient
-        recipientRef.deposit(from: <- protocolFeeVault)
-    } else {
-        // Store in unclaimed vault for admin withdrawal
-        self.unclaimedProtocolFeeVault.deposit(from: <- protocolFeeVault)
-    }
+    self.allocatedProtocolFee = self.allocatedProtocolFee - protocolVault.balance
+
+    // Forward to recipient or store in unclaimed vault
+    ...
 }
+```
+
+**Prize funds** stay in the yield source and are reallocated via accounting in `completeDraw()` -- no token movement, no slippage:
+
+```cadence
+// In completeDraw(), for each winner:
+self.allocatedPrizeYield = self.allocatedPrizeYield - prizeAmount
+self.shareTracker.deposit(receiverID: winnerID, amount: prizeAmount)
+self.userPoolBalance = self.userPoolBalance + prizeAmount
+// Funds remain in yield source, continuing to earn
 ```
 
 ---
@@ -503,7 +438,7 @@ A **deficit** occurs when the yield source balance is less than `allocatedFunds`
 - A hack or exploit affects the yield source
 
 ```
-allocatedFunds = totalStaked + allocatedPrizeYield + allocatedProtocolFee
+allocatedFunds = userPoolBalance + allocatedPrizeYield + allocatedProtocolFee
 
 DEFICIT occurs when:
 yieldSource.balance() < allocatedFunds
@@ -576,8 +511,8 @@ access(self) fun applyDeficit(amount: UFix64) {
     
     // 3. Rewards absorbs remainder (share price decrease)
     let totalRewardsLoss = plan.rewardsAmount + prizeShortfall
-    self.rewardsDistributor.decreaseTotalAssets(amount: totalRewardsLoss)
-    self.totalStaked = self.totalStaked - totalRewardsLoss
+    self.shareTracker.decreaseTotalAssets(amount: totalRewardsLoss)
+    self.userPoolBalance = self.userPoolBalance - totalRewardsLoss
 }
 ```
 
@@ -585,7 +520,7 @@ access(self) fun applyDeficit(amount: UFix64) {
 
 ```
 Initial State (after yield accumulation):
-  totalStaked = 110 (100 deposit + 10 rewards yield)
+  userPoolBalance = 110 (100 deposit + 10 rewards yield)
   allocatedPrizeYield = 6
   allocatedProtocolFee = 4
   allocatedFunds = 110 + 6 + 4 = 120
@@ -607,11 +542,11 @@ Deficit of 20 FLOW occurs (yield source now has 100):
     prizeShortfall: 0
 
   Step 3: Rewards absorbs 10
-    totalStaked: 110 → 100
+    userPoolBalance: 110 → 100
     Share price decreases proportionally
 
 Final State:
-  totalStaked = 100
+  userPoolBalance = 100
   allocatedPrizeYield = 0
   allocatedProtocolFee = 0
   allocatedFunds = 100 (matches yield source balance ✓)
@@ -621,7 +556,7 @@ Final State:
 
 ```
 State:
-  totalStaked = 103
+  userPoolBalance = 103
   allocatedPrizeYield = 3
   allocatedProtocolFee = 4
   allocatedFunds = 110
@@ -645,11 +580,11 @@ Deficit of 20 FLOW (larger than all pending yield):
     allocatedPrizeYield: 3 → 0
 
   Step 3: Rewards absorbs (its 6 + 7 shortfall = 13)
-    totalStaked: 103 → 90
+    userPoolBalance: 103 → 90
     Share price decrease: ~12.6%
 
 Final State:
-  totalStaked = 90
+  userPoolBalance = 90
   allocatedPrizeYield = 0
   allocatedProtocolFee = 0
   allocatedFunds = 90 (matches yield source balance ✓)
@@ -673,7 +608,7 @@ This design philosophy prioritizes user trust and principal protection while all
 
 1. **Allocated Funds = Yield Source Balance** (after every sync)
    ```
-   totalStaked + allocatedPrizeYield + allocatedProtocolFee == yieldSource.balance()
+   userPoolBalance + allocatedPrizeYield + allocatedProtocolFee == yieldSource.balance()
    ```
    This is the most important invariant. It ensures no "ghost" funds exist in the yield source that aren't tracked.
 
@@ -682,11 +617,10 @@ This design philosophy prioritizes user trust and principal protection while all
    Σ(convertToAssets(userShares[id])) == totalAssets
    ```
 
-3. **Total Staked ≥ Total Deposited** (during normal operation)
+3. **User Pool Balance Tracks Share Value**
    ```
-   totalStaked >= totalDeposited
-   // Difference is reinvested rewards yield
-   // Note: May be violated during severe deficits
+   userPoolBalance ≈ ShareTracker.totalAssets
+   // Both track user funds; small dust differences possible from virtual offset
    ```
 
 4. **Share/Asset Consistency**
@@ -797,19 +731,16 @@ State:
   totalShares = 100
   totalAssets = 150
   userShares[A] = 100
-  receiverDeposits[A] = 100 (principal)
-  User A value = 150 FLOW (50 interest earned)
+  sharePrice = 1.5
+  User A value = 150 FLOW
 
 User A withdraws 75 FLOW:
-  sharesToBurn = (75 × 100) / 150 = 50 shares
-  interestEarned = 150 - 100 = 50
-  principalWithdrawn = 75 - 50 = 25
+  sharesToBurn = 75 / 1.5 = 50 shares
 
 After:
   totalShares = 50
   totalAssets = 75
   userShares[A] = 50
-  receiverDeposits[A] = 75 (100 - 25)
   User A value = 75 FLOW
 ```
 
@@ -853,12 +784,13 @@ The implementation uses virtual shares and assets that create "dead" ownership:
 
 ```cadence
 // Constants defined at contract level
-access(all) let VIRTUAL_SHARES: UFix64 = 1.0
-access(all) let VIRTUAL_ASSETS: UFix64 = 1.0
+access(all) let VIRTUAL_SHARES: UFix64 = 0.0001
+access(all) let VIRTUAL_ASSETS: UFix64 = 0.0001
 
-// Applied in conversions
+// Applied in share price calculation
 let effectiveShares = self.totalShares + VIRTUAL_SHARES
 let effectiveAssets = self.totalAssets + VIRTUAL_ASSETS
+let sharePrice = effectiveAssets / effectiveShares
 ```
 
 This ensures:
@@ -869,18 +801,7 @@ This ensures:
 
 ### Overflow Protection
 
-```cadence
-access(all) view fun convertToShares(_ assets: UFix64): UFix64 {
-    let effectiveShares = self.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES
-    let effectiveAssets = self.totalAssets + PrizeLinkedAccounts.VIRTUAL_ASSETS
-    
-    if assets > 0.0 {
-        let maxSafeAssets = UFix64.max / effectiveShares
-        assert(assets <= maxSafeAssets, message: "Deposit too large - would overflow")
-    }
-    return (assets * effectiveShares) / effectiveAssets
-}
-```
+The pool enforces a `SAFE_MAX_TVL` ceiling (~147.5 billion) and validates deposit amounts against it. The `getSharePrice()` computation uses virtual offsets that ensure division by zero is impossible, and the small virtual offset (0.0001) minimizes dilution (~0.0001%) while providing security.
 
 ### Empty Pool (First Deposit)
 
@@ -888,9 +809,10 @@ With virtual offset, empty pools are handled uniformly—no special case needed:
 
 ```cadence
 // When totalShares = 0 and totalAssets = 0:
-// effectiveShares = 0 + 1 = 1
-// effectiveAssets = 0 + 1 = 1
-// shares = (assets * 1) / 1 = assets
+// effectiveShares = 0 + 0.0001 = 0.0001
+// effectiveAssets = 0 + 0.0001 = 0.0001
+// sharePrice = 0.0001 / 0.0001 = 1.0
+// shares = assets / 1.0 = assets
 
 // First deposit of 100 FLOW → 100 shares (near 1:1 ratio)
 ```
@@ -901,10 +823,8 @@ Division by zero is prevented by virtual offset:
 
 ```cadence
 access(all) view fun convertToAssets(_ shares: UFix64): UFix64 {
-    // effectiveShares is always >= 1.0, so division is safe
-    let effectiveShares = self.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES
-    let effectiveAssets = self.totalAssets + PrizeLinkedAccounts.VIRTUAL_ASSETS
-    return (shares * effectiveAssets) / effectiveShares
+    // getSharePrice() uses effectiveShares (always >= 0.0001), so division is safe
+    return shares * self.getSharePrice()
 }
 ```
 
@@ -935,7 +855,7 @@ Share calculations may produce small rounding errors. The protocol handles this 
 
 ## Round-Based TWAB Tracking
 
-Time-Weighted Average Balance (TWAB) determines prize weight. Users who deposit more, for longer, have higher prize odds. The system uses a **per-round, projection-based** approach with **batched draw processing**.
+Time-Weighted Average Balance (TWAB) determines prize weight. Users who deposit more, for longer, have higher prize odds. The system uses a **per-round, scaled cumulative** approach with **batched draw processing**. See `TWAB.md` for detailed mechanics.
 
 ### Architecture Overview
 
@@ -944,195 +864,178 @@ Time-Weighted Average Balance (TWAB) determines prize weight. Users who deposit 
                       │
           ┌──────────┴──────────┐
           │                     │
-    RewardsDistributor    activeRound: Round
+    ShareTracker    activeRound: Round
     (ERC4626 shares only)       │
                                 ├── roundID
                                 ├── startTime
-                                ├── duration
-                                ├── endTime
-                                ├── userProjectedTWAB: {receiverID: UFix64}
-                                └── batchState: BatchCaptureState?
+                                ├── targetEndTime
+                                ├── actualEndTime (set by startDraw)
+                                ├── TWAB_SCALE = 31_536_000.0
+                                ├── userScaledTWAB: {receiverID: UFix64}
+                                ├── userLastUpdateTime: {receiverID: UFix64}
+                                └── userSharesAtLastUpdate: {receiverID: UFix64}
+
+                    pendingSelectionData: BatchSelectionData?
                                       │
-                                      ├── receiverSnapshot: [UInt64]
-                                      ├── cursor: Int
-                                      ├── capturedWeights: {UInt64: UFix64}
+                                      ├── receiverIDs: [UInt64]
+                                      ├── cumulativeWeights: [UFix64]
                                       ├── totalWeight: UFix64
-                                      └── isComplete: Bool
+                                      ├── cursor: Int
+                                      └── snapshotReceiverCount: Int
 ```
 
 Key design decisions:
 - **Per-Round Resources**: Each prize round is a separate `Round` resource
-- **RewardsDistributor Decoupling**: TWAB is separate from ERC4626 share accounting
-- **Projection-Based**: Store projected end-of-round value, not accumulated value
-- **Double-Buffering**: `activeRound` and `pendingDrawRound` allow continuous operation during draws
+- **ShareTracker Decoupling**: TWAB is separate from ERC4626 share accounting
+- **Scaled Cumulative**: Accumulate `shares * (elapsed / TWAB_SCALE)` for overflow protection, normalize at finalization
 - **Batched Processing**: O(n) weight capture split across multiple transactions
+- **Parallel Arrays**: `BatchSelectionData` uses parallel `receiverIDs`/`cumulativeWeights` arrays for O(log n) binary search winner selection
 
-### Projection-Based TWAB
+### Scaled Cumulative TWAB
 
-Instead of accumulating share-seconds over time, we **project** what the TWAB will be at round end.
+Instead of accumulating raw share-seconds (which overflow with large TVL), the system uses a fixed `TWAB_SCALE` (1 year = 31,536,000 seconds) to keep values small during accumulation, then normalizes by actual round duration at finalization.
 
-**On Deposit at round start:**
+**On each share change (deposit/withdraw):**
 ```
-projectedTWAB = shares × roundDuration
-// Example: 100 shares × 1 week = 100 entries at round end
+// Accumulate pending weight for old balance
+elapsed = now - lastUpdateTime
+scaledPending = oldShares × (elapsed / TWAB_SCALE)
+userScaledTWAB += scaledPending
+
+// Snapshot new state
+userSharesAtLastUpdate = newShares
+userLastUpdateTime = now
 ```
 
-**On Mid-Round Deposit (t = halfway):**
+**At finalization (during processDrawBatch):**
 ```
-remainingTime = roundDuration / 2
-projectedTWAB = shares × remainingTime
-// Example: 100 shares × 0.5 week = 50 entries at round end
+// Accumulate any remaining pending weight
+elapsed = actualEndTime - lastUpdateTime
+scaledPending = shares × (elapsed / TWAB_SCALE)
+totalScaled = userScaledTWAB + scaledPending
+
+// Normalize to "average shares" using actual round duration
+normalizedWeight = totalScaled × (TWAB_SCALE / actualDuration)
+
+// Safety cap: weight cannot exceed current shares
+if normalizedWeight > shares:
+    normalizedWeight = shares
 ```
 
-**On Withdrawal:**
-```
-// Subtract the withdrawn shares' future contribution
-adjustment = -withdrawnShares × remainingTime
-projectedTWAB = currentProjection + adjustment
-```
+The result is "average shares" — a user holding 100 shares for the full round gets weight 100, a user depositing 100 shares at the halfway point gets weight ~50.
 
 ### Key Formulas
 
-```cadence
-// When shares change at time `t`:
-remainingTime = endTime - t
-shareDelta = newShares - oldShares
-projectedTWAB = currentProjection + (shareDelta × remainingTime)
+```
+// Accumulation (on share change at time t):
+scaledPending = shares × (elapsed / TWAB_SCALE)
+userScaledTWAB = accumulated + scaledPending
 
-// For users who haven't interacted (lazy fallback):
-projectedTWAB = currentShares × roundDuration
+// Finalization (during processDrawBatch):
+normalizedWeight = totalScaled × (TWAB_SCALE / actualDuration)
+normalizedWeight = min(normalizedWeight, shares)  // safety cap
 ```
 
 ### Round Lifecycle
 
-1. **Round Creation**: Created with `roundID`, `startTime`, and `duration`
-2. **Active Period**: Deposits/withdrawals adjust projections
-3. **Round End**: `endTime` passed, but round still "active" until `startDraw()`
-4. **Gap Period**: Between round end and `startDraw()` call
-5. **Batch Processing**: TWAB weights captured incrementally via `processDrawBatch()`
-6. **Randomness Committed**: `requestDrawRandomness()` materializes yield and commits
-7. **Destroyed**: After `completeDraw()` distributes prizes
+1. **Round Creation**: Created with `roundID`, `startTime`, and `targetEndTime`
+2. **Active Period**: Deposits/withdrawals accumulate scaled TWAB
+3. **Target End Reached**: `targetEndTime` passed, but round still "active" until `startDraw()`
+4. **Gap Period**: Between `targetEndTime` and `startDraw()` call — weight continues accumulating
+5. **startDraw()**: Sets `actualEndTime`, syncs yield, materializes protocol fee, requests randomness, creates `BatchSelectionData`
+6. **Batch Processing**: TWAB weights finalized incrementally via `processDrawBatch()`
+7. **completeDraw()**: Fulfills randomness, selects winners, distributes prizes, destroys round
+8. **Intermission**: Pool has no active round until `startNextRound()` is called
 
-### 4-Phase Draw Process
+### 3-Phase Draw Process
 
-The draw process is split into 4 phases to avoid O(n) bottlenecks:
+The draw process is split into 3 phases to avoid O(n) bottlenecks:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    4-PHASE DRAW PROCESS                         │
+│                    3-PHASE DRAW PROCESS                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  Phase 1: startDraw() - INSTANT                                 │
+│  Phase 1: startDraw()                                           │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ 1. activeRound (ended) → pendingDrawRound               │   │
-│  │ 2. Initialize batch state with receiver snapshot        │   │
-│  │ 3. Create new activeRound starting NOW                  │   │
-│  │ 4. Users immediately unblocked for new round            │   │
+│  │ 1. Set actualEndTime on active round                    │   │
+│  │ 2. Sync with yield source                               │   │
+│  │ 3. Materialize protocol fee from yield source           │   │
+│  │ 4. Create BatchSelectionData with receiver snapshot     │   │
+│  │ 5. Request on-chain randomness (PrizeDrawReceipt)       │   │
+│  │ 6. Pool enters draw-in-progress state                   │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                            ↓                                    │
 │  Phase 2: processDrawBatch(limit) × N                           │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ 1. Process `limit` receivers from snapshot              │   │
-│  │ 2. Capture TWAB + bonus weights                         │   │
-│  │ 3. Update cursor and captured weights                   │   │
-│  │ 4. Repeat until cursor reaches end                      │   │
+│  │ 1. Finalize TWAB for each receiver in batch             │   │
+│  │ 2. Add bonus weights (scaled by round duration)         │   │
+│  │ 3. Build cumulative weight array in BatchSelectionData  │   │
+│  │ 4. Advance cursor, repeat until complete                │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                            ↓                                    │
-│  Phase 3: requestDrawRandomness()                               │
+│  Phase 3: completeDraw() (must be different block)              │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ 1. Materialize pending yield from yield source          │   │
-│  │ 2. Create PrizeDrawReceipt with captured weights        │   │
-│  │ 3. Request on-chain randomness                          │   │
+│  │ 1. Fulfill randomness from previous block               │   │
+│  │ 2. Select winners via weighted random (binary search)   │   │
+│  │ 3. Materialize prize yield, distribute to winners       │   │
+│  │ 4. Auto-compound prizes into winners' deposits          │   │
+│  │ 5. Destroy active round, enter intermission             │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                            ↓                                    │
-│  Phase 4: completeDraw() (after randomness available)           │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ 1. Fulfill randomness, select winners                   │   │
-│  │ 2. Auto-compound prizes into winners' deposits          │   │
-│  │ 3. Destroy pendingDrawRound                             │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│  Then: startNextRound() to begin next round                     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Gap Period Handling
 
-The "gap period" is the time between when a round's `endTime` passes and when an admin calls `startDraw()`. This is inevitable since `startDraw()` requires manual triggering.
+The "gap period" is the time between when a round's `targetEndTime` passes and when an admin calls `startDraw()`. This is inevitable since `startDraw()` requires manual triggering.
 
-**Problem**: Users who deposit during the gap shouldn't get credit in the ended round (it's closed), but they also shouldn't lose their contribution.
+**Problem**: Users who deposit during the gap shouldn't get unfair extra credit, but their existing balance should continue accumulating weight normally.
 
-**Solution**: **Lazy Fallback** - Gap interactors are handled automatically via the projection fallback:
+**Solution**: Weight accumulation continues through the gap period. When `startDraw()` is called, it sets `actualEndTime` to the current timestamp. The TWAB calculation uses `actualEndTime` (not `targetEndTime`), so all time from round start through the gap is included in the actual duration. This means:
 
-```cadence
-// During gap period deposit/withdraw:
-1. Finalize user in ended round with pre-transaction shares
-2. Proceed with deposit/withdraw into their balance
-// (No explicit tracking needed - new round uses lazy fallback)
+- Users with shares before the gap get proportional credit for the extra time
+- Users who deposit during the gap get credit from their deposit time to `actualEndTime`
+- The normalization by `actualDuration` ensures the result is still "average shares"
 
-// In new round, for users who haven't interacted:
-getProjectedTWAB(receiverID, currentShares):
-    if userProjectedTWAB[receiverID] != nil:
-        return userProjectedTWAB[receiverID]  // Explicit value
-    else:
-        return currentShares × duration        // Lazy fallback
+### Batch Selection Data
 
-// Gap users automatically get full-round projection via fallback
-```
-
-This eliminates the need for explicit gap interactor tracking since:
-- Users who interacted in the ended round get their TWAB finalized
-- Users in the new round get the lazy fallback (`currentShares × duration`)
-- The fallback correctly gives full-round weight to gap depositors
-
-### Batch State Management
-
-The `BatchCaptureState` struct tracks progress across multiple `processDrawBatch()` calls:
+The `BatchSelectionData` resource tracks progress across multiple `processDrawBatch()` calls and provides efficient winner selection:
 
 ```cadence
-struct BatchCaptureState {
-    receiverSnapshot: [UInt64]     // Frozen list of receiver IDs
-    roundDuration: UFix64          // For bonus weight scaling
+resource BatchSelectionData {
+    receiverIDs: [UInt64]          // Receivers with weight > 0
+    cumulativeWeights: [UFix64]    // Parallel array for binary search
+    totalWeight: UFix64            // Sum of all weights (cached)
     cursor: Int                    // Current processing position
-    capturedWeights: {UInt64: UFix64}  // Accumulated weights
-    totalWeight: UFix64            // Running sum
-    isComplete: Bool               // True when cursor reaches end
+    snapshotReceiverCount: Int     // Receiver count at startDraw time
 }
+
+// Batch is complete when cursor >= snapshotReceiverCount
 ```
 
-Progress can be monitored via `getDrawBatchProgress()`:
-```cadence
-{
-    "cursor": 150,
-    "total": 1000,
-    "remaining": 850,
-    "percentComplete": 15.0,
-    "isComplete": false
-}
-```
+Winner selection uses the cumulative weight array for O(log n) binary search — a random number in `[0, totalWeight)` maps to the receiver whose cumulative weight range contains it.
 
-### Entry Calculation
+### Normalized Weight (Entries)
 
-**Entries** are human-readable prize weight:
+The normalized weight represents "average shares" and directly serves as prize weight:
 
-```cadence
-entries = projectedTWAB / roundDuration
-```
-
-| Scenario | Shares | Deposit Time | Entries |
-|----------|--------|--------------|---------|
+| Scenario | Shares | Deposit Time | Normalized Weight |
+|----------|--------|--------------|-------------------|
 | Full round | 100 | Round start | 100 |
-| Half round | 100 | Halfway | 50 |
-| Full round, withdraw half | 100→50 | Start, withdraw at 50% | 75 |
+| Half round | 100 | Halfway | ~50 |
+| Full round, withdraw half | 100→50 | Start, withdraw at 50% | ~75 |
 
 ### Benefits of This Design
 
-1. **Instant Round Transition**: `startDraw()` completes immediately, users unblocked
+1. **Overflow Protection**: Fixed `TWAB_SCALE` keeps intermediate values small regardless of TVL or round duration
 2. **Scalable Draw Processing**: Batch capture works for any number of users
-3. **Continuous Operation**: Users can deposit/withdraw during batch processing
-4. **Fair Gap Handling**: Lazy fallback gives full credit to gap depositors
-5. **Predictable Entries**: Users know their entries instantly after deposit
-6. **Clean Separation**: TWAB logic isolated from share accounting
-7. **Observable Progress**: Batch progress available via getters
+3. **Efficient Winner Selection**: Cumulative weight arrays enable O(log n) binary search
+4. **Fair Gap Handling**: Actual duration normalization gives proportional credit
+5. **Clean Separation**: TWAB logic isolated from share accounting
+6. **Observable Progress**: Batch progress available via getters
 
 ---
 
@@ -1159,5 +1062,5 @@ The shares model provides:
 
 3. **Deficits are handled with user protection in mind.** The priority order (protocol fee → prize → rewards) ensures the protocol absorbs losses before users, and prize pools buffer savings before user principal is affected.
 
-4. **The virtual offset pattern** (adding 1.0 to both shares and assets in conversions) provides defense-in-depth against the ERC4626 inflation attack, ensuring the protocol remains secure even if future yield connectors allow permissionless deposits.
+4. **The virtual offset pattern** (adding 0.0001 to both shares and assets in the share price calculation) provides defense-in-depth against the ERC4626 inflation attack, ensuring the protocol remains secure even if future yield connectors allow permissionless deposits.
 

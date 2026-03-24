@@ -9,7 +9,7 @@ This document provides an in-depth explanation of the Time-Weighted Average Bala
 - [Core Concepts](#core-concepts)
 - [Mathematical Foundation](#mathematical-foundation)
 - [Implementation Details](#implementation-details)
-- [Epoch System](#epoch-system)
+- [Round System](#round-system)
 - [Bonus Weights](#bonus-weights)
 - [Examples](#examples)
 - [Edge Cases](#edge-cases)
@@ -47,14 +47,16 @@ User B: 100 tokens → 50% odds
 
 ### The TWAB Solution
 
-TWAB integrates balance over time, measuring **share-seconds**:
+TWAB integrates balance over time, producing a **normalized weight** ("average shares"):
 
 ```
-User A: 100 tokens for 7 days  = 100 × 604,800 = 60,480,000 share-seconds
-User B: 10,000 tokens for 1 hour = 10,000 × 3,600 = 36,000,000 share-seconds
+Round duration: 7 days
 
-User A odds: 60,480,000 / 96,480,000 ≈ 62.7%
-User B odds: 36,000,000 / 96,480,000 ≈ 37.3%
+User A: 100 tokens for 7 days  → normalized weight = 100.0
+User B: 10,000 tokens for 1 hour → normalized weight = 10,000 × (1/168) ≈ 59.5
+
+User A odds: 100.0 / 159.5 ≈ 62.7%
+User B odds: 59.5 / 159.5 ≈ 37.3%
 ```
 
 Despite having 100x the balance, User B's late entry gives them lower odds than User A's long-term holding.
@@ -63,29 +65,37 @@ Despite having 100x the balance, User B's late entry gives them lower odds than 
 
 ## Core Concepts
 
-### Share-Seconds
+### Scaled Cumulative Weight
 
-The fundamental unit of TWAB measurement:
+The implementation uses a **scaled** cumulative approach to prevent overflow with large TVL. Instead of raw share-seconds, it accumulates:
 
 ```
-share-seconds = shares × seconds_held
+scaledPending = shares × (elapsed / TWAB_SCALE)
 ```
 
-Where `shares` represents the user's proportional ownership in the pool (see [ERC4626 shares model](./SHARES.md)).
+Where `TWAB_SCALE = 31,536,000` (1 year in seconds) and `shares` represents the user's proportional ownership in the pool (see [ERC4626 shares model](./ACCOUNTING.md)).
+
+At finalization, the accumulated scaled value is **normalized** back to "average shares":
+
+```
+normalizedWeight = totalScaled × (TWAB_SCALE / actualDuration)
+```
+
+A user holding 100 shares for the full round gets weight **100** (not 100 x duration). A user holding 100 shares for half the round gets weight **50**.
 
 ### Cumulative Tracking
 
-Rather than storing historical balances, we track:
+Rather than storing historical balances, we track scaled cumulative weight:
 
 ```
-cumulativeShareSeconds = Σ(shares × time_at_each_balance)
+userScaledTWAB = Σ(shares × (time_at_each_balance / TWAB_SCALE))
 ```
 
 This is updated incrementally whenever a user's balance changes.
 
-### Epochs
+### Rounds
 
-Each lottery draw period is an **epoch**. TWAB resets at the start of each epoch to ensure:
+Each lottery draw period is a **round**. TWAB resets at the start of each round to ensure:
 - Previous draws don't affect current odds
 - Users start fresh each period
 - Memory usage stays bounded
@@ -94,40 +104,46 @@ Each lottery draw period is an **epoch**. TWAB resets at the start of each epoch
 
 ## Mathematical Foundation
 
-### Basic Formula
+### Accumulation Formula
 
 For a user with constant shares over a time period:
 
 ```
-timeWeightedStake = shares × (currentTime - lastUpdateTime)
+scaledPending = shares × (elapsed / TWAB_SCALE)
 ```
+
+Where `TWAB_SCALE = 31,536,000.0` (1 year in seconds). The division by `TWAB_SCALE` keeps intermediate values small to prevent overflow.
 
 ### With Balance Changes
 
 When a user's share balance changes, we:
 
-1. **Accumulate** the share-seconds up to now
+1. **Accumulate** the scaled weight up to now
 2. **Update** the timestamp
 3. **Continue** tracking from the new balance
 
 ```
-newAccumulated = oldAccumulated + (oldShares × timeSinceLastUpdate)
+newScaledTWAB = oldScaledTWAB + (oldShares × (timeSinceLastUpdate / TWAB_SCALE))
 lastUpdateTime = now
 ```
 
-### Total User Weight at Draw Time
+### Normalization at Draw Time
+
+At finalization, the total scaled value is normalized to produce "average shares":
 
 ```
-totalWeight = cumulativeShareSeconds + elapsedSinceLastUpdate
-           = accumulated + (currentShares × (drawTime - lastUpdateTime))
+totalScaled = accumulated + (currentShares × ((roundEndTime - lastUpdateTime) / TWAB_SCALE))
+normalizedWeight = totalScaled × (TWAB_SCALE / actualDuration)
 ```
+
+This yields a value in the same unit as shares. A user holding 100 shares for the full round gets weight 100.
 
 ### Lottery Odds
 
 A user's probability of winning:
 
 ```
-P(win) = userTimeWeightedStake / Σ(allUsersTimeWeightedStakes)
+P(win) = userNormalizedWeight / Σ(allUsersNormalizedWeights)
 ```
 
 ---
@@ -145,86 +161,83 @@ TWAB tracking is managed per-round via the `Round` resource, which is created fr
 
 ```cadence
 resource Round {
-    // Round timing
     access(all) let roundID: UInt64
     access(all) let startTime: UFix64
-    access(all) let configuredDuration: UFix64
+    access(all) let TWAB_SCALE: UFix64  // 31_536_000.0 (1 year)
     access(self) var actualEndTime: UFix64?
-    
-    // Per-user cumulative TWAB tracking
-    access(self) var userAccumulatedTWAB: {UInt64: UFix64}
+    access(self) var targetEndTime: UFix64
+
+    access(self) var userScaledTWAB: {UInt64: UFix64}
     access(self) var userLastUpdateTime: {UInt64: UFix64}
     access(self) var userSharesAtLastUpdate: {UInt64: UFix64}
 }
 ```
 
+Note: `targetEndTime` is the minimum time before `startDraw()` can be called. `actualEndTime` is set by `startDraw()` and represents the true end of the round for TWAB calculations.
+
 ### Key Functions
 
 #### `recordShareChange(receiverID, oldShares, newShares, atTime)` — Mutating Function
 
-Called on deposit/withdraw to accumulate TWAB up to current time:
+Called on deposit/withdraw to accumulate TWAB up to current time. If the round has ended (`actualEndTime` is set), time is capped so that shares added after round end contribute zero weight:
 
 ```cadence
 access(contract) fun recordShareChange(
-    receiverID: UInt64,
-    oldShares: UFix64,
-    newShares: UFix64,
-    atTime: UFix64
+    receiverID: UInt64, oldShares: UFix64, newShares: UFix64, atTime: UFix64
 ) {
-    // First, accumulate any pending share-seconds for old balance
-    self.accumulatePendingTWAB(receiverID: receiverID, upToTime: atTime, withShares: oldShares)
-    
-    // Update shares snapshot for future accumulation
+    let effectiveTime = self.actualEndTime != nil && atTime > self.actualEndTime!
+        ? self.actualEndTime! : atTime
+    self.accumulatePendingTWAB(receiverID: receiverID, upToTime: effectiveTime, withShares: oldShares)
     self.userSharesAtLastUpdate[receiverID] = newShares
-    self.userLastUpdateTime[receiverID] = atTime
+    self.userLastUpdateTime[receiverID] = effectiveTime
 }
 ```
 
 #### `getCurrentTWAB(receiverID, currentShares, atTime)` — View Function
 
-Returns current TWAB for a user (accumulated + pending):
+Returns current normalized TWAB for a user (accumulated + pending, normalized to "average shares"):
 
 ```cadence
 access(all) view fun getCurrentTWAB(
-    receiverID: UInt64,
-    currentShares: UFix64,
-    atTime: UFix64
+    receiverID: UInt64, currentShares: UFix64, atTime: UFix64
 ): UFix64 {
-    let accumulated = self.userAccumulatedTWAB[receiverID] ?? 0.0
+    let accumulated = self.userScaledTWAB[receiverID] ?? 0.0
     let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
     let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
-    
-    // Calculate pending from last update to now
-    var pending: UFix64 = 0.0
+    var scaledPending: UFix64 = 0.0
     if atTime > lastUpdate {
-        pending = shares * (atTime - lastUpdate)
+        scaledPending = shares * ((atTime - lastUpdate) / self.TWAB_SCALE)
     }
-    
-    return accumulated + pending
+    let totalScaled = accumulated + scaledPending
+    let elapsedFromStart = atTime - self.startTime
+    if elapsedFromStart == 0.0 { return 0.0 }
+    let normalizedWeight = totalScaled * (self.TWAB_SCALE / elapsedFromStart)
+    if normalizedWeight > shares { return shares }
+    return normalizedWeight
 }
 ```
 
 #### `finalizeTWAB(receiverID, currentShares, roundEndTime)` — View Function
 
-Calculates final TWAB at round end (used during draw processing):
+Calculates final normalized TWAB at round end (used during draw processing). Same pattern as `getCurrentTWAB` but uses the actual round end time:
 
 ```cadence
 access(all) view fun finalizeTWAB(
-    receiverID: UInt64,
-    currentShares: UFix64,
-    roundEndTime: UFix64
+    receiverID: UInt64, currentShares: UFix64, roundEndTime: UFix64
 ): UFix64 {
-    let accumulated = self.userAccumulatedTWAB[receiverID] ?? 0.0
+    let accumulated = self.userScaledTWAB[receiverID] ?? 0.0
     let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
     let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
-    
-    // Calculate remaining from last update to round end
-    var pending: UFix64 = 0.0
+    var scaledPending: UFix64 = 0.0
     if roundEndTime > lastUpdate {
-        pending = shares * (roundEndTime - lastUpdate)
+        scaledPending = shares * ((roundEndTime - lastUpdate) / self.TWAB_SCALE)
     }
-    
-    return accumulated + pending
+    let totalScaled = accumulated + scaledPending
+    let actualDuration = roundEndTime - self.startTime
+    if actualDuration == 0.0 { return 0.0 }
+    let normalizedWeight = totalScaled * (self.TWAB_SCALE / actualDuration)
+    if normalizedWeight > shares { return shares }
+    return normalizedWeight
 }
 ```
 
@@ -236,8 +249,8 @@ what the user's TWAB *would be* at the round's planned end time.
 **Problem**: If an admin changed the round duration mid-round, all stored projections 
 became invalid because they were calculated using the old duration.
 
-**Solution**: Store **cumulative** TWAB (actual share-seconds from round start to last update),
-then calculate the final value at draw time using the actual round end timestamp. This is:
+**Solution**: Store **scaled cumulative** TWAB (shares x elapsed / TWAB_SCALE from round start to last update),
+then normalize at draw time using the actual round end timestamp. This is:
 - **Duration-independent**: No stored values reference the duration
 - **Accurate**: Final TWAB uses actual end time, not projected
 - **Flexible**: Admins can adjust duration without corrupting TWAB data
@@ -259,27 +272,37 @@ Rounds bound the TWAB accumulation to discrete lottery periods:
 When `startDraw()` is called:
 
 1. The actual end time is set on the active round: `activeRound.setActualEndTime(now)`
-2. A new Round resource is created for the next period
-3. The ended round is moved to `pendingDrawRound` for processing
-4. During `processDrawBatch()`, each user's TWAB is finalized with `finalizeTWAB()`
+2. `BatchSelectionData` is created with a snapshot of the current receiver count
+3. Randomness is requested (commit-reveal pattern)
+4. The active round stays in place (used during batch processing for TWAB finalization)
+
+During `processDrawBatch()`, each user's TWAB is finalized with `finalizeTWAB()`.
+
+In `completeDraw()`, the active round is destroyed and the pool enters **intermission** (`activeRound == nil`).
+
+A new round is created explicitly by `startNextRound()` (admin, ConfigOps entitlement):
 
 ```cadence
 // In startDraw():
-self.activeRound.setActualEndTime(now)
+activeRoundRef.setActualEndTime(now)
+self.pendingSelectionData <-! create BatchSelectionData(snapshotCount: receiverCount)
+self.pendingDrawReceipt <-! create PrizeDrawReceipt(...)
 
-let newRound <- create Round(
-    roundID: endedRoundID + 1,
+// In completeDraw():
+let usedRound <- self.activeRound <- nil
+destroy usedRound  // Pool is now in intermission
+
+// In startNextRound():
+self.activeRound <-! create Round(
+    roundID: newRoundID,
     startTime: now,
-    configuredDuration: roundDuration
+    targetEndTime: now + duration
 )
-
-let endedRound <- self.activeRound <- newRound
-self.pendingDrawRound <-! endedRound
 ```
 
 ### Automatic Reset
 
-Unlike epoch-based systems that require lazy resets, the Round-based approach uses 
+Unlike systems that require lazy resets, the Round-based approach uses 
 resource lifecycle for automatic cleanup:
 
 - Each Round is a separate resource with its own TWAB dictionaries
@@ -293,12 +316,14 @@ Users who never deposit/withdraw during a round still get fair TWAB:
 
 ```cadence
 // In getCurrentTWAB and finalizeTWAB:
-let accumulated = self.userAccumulatedTWAB[receiverID] ?? 0.0
+let accumulated = self.userScaledTWAB[receiverID] ?? 0.0
 let lastUpdate = self.userLastUpdateTime[receiverID] ?? self.startTime
 let shares = self.userSharesAtLastUpdate[receiverID] ?? currentShares
 
 // If user never interacted, lastUpdate = startTime, shares = currentShares
-// So TWAB = currentShares × (endTime - startTime) = full round credit
+// scaledPending = currentShares × (actualDuration / TWAB_SCALE)
+// normalizedWeight = scaledPending × (TWAB_SCALE / actualDuration) = currentShares
+// → full round credit
 ```
 
 This gives non-interacting users full credit for their shares over the entire round.
@@ -362,14 +387,15 @@ Admin.removeBonusLotteryWeight(poolID, receiverID)
 ### Example 1: Single User, Constant Balance
 
 **Setup:**
-- User A deposits 1000 tokens at epoch start
-- Epoch duration: 7 days (604,800 seconds)
+- User A deposits 1000 tokens at round start
+- Round duration: 7 days
 - No other users
 
 **Calculation:**
 ```
 shares = 1000 (assuming 1:1 initial ratio)
-timeWeightedStake = 1000 × 604,800 = 604,800,000 share-seconds
+scaledTWAB = 1000 × (7 days / TWAB_SCALE)
+normalizedWeight = scaledTWAB × (TWAB_SCALE / 7 days) = 1000.0
 
 Lottery odds = 100% (only participant)
 ```
@@ -377,70 +403,69 @@ Lottery odds = 100% (only participant)
 ### Example 2: Two Users, Different Entry Times
 
 **Setup:**
-- User A deposits 500 tokens at epoch start
+- User A deposits 500 tokens at round start
 - User B deposits 500 tokens at day 3
-- Epoch duration: 7 days
+- Round duration: 7 days
 
 **Calculation:**
 ```
 User A:
-  shares = 500
-  time = 7 days = 604,800 seconds
-  TWAB = 500 × 604,800 = 302,400,000
+  shares = 500, held for full 7 days
+  normalizedWeight = 500.0
 
 User B:
-  shares = 500
-  time = 4 days = 345,600 seconds
-  TWAB = 500 × 345,600 = 172,800,000
+  shares = 500, held for 4 out of 7 days
+  normalizedWeight = 500 × (4/7) ≈ 285.7
 
-Total = 475,200,000
+Total = 785.7
 
-User A odds: 302,400,000 / 475,200,000 = 63.6%
-User B odds: 172,800,000 / 475,200,000 = 36.4%
+User A odds: 500.0 / 785.7 = 63.6%
+User B odds: 285.7 / 785.7 = 36.4%
 ```
 
 Despite equal balances, User A has better odds due to longer holding time.
 
-### Example 3: Balance Change Mid-Epoch
+### Example 3: Balance Change Mid-Round
 
 **Setup:**
-- User A deposits 100 tokens at epoch start
-- After 3 days, User A deposits 400 more tokens
-- Epoch duration: 7 days
+- User A deposits 100 tokens at round start
+- After 3 days, User A deposits 400 more tokens (now 500 shares)
+- Round duration: 7 days
 
 **Calculation:**
 ```
 Phase 1 (days 0-3):
   shares = 100
-  time = 3 days = 259,200 seconds
-  accumulated = 100 × 259,200 = 25,920,000
+  scaledAccumulated = 100 × (3 days / TWAB_SCALE)
 
 Phase 2 (days 3-7):
   shares = 500 (100 original + 400 new)
-  time = 4 days = 345,600 seconds
-  additional = 500 × 345,600 = 172,800,000
+  scaledPending = 500 × (4 days / TWAB_SCALE)
 
-Total TWAB = 25,920,000 + 172,800,000 = 198,720,000 share-seconds
+totalScaled = scaledAccumulated + scaledPending
+normalizedWeight = totalScaled × (TWAB_SCALE / 7 days)
+               = 100 × (3/7) + 500 × (4/7)
+               ≈ 42.9 + 285.7 = 328.6 average shares
 ```
 
 ### Example 4: Whale Attack Prevention
 
 **Setup:**
-- User A: 100 tokens for entire 7-day epoch
+- User A: 100 tokens for entire 7-day round
 - Whale: 10,000 tokens deposited 1 hour before draw
 
 **Calculation:**
 ```
 User A:
-  TWAB = 100 × 604,800 = 60,480,000
+  normalizedWeight = 100.0 (full round)
 
 Whale:
-  TWAB = 10,000 × 3,600 = 36,000,000
+  normalizedWeight = 10,000 × (1 hour / 7 days) ≈ 59.5
 
-Total = 96,480,000
+Total = 159.5
 
-User A odds: 60,480,000 / 96,480,000 = 62.7%
-Whale odds: 36,000,000 / 96,480,000 = 37.3%
+User A odds: 100.0 / 159.5 = 62.7%
+Whale odds: 59.5 / 159.5 = 37.3%
 ```
 
 The whale has 100x the balance but only 37.3% odds!
@@ -459,14 +484,16 @@ let accumulated = 0.0  // nil → 0.0
 let lastUpdate = self.startTime  // nil → round start
 let shares = currentShares  // nil → current balance
 
-// Result: currentShares × (roundEndTime - startTime) = full round credit
+// scaledPending = currentShares × (actualDuration / TWAB_SCALE)
+// normalizedWeight = scaledPending × (TWAB_SCALE / actualDuration) = currentShares
+// → full round credit
 ```
 
 ### User from Previous Round Doesn't Interact
 
-Each Round is a fresh resource with empty dictionaries. Users from previous rounds 
+Each Round is a fresh resource with empty dictionaries. Users from previous rounds
 automatically get full credit in the new round via lazy initialization:
-- Their `userAccumulatedTWAB` is nil → starts at 0
+- Their `userScaledTWAB` is nil → starts at 0
 - Their `userLastUpdateTime` is nil → defaults to round start
 - Their `userSharesAtLastUpdate` is nil → uses current shares
 
@@ -491,79 +518,93 @@ This is the key edge case that drove the cumulative design:
 // OLD (broken): userProjectedTWAB = 100 × 604800 (7 days in seconds)
 // But round ends at 5 days, so projection is wrong!
 
-// NEW (correct): userAccumulatedTWAB = 0, lastUpdate = startTime
-// At draw: finalizeTWAB calculates 100 × actualDuration (5 days)
+// NEW (correct): userScaledTWAB = 0, lastUpdate = startTime
+// At draw: finalizeTWAB calculates:
+//   scaledPending = 100 × (5 days / TWAB_SCALE)
+//   normalizedWeight = scaledPending × (TWAB_SCALE / 5 days) = 100
 ```
 
 ---
 
 ## Integration with Lottery
 
-### Draw Flow (Batched)
+### Draw Flow (3 Steps + `startNextRound`)
 
 1. **`startDraw()` called:**
+   Sets `actualEndTime` on the active round. Syncs yield. Materializes protocol fee. Requests randomness (commit-reveal). Creates `BatchSelectionData` with snapshot receiver count.
    ```cadence
-   // Set actual end time on the round being finalized
-   self.activeRound.setActualEndTime(now)
-   
-   // Create new round, swap with active
-   let newRound <- create Round(roundID: newRoundID, startTime: now, configuredDuration: duration)
-   let endedRound <- self.activeRound <- newRound
-   self.pendingDrawRound <-! endedRound
-   
-   // Create batch processing state
-   self.pendingSelectionData <-! create BatchSelectionData(snapshotCount: receiverCount)
+   // Set actual end time on the active round
+   activeRoundRef.setActualEndTime(now)
+
+   // Create batch processing state (snapshot current count to prevent DoS)
+   self.pendingSelectionData <-! create BatchSelectionData(
+       snapshotCount: self.registeredReceiverList.length
+   )
+
+   // Request randomness now - will be fulfilled in completeDraw() after batch processing
+   let randomRequest <- self.randomConsumer.requestRandomness()
+   self.pendingDrawReceipt <-! create PrizeDrawReceipt(
+       prizeAmount: prizeAmount, request: <- randomRequest
+   )
    ```
 
 2. **`processDrawBatch(limit)` called repeatedly:**
+   For each receiver in snapshot: finalize TWAB (from the active round which still has all TWAB data), add bonus weight, and call `selectionData.addEntry()` to build cumulative weight array.
    ```cadence
-   let roundEndTime = pendingRound.getActualEndTime() ?? pendingRound.getConfiguredEndTime()
-   let roundStartTime = pendingRound.getStartTime()
-   let actualDuration = roundEndTime - roundStartTime
-   
+   let roundEndTime = activeRoundRef.getActualEndTime()!
+
    for receiverID in batch {
-       let shares = self.savingsDistributor.getUserShares(receiverID: receiverID)
-       
+       let shares = self.shareTracker.getUserShares(receiverID: receiverID)
+
        // Finalize TWAB using actual round end time
-       let twabStake = pendingRound.finalizeTWAB(
+       // Returns NORMALIZED weight (average shares)
+       let twabStake = activeRoundRef.finalizeTWAB(
            receiverID: receiverID,
            currentShares: shares,
            roundEndTime: roundEndTime
        )
-       
-       // Scale bonus by actual duration
-       let scaledBonus = bonusWeight * actualDuration
-       let totalWeight = twabStake + scaledBonus
-       
+
+       // Bonus is directly additive - TWAB is already normalized to "average shares"
+       let bonusWeight = self.getBonusWeight(receiverID: receiverID)
+       let totalWeight = twabStake + bonusWeight
+
        selectionData.addEntry(receiverID: receiverID, weight: totalWeight)
    }
    ```
 
-3. **`requestDrawRandomness()` called:**
+3. **`completeDraw()` called (must be a different block from `startDraw`):**
+   Fulfills randomness. Selects winners via binary search over cumulative weights. Distributes prizes. Destroys the active round. Pool enters intermission.
    ```cadence
-   // Batch processing complete, request randomness from Flow
-   let randomRequest <- self.randomConsumer.requestRandomness()
-   self.pendingDrawReceipt <-! create PrizeDrawReceipt(request: <- randomRequest)
+   // Fulfill randomness request (must be different block from request)
+   let randomNumber = self.randomConsumer.fulfillRandomRequest(<- request)
+
+   // Select winners using cumulative weight binary search
+   let winners = selectionDataRef.selectWinners(count: winnerCount, randomNumber: randomNumber)
+
+   // Distribute prizes, then destroy the active round
+   let usedRound <- self.activeRound <- nil
+   destroy usedRound  // Pool is now in intermission
    ```
 
-4. **`completeDraw()` uses selection data:**
+4. **`startNextRound()` called (admin, ConfigOps):**
+   Creates a new Round resource, exiting intermission.
    ```cadence
-   // Selection data has cumulative weights for binary search
-   let selectionData = self.pendingSelectionData!
-   let winnerID = selectionData.selectWinner(randomNumber: randomNumber)
+   self.activeRound <-! create Round(
+       roundID: newRoundID, startTime: now, targetEndTime: now + duration
+   )
    ```
 
-### Why Snapshot Between Blocks?
+### Why Separate Blocks?
 
 The commit-reveal pattern requires:
-1. `startDraw()`: Commit to randomness source (future block)
-2. Wait 1+ blocks
-3. `completeDraw()`: Reveal randomness, select winner
+1. `startDraw()`: Commit to randomness source (future block), set `actualEndTime`
+2. `processDrawBatch()` (repeated): Finalize TWAB weights using the frozen `actualEndTime`
+3. `completeDraw()` (different block): Fulfill randomness, select winners
 
-The TWAB snapshot is taken at commit time, ensuring:
+The TWAB snapshot is frozen at `startDraw()` time (via `actualEndTime`), ensuring:
 - Users can't manipulate odds after seeing randomness
 - The exact weights used for selection are frozen
-- Deposits/withdrawals between commit and reveal don't affect this draw
+- Deposits/withdrawals between `startDraw` and `completeDraw` don't affect this draw (time is capped at `actualEndTime` in `recordShareChange`)
 
 ---
 
@@ -571,13 +612,14 @@ The TWAB snapshot is taken at commit time, ensuring:
 
 TWAB provides provably fair prize odds by:
 
-1. **Measuring balance × time** instead of just balance
+1. **Measuring balance x time** instead of just balance
 2. **Preventing last-minute manipulation** via time-weighting
-3. **Using cumulative tracking** instead of projections (immune to duration changes)
-4. **Resetting each round** via fresh Round resources
-5. **Supporting bonus weights** that are also time-scaled
-6. **Snapshotting at commit time** to prevent post-randomness manipulation
-7. **Using batched processing** for scalability with large user bases
+3. **Using scaled cumulative tracking** (shares x elapsed / TWAB_SCALE) instead of projections (immune to duration changes and overflow)
+4. **Normalizing to "average shares"** at finalization (TWAB_SCALE / actualDuration), making results intuitive
+5. **Resetting each round** via fresh Round resources
+6. **Supporting bonus weights** that are directly additive (no time-scaling needed since TWAB is already normalized)
+7. **Freezing weights at `startDraw()` time** to prevent post-randomness manipulation
+8. **Using batched processing** for scalability with large user bases
 
-This creates a lottery system where consistent, long-term participants have proportionally fair odds compared to opportunistic large depositors. The cumulative approach also ensures admin configuration changes (like adjusting draw intervals) don't corrupt existing TWAB data.
+This creates a lottery system where consistent, long-term participants have proportionally fair odds compared to opportunistic large depositors. The scaled cumulative approach also ensures admin configuration changes (like adjusting draw intervals) don't corrupt existing TWAB data.
 
