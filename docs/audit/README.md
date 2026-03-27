@@ -10,6 +10,7 @@ Start here, then follow the numbered path. Each document is standalone but build
 |---|----------|-------------------|
 | 1 | [OVERVIEW](OVERVIEW.md) | What the contract does, scope, user flows, actors |
 | 2 | [ARCHITECTURE](ARCHITECTURE.md) | Resources, interfaces, entitlements, storage paths |
+| 2a | [SYSTEM_DIAGRAM](SYSTEM_DIAGRAM.md) | Resource hierarchy + deposit-to-accounting flow diagrams |
 | 3 | [STATE_MACHINES](STATE_MACHINES.md) | Pool states, draw phases, emergency auto-triggers |
 | 4 | [ECONOMIC_MODEL](ECONOMIC_MODEL.md) | Token flow, three-way yield split, deficit waterfall |
 | 5 | [PRECISION](PRECISION.md) | UFix64 limits, virtual offset, rounding behavior |
