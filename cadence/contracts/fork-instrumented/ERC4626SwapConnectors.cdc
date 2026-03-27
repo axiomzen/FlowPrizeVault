@@ -4,8 +4,8 @@ import EVM from 0xe467b9dd11fa00df
 import FlowEVMBridgeConfig from 0x1e4aa0b87d10b141
 import FlowEVMBridgeUtils from 0x1e4aa0b87d10b141
 import FlowToken from 0x1654653399040a61
-import DeFiActions from 0x6d888f175c158410
-import DeFiActionsUtils from 0x6d888f175c158410
+import DeFiActions from 0x92195d814edf9cb0
+import DeFiActionsUtils from 0x92195d814edf9cb0
 import ERC4626SinkConnectors from 0x04f5ae6bef48c1fc
 import SwapConnectors from 0xe1a479f0cb911df9
 import EVMTokenConnectors from 0x1a771b21fcceadc2

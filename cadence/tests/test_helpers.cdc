@@ -345,7 +345,7 @@ fun fundPrizePool(_ poolID: UInt64, amount: UFix64) {
     
     let fundResult = _executeTransaction(
         "../transactions/test/fund_prize_pool.cdc",
-        [poolID, amount],
+        [poolID, amount, "flowTokenVault"],
         deployerAccount
     )
     assertTransactionSucceeded(fundResult, context: "Fund prize pool")
@@ -585,6 +585,13 @@ fun getDistributionStrategyName(poolID: UInt64): String {
     let scriptResult = _executeScript("../scripts/test/get_distribution_strategy_name.cdc", [poolID])
     Test.expect(scriptResult, Test.beSucceeded())
     return scriptResult.returnValue! as! String
+}
+
+access(all)
+fun getPoolShares(_ poolID: UInt64): UFix64 {
+    let scriptResult = _executeScript("../scripts/test/get_pool_shares.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
 }
 
 // ============================================================================

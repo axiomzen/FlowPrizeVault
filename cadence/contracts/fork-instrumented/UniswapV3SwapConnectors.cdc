@@ -5,7 +5,7 @@ import EVM from 0xe467b9dd11fa00df
 import FlowEVMBridgeUtils from 0x1e4aa0b87d10b141
 import FlowEVMBridgeConfig from 0x1e4aa0b87d10b141
 
-import DeFiActions from 0x6d888f175c158410
+import DeFiActions from 0x92195d814edf9cb0
 import SwapConnectors from 0xe1a479f0cb911df9
 import EVMAbiHelpers from 0xa7825d405ac89518
 import EVMAmountUtils from 0x43c9e8bfec507db4

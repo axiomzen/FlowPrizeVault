@@ -403,7 +403,9 @@ Lazy users: No TWAB entries, uses default values (nil coalescing)
 
         # Fund the prize pool so draws can complete
         print_step("Funding prize pool...")
-        success, output, _, _ = run_flow_tx(TX_FUND_PRIZE_POOL, str(pool_id), "100.0")
+        success, output, _, _ = run_flow_tx(
+            TX_FUND_PRIZE_POOL, str(pool_id), "100.0", "flowTokenVault"
+        )
         if not success:
             print_error("Failed to fund prize pool")
             print_info(output[:300])

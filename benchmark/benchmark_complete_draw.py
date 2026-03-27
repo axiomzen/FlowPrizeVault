@@ -434,7 +434,9 @@ def get_draw_status(pool_id: int) -> Dict[str, Any]:
 def fund_lottery_pool(pool_id: int, amount: float) -> bool:
     """Fund the lottery pool with tokens for prize distribution"""
     print_step(f"Funding lottery pool with {amount} FLOW...")
-    success, output, _, _ = run_flow_tx(TX_FUND_LOTTERY, str(pool_id), str(amount))
+    success, output, _, _ = run_flow_tx(
+        TX_FUND_LOTTERY, str(pool_id), str(amount), "flowTokenVault"
+    )
     if not success:
         print_error(f"Failed to fund lottery pool: {output[:200]}")
         return False
