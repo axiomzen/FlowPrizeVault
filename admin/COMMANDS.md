@@ -39,6 +39,7 @@ Copy-paste Flow CLI commands for all essential operations.
 | User pool balance | `get_pool_balance.cdc` | address, poolID |
 | Yield status (real-time) | `get_yield_status.cdc` | poolID |
 | Projected user balance | `get_projected_balance.cdc` | address, poolID |
+| Round overview (odds) | `round-overview.cdc` | poolID |
 
 
 PYUSD identifier: EVMVMBridgedToken_99af3eea856556646c98c8b9b2548fe815240750Vault
@@ -542,7 +543,7 @@ flow transactions send cadence/transactions/prize-linked-accounts/start_draw_ful
 |----------|------|------|-------------|
 | 1 | poolID | UInt64 | Pool ID |
 
-**Behavior by pool state:**
+**Behavior by pool state:**x
 | Pool State | Action Taken |
 |------------|--------------|
 | `ROUND_ACTIVE` | No action (round hasn't ended) |
@@ -766,6 +767,37 @@ syncedSharePrice: 1.0          # Last-synced share price
 ```
 
 **When to use:** Use this when you need the most accurate user balance, especially before large withdrawals or when yield has been accruing between syncs.
+
+### 6.6 Round Overview (Current Round Odds)
+
+Per-user lottery odds for the current round. Only lottery-eligible users (non-sponsors) are included. Odds are based on projected TWAB entries + bonus weight.
+
+```bash
+flow scripts execute cadence/scripts/prize-linked-accounts/round-overview.cdc \
+  1 \
+  --network=mainnet
+```
+
+**Parameters:**
+| Position | Name | Type | Description |
+|----------|------|------|-------------|
+| 1 | poolID | UInt64 | Pool ID |
+
+**Returns:** `CurrentRoundOddsResult` with:
+- `poolID` - Pool ID
+- `roundID` - Current round ID
+- `roundEndTime` - Target end time for the round
+- `totalPoolWeight` - Sum of all lottery-eligible user weights
+- `userCount` - Number of lottery-eligible users
+- `users` - Array of `UserOdds` per user:
+  - `receiverID` - User's receiver ID
+  - `ownerAddress` - User's account address
+  - `shares` / `balance` - Current shares and asset balance
+  - `entries` - TWAB entries (time-weighted)
+  - `bonusWeight` / `totalWeight` - Bonus and total lottery weight
+  - `oddsPartsPerMillion` - Odds in parts per million (e.g., 50000 = 5%)
+  - `oddsPercent` - Odds as percentage (0.0–100.0)
+  - `entriesPerBalance` - Ratio indicating how much of the round the user has been deposited for
 
 ---
 
