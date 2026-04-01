@@ -180,7 +180,7 @@ access(all) fun main(poolID: UInt64): DrawStatus {
         isRoundEnded: poolRef.isRoundEnded(),
         isPendingDrawInProgress: poolRef.isDrawInProgress(),
         isBatchInProgress: poolRef.isDrawBatchInProgress(),
-        isBatchComplete: poolRef.isDrawBatchComplete(),
+        isBatchComplete: poolRef.isReadyForDrawCompletion(),
         isReadyForCompletion: poolRef.isReadyForDrawCompletion(),
         batchProgress: batchProgress,
         isInIntermission: poolRef.isInIntermission(),

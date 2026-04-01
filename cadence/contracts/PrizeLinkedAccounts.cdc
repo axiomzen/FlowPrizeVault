@@ -556,6 +556,23 @@ access(all) contract PrizeLinkedAccounts {
     // ============================================================
     // STRUCTS
     // ============================================================
+
+    /// Result of the shared deposit logic. Returned by Pool.depositInternal()
+    /// so that deposit() and sponsorDeposit() can apply their specific logic.
+    access(all) struct DepositResult {
+        /// Amount actually credited by the yield source (after slippage).
+        access(all) let actualReceived: UFix64
+        /// Number of shares minted for this deposit.
+        access(all) let sharesMinted: UFix64
+        /// User's share balance BEFORE this deposit (for TWAB calculation).
+        access(all) let oldShares: UFix64
+
+        init(actualReceived: UFix64, sharesMinted: UFix64, oldShares: UFix64) {
+            self.actualReceived = actualReceived
+            self.sharesMinted = sharesMinted
+            self.oldShares = oldShares
+        }
+    }
     
     /// Configuration parameters for emergency mode behavior.
     /// Controls auto-triggering, auto-recovery, and partial mode limits.
@@ -656,12 +673,7 @@ access(all) contract PrizeLinkedAccounts {
     /// - Issue capabilities with minimal required entitlements
     /// - Admin UUID is logged in events for audit trail
     access(all) resource Admin {
-        /// Extensible metadata storage for future use.
-        access(self) var metadata: {String: {String: AnyStruct}}
-        
-        init() {
-            self.metadata = {}
-        }
+        init() {}
 
         /// Updates the yield distribution strategy for a pool.
         /// @param poolID - ID of the pool to update
@@ -1085,7 +1097,7 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Processes a batch of receivers for weight capture (Phase 2 of 3).
         /// 
-        /// Call repeatedly until return value is 0 (or isDrawBatchComplete()).
+        /// Call repeatedly until return value is 0 (or isReadyForDrawCompletion()).
         /// Each call processes up to `limit` receivers.
         /// 
         /// @param poolID - ID of the pool
@@ -1558,14 +1570,6 @@ access(all) contract PrizeLinkedAccounts {
             return self.targetEndTime
         }
 
-        /// Returns the target end time (same as getTargetEndTime for backward compatibility).
-        /// Used for gap period detection.
-        /// OPTIMIZATION: Returns pre-computed value.
-        access(all) view fun getConfiguredEndTime(): UFix64 {
-            return self.targetEndTime
-        }
-
-
         /// Returns the round ID.
         access(all) view fun getRoundID(): UInt64 {
             return self.roundID
@@ -1582,12 +1586,6 @@ access(all) contract PrizeLinkedAccounts {
         access(all) view fun getDuration(): UFix64 {
             return self.targetEndTime - self.startTime
         }
-
-        /// Returns the target end time (same as getTargetEndTime for backward compatibility).
-        access(all) view fun getEndTime(): UFix64 {
-            return self.targetEndTime
-        }
-
 
         /// Returns whether a user has been initialized in this round.
         access(all) view fun isUserInitialized(receiverID: UInt64): Bool {
@@ -1887,22 +1885,20 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Current draw round number (increments each completed draw).
         access(self) var _prizeRound: UInt64
-        
-        /// Cumulative prizes distributed since pool creation (for statistics).
-        access(all) var totalPrizesDistributed: UFix64
-        
+
         /// Returns the current draw round number.
-        access(all) view fun getPrizeRound(): UInt64 {
+        access(all) view fun prizeRound(): UInt64 {
             return self._prizeRound
         }
-        
-        /// Updates the draw round number.
-        /// Called when a draw completes successfully.
-        /// @param round - New round number
-        access(contract) fun setPrizeRound(round: UInt64) {
-            self._prizeRound = round
+
+        /// Increments the draw round number. Called when a draw completes.
+        access(contract) fun incrementPrizeRound() {
+            self._prizeRound = self._prizeRound + 1
         }
-        
+
+        /// Cumulative prizes distributed since pool creation (for statistics).
+        access(all) var totalPrizesDistributed: UFix64
+
         /// Initializes a new PrizeDistributor with an empty prize vault.
         /// @param vaultType - Type of fungible token for prizes
         init(vaultType: Type) {
@@ -2640,8 +2636,6 @@ access(all) contract PrizeLinkedAccounts {
             self.totalWeight = 0.0
             self.cursor = 0
             self.snapshotReceiverCount = snapshotCount
-            self.RANDOM_SCALING_FACTOR = 1_000_000_000
-            self.RANDOM_SCALING_DIVISOR = 1_000_000_000.0
         }
         
         // ============================================================
@@ -2732,11 +2726,6 @@ access(all) contract PrizeLinkedAccounts {
         // WINNER SELECTION METHODS
         // ============================================================
         
-        /// Scaling constants for random number conversion.
-        /// Uses 1 billion for 9 decimal places of precision.
-        access(self) let RANDOM_SCALING_FACTOR: UInt64
-        access(self) let RANDOM_SCALING_DIVISOR: UFix64
-        
         /// Selects winners using weighted random selection without replacement.
         /// Uses PRNG for deterministic sequence from initial seed.
         /// For single winner, pass count=1.
@@ -2780,7 +2769,8 @@ access(all) contract PrizeLinkedAccounts {
             var retries = 0
             while selected < actualCount && retries < maxRetries {
                 let rng = prg.nextUInt64()
-                let scaledRandom = UFix64(rng % self.RANDOM_SCALING_FACTOR) / self.RANDOM_SCALING_DIVISOR
+                // 1 billion for 9 decimal places of precision
+                let scaledRandom = UFix64(rng % 1_000_000_000) / 1_000_000_000.0
                 let randomValue = scaledRandom * self.totalWeight
 
                 // Use binary search to find candidate winner
@@ -3115,7 +3105,7 @@ access(all) contract PrizeLinkedAccounts {
             self.registeredReceiverList.append(receiverID)
             
             // Store address for address resolution if provided
-            self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
+            self.updateReceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
         }
         
         /// Resolves the last known owner address of a receiver.
@@ -3131,7 +3121,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Saves storage write costs when address remains the same.
         /// @param receiverID - UUID of the PoolPositionCollection
         /// @param ownerAddress - Optional new owner address to store
-        access(contract) fun updatereceiverAddress(receiverID: UInt64, ownerAddress: Address?) {
+        access(contract) fun updateReceiverAddress(receiverID: UInt64, ownerAddress: Address?) {
             if let addr = ownerAddress {
                 if self.receiverAddresses[receiverID] != addr {
                     self.receiverAddresses[receiverID] = addr
@@ -3271,26 +3261,19 @@ access(all) contract PrizeLinkedAccounts {
         /// Enables emergency mode (withdrawals only).
         /// @param reason - Human-readable reason
         access(contract) fun setEmergencyMode(reason: String) {
-            self.emergencyState = PoolEmergencyState.EmergencyMode
-            self.emergencyReason = reason
-            self.emergencyActivatedAt = getCurrentBlock().timestamp
+            self.setState(state: PoolEmergencyState.EmergencyMode, reason: reason)
         }
-        
+
         /// Enables partial mode (limited deposits, no draws).
         /// @param reason - Human-readable reason
         access(contract) fun setPartialMode(reason: String) {
-            self.emergencyState = PoolEmergencyState.PartialMode
-            self.emergencyReason = reason
-            self.emergencyActivatedAt = getCurrentBlock().timestamp
+            self.setState(state: PoolEmergencyState.PartialMode, reason: reason)
         }
-        
+
         /// Clears emergency mode and returns to Normal.
         /// Resets failure counters.
         access(contract) fun clearEmergencyMode() {
-            self.emergencyState = PoolEmergencyState.Normal
-            self.emergencyReason = nil
-            self.emergencyActivatedAt = nil
-            self.consecutiveWithdrawFailures = 0
+            self.setState(state: PoolEmergencyState.Normal, reason: nil)
         }
         
         /// Updates the emergency configuration.
@@ -3411,20 +3394,20 @@ access(all) contract PrizeLinkedAccounts {
             }
             
             let health = self.checkYieldSourceHealth()
-            
-            // Health-based recovery: yield source is fully healthy
-            if health >= 0.9 {
-                self.clearEmergencyMode()
+            let minRecoveryHealth = self.emergencyConfig.minRecoveryHealth
+
+            // Health-based recovery: yield source health exceeds configured recovery threshold
+            if health >= minRecoveryHealth {
+                self.setState(state: PoolEmergencyState.Normal, reason: nil)
                 emit EmergencyModeAutoRecovered(poolID: self.poolID, reason: "Yield source recovered", healthScore: health, duration: nil, timestamp: getCurrentBlock().timestamp)
                 return true
             }
             
             // Time-based recovery: only if health is above minimum threshold
-            let minRecoveryHealth = self.emergencyConfig.minRecoveryHealth
             if let maxDuration = self.emergencyConfig.maxEmergencyDuration {
                 let duration = getCurrentBlock().timestamp - (self.emergencyActivatedAt ?? 0.0)
                 if duration > maxDuration && health >= minRecoveryHealth {
-                    self.clearEmergencyMode()
+                    self.setState(state: PoolEmergencyState.Normal, reason: nil)
                     emit EmergencyModeAutoRecovered(poolID: self.poolID, reason: "Max duration exceeded", healthScore: health, duration: duration, timestamp: getCurrentBlock().timestamp)
                     return true
                 }
@@ -3501,7 +3484,61 @@ access(all) contract PrizeLinkedAccounts {
         // ============================================================
         // CORE USER OPERATIONS
         // ============================================================
-        
+
+        /// Shared deposit logic for both regular and sponsor deposits.
+        ///
+        /// Handles: emergency state validation, yield sync, yield source deposit,
+        /// slippage protection, share minting, and balance update.
+        /// Returns a DepositResult so callers can apply type-specific logic
+        /// (TWAB for regular deposits, sponsor tracking for sponsors).
+        ///
+        /// @param from - Vault containing funds to deposit (consumed)
+        /// @param receiverID - UUID of the depositor's collection
+        /// @param maxSlippageBps - Maximum acceptable slippage in basis points
+        /// @return DepositResult with actualReceived, sharesMinted, and oldShares
+        access(self) fun depositInternal(from: @{FungibleToken.Vault}, receiverID: UInt64, maxSlippageBps: UInt64): DepositResult {
+            // Enforce state-specific deposit rules
+            let nominalAmount = from.balance
+            switch self.emergencyState {
+                case PoolEmergencyState.Normal:
+                    assert(nominalAmount >= self.config.minimumDeposit, message: "Below minimum deposit. Required: \(self.config.minimumDeposit), got: \(nominalAmount)")
+                case PoolEmergencyState.PartialMode:
+                    let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
+                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: \(receiverID)")
+                    assert(nominalAmount <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: \(depositLimit), got: \(nominalAmount)")
+                case PoolEmergencyState.EmergencyMode:
+                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: \(receiverID), amount: \(nominalAmount)")
+                case PoolEmergencyState.Paused:
+                    panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(nominalAmount)")
+            }
+
+            // Sync yield to ensure fair share price
+            if self.needsSync() {
+                self.syncWithYieldSource()
+            }
+
+            // Deposit to yield source
+            let actualReceived = self.depositToYieldSourceFull(<- from)
+
+            // Enforce slippage protection
+            let minAcceptable = nominalAmount * UFix64(UInt64(10000) - maxSlippageBps) / 10000.0
+            assert(
+                actualReceived >= minAcceptable,
+                message: "Slippage exceeded: sent \(nominalAmount), received \(actualReceived), max slippage \(maxSlippageBps) bps"
+            )
+
+            // Get current shares BEFORE minting (for TWAB calculation by caller)
+            let oldShares = self.shareTracker.getUserShares(receiverID: receiverID)
+
+            // Mint shares based on ACTUAL received
+            let sharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: actualReceived)
+
+            // Update pool total
+            self.userPoolBalance = self.userPoolBalance + actualReceived
+
+            return DepositResult(actualReceived: actualReceived, sharesMinted: sharesMinted, oldShares: oldShares)
+        }
+
         /// Deposits funds for a receiver.
         /// 
         /// Called internally by PoolPositionCollection.deposit().
@@ -3536,89 +3573,39 @@ access(all) contract PrizeLinkedAccounts {
             if self.registeredReceivers[receiverID] == nil {
                 self.registerReceiver(receiverID: receiverID, ownerAddress: ownerAddress)
             } else {
-                // Update address if provided (tracks current owner)
-                self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
+                self.updateReceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             }
 
-            // Enforce state-specific deposit rules (validate on nominal amount before slippage)
-            let nominalAmount = from.balance
-            switch self.emergencyState {
-                case PoolEmergencyState.Normal:
-                    // Normal: enforce minimum deposit
-                    assert(nominalAmount >= self.config.minimumDeposit, message: "Below minimum deposit. Required: \(self.config.minimumDeposit), got: \(nominalAmount)")
-                case PoolEmergencyState.PartialMode:
-                    // Partial: enforce deposit limit
-                    let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
-                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: \(receiverID)")
-                    assert(nominalAmount <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: \(depositLimit), got: \(nominalAmount)")
-                case PoolEmergencyState.EmergencyMode:
-                    // Emergency: no deposits allowed
-                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: \(receiverID), amount: \(nominalAmount)")
-                case PoolEmergencyState.Paused:
-                    // Paused: nothing allowed
-                    panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(nominalAmount)")
-            }
+            // Shared validation, sync, yield deposit, slippage check, share minting, balance update
+            let result = self.depositInternal(from: <- from, receiverID: receiverID, maxSlippageBps: maxSlippageBps)
 
-            // Process pending yield/deficit before deposit to ensure fair share price
-            if self.needsSync() {
-                self.syncWithYieldSource()
-            }
-
-            let now = getCurrentBlock().timestamp
-
-            // 1. Deposit to yield source (zero-check is centralized in depositToYieldSourceFull)
-            let actualReceived = self.depositToYieldSourceFull(<- from)
-
-            // 2. Enforce slippage protection (compare asset amounts, not shares)
-            // minAcceptable = nominalAmount * (10000 - maxSlippageBps) / 10000
-            let minAcceptable = nominalAmount * UFix64(UInt64(10000) - maxSlippageBps) / 10000.0
-            assert(
-                actualReceived >= minAcceptable,
-                message: "Slippage exceeded: sent \(nominalAmount), received \(actualReceived), max slippage \(maxSlippageBps) bps"
-            )
-
-            // 3. Get current shares BEFORE minting for TWAB calculation
-            let oldShares = self.shareTracker.getUserShares(receiverID: receiverID)
-
-            // 4. Mint shares based on ACTUAL received (not nominal)
-            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: actualReceived)
-
-            let newShares = oldShares + newSharesMinted
-
-            // 5. Update TWAB in the active round (if exists)
+            // Update TWAB in the active round (if exists)
             if let round = &self.activeRound as &Round? {
                 round.recordShareChange(
                     receiverID: receiverID,
-                    oldShares: oldShares,
-                    newShares: newShares,
-                    atTime: now
+                    oldShares: result.oldShares,
+                    newShares: result.oldShares + result.sharesMinted,
+                    atTime: getCurrentBlock().timestamp
                 )
             }
 
-            // 6. Update pool total with ACTUAL amount received
-            self.userPoolBalance = self.userPoolBalance + actualReceived
-
-            emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: actualReceived, shares: newSharesMinted, ownerAddress: ownerAddress)
+            emit Deposited(poolID: self.poolID, receiverID: receiverID, amount: result.actualReceived, shares: result.sharesMinted, ownerAddress: ownerAddress)
         }
-        
+
         /// Deposits funds as a sponsor (prize-ineligible).
-        /// 
-        /// Called internally by SponsorPositionCollection.deposit().
-        /// 
+        ///
         /// Sponsors earn rewards yield through share price appreciation but
-        /// are NOT eligible to win prizes. This is useful for:
-        /// - Protocol treasuries seeding initial liquidity
-        /// - Foundations incentivizing participation without competing
-        /// - Users who want yield but don't want prize exposure
-        /// 
+        /// are NOT eligible to win prizes. Useful for protocol treasuries,
+        /// foundations, or users who want yield without prize exposure.
+        ///
         /// DIFFERENCES FROM REGULAR DEPOSIT:
         /// - Not added to registeredReceiverList (no prize eligibility)
         /// - No TWAB tracking (no prize weight needed)
         /// - Tracked in sponsorReceivers mapping instead
-        /// 
+        ///
         /// @param from - Vault containing funds to deposit (consumed)
         /// @param receiverID - UUID of the sponsor's SponsorPositionCollection
-        /// @param ownerAddress - Owner address of the SponsorPositionCollection (passed directly since sponsors don't use capabilities)
+        /// @param ownerAddress - Owner address of the SponsorPositionCollection
         /// @param maxSlippageBps - Maximum acceptable slippage in basis points (100 = 1%, 10000 = 100% = no protection)
         access(contract) fun sponsorDeposit(from: @{FungibleToken.Vault}, receiverID: UInt64, ownerAddress: Address?, maxSlippageBps: UInt64) {
             pre {
@@ -3628,57 +3615,45 @@ access(all) contract PrizeLinkedAccounts {
                 maxSlippageBps <= 10000: "maxSlippageBps cannot exceed 10000 (100%)"
             }
 
-            // Enforce state-specific deposit rules (validate on nominal amount before slippage)
-            let nominalAmount = from.balance
-            switch self.emergencyState {
-                case PoolEmergencyState.Normal:
-                    // Normal: enforce minimum deposit
-                    assert(nominalAmount >= self.config.minimumDeposit, message: "Below minimum deposit. Required: \(self.config.minimumDeposit), got: \(nominalAmount)")
-                case PoolEmergencyState.PartialMode:
-                    // Partial: enforce deposit limit
-                    let depositLimit = self.emergencyConfig.partialModeDepositLimit ?? 0.0
-                    assert(depositLimit > 0.0, message: "Partial mode deposit limit not configured. ReceiverID: \(receiverID)")
-                    assert(nominalAmount <= depositLimit, message: "Deposit exceeds partial mode limit. Limit: \(depositLimit), got: \(nominalAmount)")
-                case PoolEmergencyState.EmergencyMode:
-                    // Emergency: no deposits allowed
-                    panic("Deposits disabled in emergency mode. Withdrawals only. ReceiverID: \(receiverID), amount: \(nominalAmount)")
-                case PoolEmergencyState.Paused:
-                    // Paused: nothing allowed
-                    panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(nominalAmount)")
-            }
-
-            // Process pending yield/deficit before deposit to ensure fair share price
-            if self.needsSync() {
-                self.syncWithYieldSource()
-            }
-
-            // 1. Deposit to yield source FIRST (zero-check is centralized in depositToYieldSourceFull)
-            let actualReceived = self.depositToYieldSourceFull(<- from)
-
-            // 2. Enforce slippage protection (compare asset amounts, not shares)
-            let minAcceptable = nominalAmount * UFix64(UInt64(10000) - maxSlippageBps) / 10000.0
-            assert(
-                actualReceived >= minAcceptable,
-                message: "Slippage exceeded: sent \(nominalAmount), received \(actualReceived), max slippage \(maxSlippageBps) bps"
-            )
-
-            // 3. Mint shares based on ACTUAL received (not nominal)
-            let newSharesMinted = self.shareTracker.deposit(receiverID: receiverID, amount: actualReceived)
+            // Shared validation, sync, yield deposit, slippage check, share minting, balance update
+            let result = self.depositInternal(from: <- from, receiverID: receiverID, maxSlippageBps: maxSlippageBps)
 
             // Mark as sponsor (prize-ineligible)
             self.sponsorReceivers[receiverID] = true
-            
-            // Update pool total
-            self.userPoolBalance = self.userPoolBalance + actualReceived
 
             // NOTE: No registeredReceiverList registration - sponsors are NOT prize-eligible
             // NOTE: No TWAB/Round tracking - no prize weight needed
 
-            emit SponsorDeposited(poolID: self.poolID, receiverID: receiverID, amount: actualReceived, shares: newSharesMinted, ownerAddress: ownerAddress)
+            emit SponsorDeposited(poolID: self.poolID, receiverID: receiverID, amount: result.actualReceived, shares: result.sharesMinted, ownerAddress: ownerAddress)
         }
         
+        /// Records a withdrawal failure: emits events, increments failure counter,
+        /// and triggers emergency mode if thresholds are exceeded.
+        /// @param receiverID - UUID of the receiver experiencing the failure
+        /// @param amount - Amount the user attempted to withdraw
+        /// @param yieldAvailable - Amount currently available in yield source
+        /// @param ownerAddress - Owner address for event emission
+        access(self) fun recordWithdrawalFailure(receiverID: UInt64, amount: UFix64, yieldAvailable: UFix64, ownerAddress: Address?) {
+            let newFailureCount = self.consecutiveWithdrawFailures
+                + (self.emergencyState == PoolEmergencyState.Normal ? 1 : 0)
+
+            emit WithdrawalFailure(
+                poolID: self.poolID,
+                receiverID: receiverID,
+                amount: amount,
+                consecutiveFailures: newFailureCount,
+                yieldAvailable: yieldAvailable,
+                ownerAddress: ownerAddress
+            )
+
+            if self.emergencyState == PoolEmergencyState.Normal {
+                self.consecutiveWithdrawFailures = newFailureCount
+                let _ = self.checkAndAutoTriggerEmergency()
+            }
+        }
+
         /// Withdraws funds for a receiver.
-        /// 
+        ///
         /// Called internally by PoolPositionCollection.withdraw().
         /// 
         /// FLOW:
@@ -3722,7 +3697,7 @@ access(all) contract PrizeLinkedAccounts {
             }
             
             // Update stored address if provided (tracks current owner)
-            self.updatereceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
+            self.updateReceiverAddress(receiverID: receiverID, ownerAddress: ownerAddress)
             
             // Paused pool: nothing allowed
             assert(self.emergencyState != PoolEmergencyState.Paused, message: "Pool is paused - no operations allowed. ReceiverID: \(receiverID), amount: \(amount)")
@@ -3764,26 +3739,7 @@ access(all) contract PrizeLinkedAccounts {
 
             // Handle insufficient liquidity in yield source
             if yieldAvailable < withdrawAmount {
-                // Track failure (only increment in Normal mode to avoid double-counting)
-                let newFailureCount = self.consecutiveWithdrawFailures
-                    + (self.emergencyState == PoolEmergencyState.Normal ? 1 : 0)
-                
-                emit WithdrawalFailure(
-                    poolID: self.poolID, 
-                    receiverID: receiverID, 
-                    amount: amount,
-                    consecutiveFailures: newFailureCount, 
-                    yieldAvailable: yieldAvailable,
-                    ownerAddress: ownerAddress
-                )
-                
-                // Update failure count and check for emergency trigger
-                if self.emergencyState == PoolEmergencyState.Normal {
-                    self.consecutiveWithdrawFailures = newFailureCount
-                    let _ = self.checkAndAutoTriggerEmergency()
-                }
-                
-                // Return empty vault - withdrawal failed
+                self.recordWithdrawalFailure(receiverID: receiverID, amount: amount, yieldAvailable: yieldAvailable, ownerAddress: ownerAddress)
                 emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0, ownerAddress: ownerAddress)
                 return <- DeFiActionsUtils.getEmptyVault(self.config.assetType)
             }
@@ -3794,23 +3750,7 @@ access(all) contract PrizeLinkedAccounts {
             
             // Handle zero withdrawal (yield source returned nothing despite claiming availability)
             if actualWithdrawn == 0.0 {
-                let newFailureCount = self.consecutiveWithdrawFailures
-                    + (self.emergencyState == PoolEmergencyState.Normal ? 1 : 0)
-                
-                emit WithdrawalFailure(
-                    poolID: self.poolID, 
-                    receiverID: receiverID, 
-                    amount: amount,
-                    consecutiveFailures: newFailureCount, 
-                    yieldAvailable: yieldAvailable,
-                    ownerAddress: ownerAddress
-                )
-                
-                if self.emergencyState == PoolEmergencyState.Normal {
-                    self.consecutiveWithdrawFailures = newFailureCount
-                    let _ = self.checkAndAutoTriggerEmergency()
-                }
-                
+                self.recordWithdrawalFailure(receiverID: receiverID, amount: amount, yieldAvailable: yieldAvailable, ownerAddress: ownerAddress)
                 emit Withdrawn(poolID: self.poolID, receiverID: receiverID, requestedAmount: amount, actualAmount: 0.0, ownerAddress: ownerAddress)
                 return <- withdrawn
             }
@@ -4226,7 +4166,7 @@ access(all) contract PrizeLinkedAccounts {
         
         /// Processes a batch of receivers for weight capture (Phase 2 of 3).
         /// 
-        /// Call this repeatedly until isDrawBatchComplete() returns true.
+        /// Call this repeatedly until isReadyForDrawCompletion() returns true.
         /// Iterates directly over registeredReceiverList using selection data cursor.
         /// 
         /// FLOW:
@@ -4397,7 +4337,7 @@ access(all) contract PrizeLinkedAccounts {
                     winners: [],
                     winnerAddresses: [],
                     amounts: [],
-                    round: self.prizeDistributor.getPrizeRound()
+                    round: self.prizeDistributor.prizeRound()
                 )
                 // Still need to clean up the active round
                 // Store the completed round ID before destroying for intermission state queries
@@ -4420,8 +4360,8 @@ access(all) contract PrizeLinkedAccounts {
             assert(distributedWinners.length == nftIDsPerWinner.length, message: "Winners and NFT IDs must match")
             
             // Increment draw round
-            let currentRound = self.prizeDistributor.getPrizeRound() + 1
-            self.prizeDistributor.setPrizeRound(round: currentRound)
+            self.prizeDistributor.incrementPrizeRound()
+            let currentRound = self.prizeDistributor.prizeRound()
             var totalAwarded: UFix64 = 0.0
             
             // Process each winner
@@ -4916,7 +4856,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns the current round end time.
         /// Returns 0.0 if in intermission (no active round).
         access(all) view fun getRoundEndTime(): UFix64 {
-            return self.activeRound?.getEndTime() ?? 0.0
+            return self.activeRound?.getTargetEndTime() ?? 0.0
         }
 
         /// Returns the current round duration.
@@ -5001,12 +4941,6 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns whether batch processing is in progress (after startDraw, before batch complete).
         access(all) view fun isDrawBatchInProgress(): Bool {
             return self.pendingDrawReceipt != nil && self.pendingSelectionData != nil && !self.isBatchComplete()
-        }
-        
-        /// Returns whether batch processing is complete and ready for completeDraw.
-        /// Batch processing must finish before completeDraw can be called.
-        access(all) view fun isDrawBatchComplete(): Bool {
-            return self.pendingSelectionData != nil && self.isBatchComplete() && self.pendingDrawReceipt != nil
         }
         
         /// Returns whether the draw is ready to complete.
@@ -5245,7 +5179,7 @@ access(all) contract PrizeLinkedAccounts {
                     return 0.0
                 }
 
-                let roundEndTime = round.getEndTime()
+                let roundEndTime = round.getTargetEndTime()
                 let now = getCurrentBlock().timestamp
                 let shares = self.shareTracker.getUserShares(receiverID: receiverID)
 
@@ -5293,7 +5227,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns 0.0 if round has ended, in intermission, or draw can happen now.
         access(all) view fun getTimeUntilNextDraw(): UFix64 {
             if let round = &self.activeRound as &Round? {
-                let endTime = round.getEndTime()
+                let endTime = round.getTargetEndTime()
                 let now = getCurrentBlock().timestamp
                 if now >= endTime {
                     return 0.0
@@ -5684,14 +5618,6 @@ access(all) contract PrizeLinkedAccounts {
         return &self.pools[poolID]
     }
     
-    /// Internal: Returns an authorized reference to a pool.
-    /// Only used by Admin operations - not publicly accessible.
-    /// @param poolID - ID of pool to borrow
-    /// @return Authorized reference, or nil if not found
-    access(contract) fun borrowPoolInternal(_ poolID: UInt64): auth(CriticalOps, ConfigOps) &Pool? {
-        return &self.pools[poolID]
-    }
-
     /// Internal: Returns an authorized reference or panics.
     /// Reduces boilerplate for functions that require pool to exist.
     /// @param poolID - ID of pool to get
@@ -5769,7 +5695,7 @@ access(all) contract PrizeLinkedAccounts {
     /// Processes a batch of receivers for weight capture (Phase 2 of 3). PERMISSIONLESS.
     ///
     /// Anyone can call this to advance batch processing.
-    /// Call repeatedly until return value is 0 (or isDrawBatchComplete()).
+    /// Call repeatedly until return value is 0 (or isReadyForDrawCompletion()).
     ///
     /// Preconditions (enforced internally):
     /// - Draw must be in progress
