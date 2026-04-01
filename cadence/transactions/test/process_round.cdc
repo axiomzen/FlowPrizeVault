@@ -42,15 +42,9 @@ transaction(poolID: UInt64) {
         }
 
         // Phase 2: Process batch (if batch not complete)
-        if self.poolRef.isDrawInProgress() && !self.poolRef.isDrawBatchComplete() {
+        if self.poolRef.isDrawInProgress() && !self.poolRef.isReadyForDrawCompletion() {
             let remaining = self.adminRef.processPoolDrawBatch(poolID: poolID, limit: batchLimit)
             log("Batch processed, remaining: ".concat(remaining.toString()))
-            return
-        }
-
-        // Batch complete but waiting for randomness block
-        if self.poolRef.isDrawBatchComplete() && !self.poolRef.isReadyForDrawCompletion() {
-            log("Batch complete - waiting for next block (randomness)")
             return
         }
 
