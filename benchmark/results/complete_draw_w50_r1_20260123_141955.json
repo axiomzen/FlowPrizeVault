@@ -1,0 +1,20 @@
+[
+  {
+    "winner_count": 50,
+    "user_count": 500,
+    "pool_id": 0,
+    "run_number": 1,
+    "timestamp": "2026-01-23T14:19:41.961648",
+    "phases": {
+      "startPoolDraw": 296,
+      "processDrawBatch": 1654,
+      "requestDrawRandomness": 20,
+      "completePoolDraw": 2773
+    },
+    "profile_path": "/Users/benjaminboudreau/dev/axiomzen/FlowPrizeVault-ben-txlmts-2/benchmark/profiles/completedraw_w50_run1_20260123_141954.pprof",
+    "computation_per_winner": 55.46,
+    "tx_id": "f1478db10262cb4bec49649f946115fc4ae2a8dc14fbac4f02b790597a542a99",
+    "exceeded_limit": false,
+    "computation_level": "MEDIUM"
+  }
+]

@@ -1,0 +1,5 @@
+timestamp,user_count,batch_size,total_computation,total_tx_count,phase_name,phase_computation,phase_tx_count,computation_per_user
+2026-01-22T14:07:16.273222,100,100,436,4,startPoolDraw,90,1,0.0
+2026-01-22T14:07:16.273222,100,100,436,4,processDrawBatch,334,1,3.34
+2026-01-22T14:07:16.273222,100,100,436,4,requestDrawRandomness,8,1,0.0
+2026-01-22T14:07:16.273222,100,100,436,4,completePoolDraw,4,1,0.0
