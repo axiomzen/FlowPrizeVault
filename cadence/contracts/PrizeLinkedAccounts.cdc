@@ -5362,16 +5362,17 @@ access(all) contract PrizeLinkedAccounts {
         /// Internal: Registers this collection with a pool.
         /// Called automatically on first deposit to that pool.
         /// @param poolID - ID of pool to register with
-        access(self) fun registerWithPool(poolID: UInt64) {
+        access(self) fun registerWithPool(poolID: UInt64, ownerAddress: Address?) {
             pre {
                 self.registeredPools[poolID] == nil: "Already registered"
-                self.owner != nil: "Collection must be stored in an account"
             }
-            
+
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
-            
+
             // Register our UUID with the owner address for address resolution
-            poolRef.registerReceiver(receiverID: self.uuid, ownerAddress: self.owner!.address)
+            // ownerAddress is explicit to support nested collections (e.g., inside PLAStrategy)
+            let resolvedAddress = ownerAddress ?? self.owner?.address
+            poolRef.registerReceiver(receiverID: self.uuid, ownerAddress: resolvedAddress)
             self.registeredPools[poolID] = true
         }
         
@@ -5397,7 +5398,7 @@ access(all) contract PrizeLinkedAccounts {
         access(PositionOps) fun deposit(poolID: UInt64, from: @{FungibleToken.Vault}, maxSlippageBps: UInt64) {
             // Auto-register on first deposit
             if self.registeredPools[poolID] == nil {
-                self.registerWithPool(poolID: poolID)
+                self.registerWithPool(poolID: poolID, ownerAddress: self.owner?.address)
             }
 
             let poolRef = PrizeLinkedAccounts.getPoolInternal(poolID)
