@@ -64,6 +64,12 @@
 				"testnet": "839535ddeb5acf17"
 			}
 		},
+		"PLAPoolConnector": {
+			"source": "cadence/contracts/PLAPoolConnector.cdc",
+			"aliases": {
+				"testing": "0000000000000007"
+			}
+		},
 		"PrizeVault": {
 			"source": "cadence/contracts/PrizeVault.cdc",
 			"aliases": {

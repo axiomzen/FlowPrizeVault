@@ -4,3 +4,6 @@ imports
 .env
 azsavings.pkey
 *.pkey
+
+# worktrees
+.worktrees/

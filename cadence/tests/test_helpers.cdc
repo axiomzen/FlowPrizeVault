@@ -68,6 +68,7 @@ fun deployAllDependencies() {
     deployContract(name: "DeFiActions", path: "../../imports/92195d814edf9cb0/DeFiActions.cdc")
     deployContract(name: "PrizeLinkedAccounts", path: "../contracts/PrizeLinkedAccounts.cdc")
     deployContract(name: "MockYieldConnector", path: "../contracts/mock/MockYieldConnector.cdc")
+    deployContract(name: "PLAPoolConnector", path: "../contracts/PLAPoolConnector.cdc")
 }
 
 // ============================================================================
@@ -1631,4 +1632,48 @@ fun createPoolWithTruncatingConnector(rewards: UFix64, prize: UFix64, protocolFe
 
     let poolCount = getPoolCount()
     return UInt64(poolCount - 1)
+}
+
+// ============================================================================
+// CONNECTOR HELPERS (PLAPoolConnector)
+// ============================================================================
+
+access(all)
+fun connectorDeposit(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64) {
+    let depositResult = _executeTransaction(
+        "../transactions/test/connector_deposit.cdc",
+        [poolID, amount],
+        account
+    )
+    assertTransactionSucceeded(depositResult, context: "Connector deposit")
+}
+
+access(all)
+fun connectorWithdraw(_ account: Test.TestAccount, poolID: UInt64, amount: UFix64) {
+    let withdrawResult = _executeTransaction(
+        "../transactions/test/connector_withdraw.cdc",
+        [poolID, amount],
+        account
+    )
+    assertTransactionSucceeded(withdrawResult, context: "Connector withdraw")
+}
+
+access(all)
+fun getConnectorAvailable(_ userAddress: Address, _ poolID: UInt64): UFix64 {
+    let scriptResult = _executeScript(
+        "../scripts/test/connector_available.cdc",
+        [userAddress, poolID]
+    )
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! UFix64
+}
+
+access(all)
+fun getConnectorInfo(_ userAddress: Address, _ poolID: UInt64): {String: AnyStruct} {
+    let scriptResult = _executeScript(
+        "../scripts/test/create_connector_info.cdc",
+        [userAddress, poolID]
+    )
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: AnyStruct}
 }
