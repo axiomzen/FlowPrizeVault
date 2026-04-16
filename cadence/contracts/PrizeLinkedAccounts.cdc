@@ -4111,6 +4111,20 @@ access(all) contract PrizeLinkedAccounts {
         // ============================================================
         // LOTTERY DRAW OPERATIONS
         // ============================================================
+
+        /// Destroys the active round and transitions the pool into intermission.
+        /// Called from startDraw() (empty pool) and completeDraw() (no winners).
+        access(self) fun enterIntermission() {
+            let usedRound <- self.activeRound <- nil
+            let completedRoundID = usedRound?.getRoundID() ?? 0
+            self.lastCompletedRoundID = completedRoundID
+            destroy usedRound
+            emit IntermissionStarted(
+                poolID: self.poolID,
+                completedRoundID: completedRoundID,
+                prizePoolBalance: self.allocatedPrizeYield
+            )
+        }
         
         /// Starts a prize draw (Phase 1 of 3 - Batched Draw Process).
         /// 
@@ -4192,7 +4206,21 @@ access(all) contract PrizeLinkedAccounts {
                     self.unclaimedProtocolFeeVault.deposit(from: <- protocolVault)
                 }
             }
-            
+
+            // No registered receivers: skip the full draw sequence and enter intermission directly.
+            // allocatedPrizeYield carries forward to the next round automatically.
+            if self.registeredReceiverList.length == 0 {
+                let endedRoundID = (&self.activeRound as &Round?)?.getRoundID() ?? 0
+                emit DrawBatchStarted(
+                    poolID: self.poolID,
+                    endedRoundID: endedRoundID,
+                    newRoundID: 0,
+                    totalReceivers: 0
+                )
+                self.enterIntermission()
+                return
+            }
+
             // Prize amount is the allocated yield
             let prizeAmount = self.allocatedPrizeYield
             assert(prizeAmount > 0.0, message: "No prize pool funds. allocatedPrizeYield: \(self.allocatedPrizeYield)")
@@ -4399,19 +4427,7 @@ access(all) contract PrizeLinkedAccounts {
                     amounts: [],
                     round: self.prizeDistributor.getPrizeRound()
                 )
-                // Still need to clean up the active round
-                // Store the completed round ID before destroying for intermission state queries
-                let usedRound <- self.activeRound <- nil
-                let completedRoundID = usedRound?.getRoundID() ?? 0
-                self.lastCompletedRoundID = completedRoundID
-                destroy usedRound
-
-                // Pool is now in intermission - emit event
-                emit IntermissionStarted(
-                    poolID: self.poolID,
-                    completedRoundID: completedRoundID,
-                    prizePoolBalance: self.allocatedPrizeYield
-                )
+                self.enterIntermission()
                 return
             }
             

@@ -672,3 +672,31 @@ access(all) fun testLazyUserNotAffectedByFix() {
     // Draw completed successfully - lazy user participated correctly
     Test.assertEqual(true, isInIntermission(poolID))
 }
+
+access(all) fun testDrawWithNoRegisteredUsers() {
+    // Edge case: startDraw with zero registered receivers should skip the full
+    // draw sequence and enter intermission directly, carrying prize yield forward.
+    let deployer = Test.createAccount()
+    let poolID = createTestPoolWithMediumInterval()
+
+    // Fund a prize pool but add NO users
+    fundPrizePool(poolID, amount: 50.0)
+
+    // Advance past the round end
+    Test.moveTime(by: 70.0)
+
+    // startDraw should succeed and immediately enter intermission
+    startDraw(deployer, poolID: poolID)
+
+    // Pool must be in intermission (not mid-draw, no pending receipt)
+    Test.assertEqual(true, isInIntermission(poolID))
+
+    // Prize yield must carry forward (not zeroed out)
+    let totals = getPoolTotals(poolID)
+    let prizeBalance = totals["prizeBalance"] ?? 0.0
+    Test.assert(prizeBalance >= 50.0, message: "Prize yield should carry forward when no users: \(prizeBalance)")
+
+    // Admin can start a new round normally after the empty draw
+    startNextRound(deployer, poolID: poolID)
+    Test.assertEqual(false, isInIntermission(poolID))
+}
