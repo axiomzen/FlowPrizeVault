@@ -699,4 +699,11 @@ access(all) fun testDrawWithNoRegisteredUsers() {
     // Admin can start a new round normally after the empty draw
     startNextRound(deployer, poolID: poolID)
     Test.assertEqual(false, isInIntermission(poolID))
+
+    // Second consecutive empty draw must not panic (regression for BatchSelectionData resource leak)
+    Test.moveTime(by: 70.0)
+    startDraw(deployer, poolID: poolID)
+    Test.assertEqual(true, isInIntermission(poolID))
+    startNextRound(deployer, poolID: poolID)
+    Test.assertEqual(false, isInIntermission(poolID))
 }

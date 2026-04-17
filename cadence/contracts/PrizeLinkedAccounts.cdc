@@ -4119,6 +4119,8 @@ access(all) contract PrizeLinkedAccounts {
             let completedRoundID = usedRound?.getRoundID() ?? 0
             self.lastCompletedRoundID = completedRoundID
             destroy usedRound
+            let unusedSelectionData <- self.pendingSelectionData <- nil
+            destroy unusedSelectionData
             emit IntermissionStarted(
                 poolID: self.poolID,
                 completedRoundID: completedRoundID,
@@ -4211,6 +4213,8 @@ access(all) contract PrizeLinkedAccounts {
             // allocatedPrizeYield carries forward to the next round automatically.
             if self.registeredReceiverList.length == 0 {
                 let endedRoundID = (&self.activeRound as &Round?)?.getRoundID() ?? 0
+                let unusedSelectionData <- self.pendingSelectionData <- nil
+                destroy unusedSelectionData
                 emit DrawBatchStarted(
                     poolID: self.poolID,
                     endedRoundID: endedRoundID,
