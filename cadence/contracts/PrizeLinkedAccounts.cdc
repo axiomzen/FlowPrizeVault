@@ -4112,8 +4112,8 @@ access(all) contract PrizeLinkedAccounts {
         // LOTTERY DRAW OPERATIONS
         // ============================================================
 
-        /// Destroys the active round and transitions the pool into intermission.
-        /// Called from startDraw() (empty pool) and completeDraw() (no winners).
+        /// Destroys the active round and any pending batch state, transitioning the pool into intermission.
+        /// Single authoritative teardown — called from startDraw() (empty pool) and completeDraw() (all paths).
         access(self) fun enterIntermission() {
             let usedRound <- self.activeRound <- nil
             let completedRoundID = usedRound?.getRoundID() ?? 0
@@ -4213,8 +4213,6 @@ access(all) contract PrizeLinkedAccounts {
             // allocatedPrizeYield carries forward to the next round automatically.
             if self.registeredReceiverList.length == 0 {
                 let endedRoundID = (&self.activeRound as &Round?)?.getRoundID() ?? 0
-                let unusedSelectionData <- self.pendingSelectionData <- nil
-                destroy unusedSelectionData
                 emit DrawBatchStarted(
                     poolID: self.poolID,
                     endedRoundID: endedRoundID,
@@ -4412,10 +4410,6 @@ access(all) contract PrizeLinkedAccounts {
                 totalPrizeAmount: totalPrizeAmount
             )
             
-            // Consume and destroy selection data (done with it)
-            let usedSelectionData <- self.pendingSelectionData <- nil
-            destroy usedSelectionData
-            
             // Extract distribution results (winners are already selected above)
             let distributedWinners = selectionResult.winners
             let prizeAmounts = selectionResult.amounts
@@ -4536,19 +4530,7 @@ access(all) contract PrizeLinkedAccounts {
                 round: currentRound
             )
             
-            // Destroy the active round - its TWAB data has been used
-            // Store the completed round ID before destroying for intermission state queries
-            let usedRound <- self.activeRound <- nil
-            let completedRoundID = usedRound?.getRoundID() ?? 0
-            self.lastCompletedRoundID = completedRoundID
-            destroy usedRound
-            
-            // Pool is now in intermission - emit event
-            emit IntermissionStarted(
-                poolID: self.poolID,
-                completedRoundID: completedRoundID,
-                prizePoolBalance: self.allocatedPrizeYield
-            )
+            self.enterIntermission()
         }
 
         /// Starts a new round, exiting intermission (Phase 5 - optional, for explicit round control).
