@@ -699,4 +699,94 @@ access(all) fun testDrawWithNoRegisteredUsers() {
     // Admin can start a new round normally after the empty draw
     startNextRound(deployer, poolID: poolID)
     Test.assertEqual(false, isInIntermission(poolID))
+
+    // Second consecutive empty draw must not panic (regression for BatchSelectionData resource leak)
+    Test.moveTime(by: 70.0)
+    startDraw(deployer, poolID: poolID)
+    Test.assertEqual(true, isInIntermission(poolID))
+    startNextRound(deployer, poolID: poolID)
+    Test.assertEqual(false, isInIntermission(poolID))
+}
+
+access(all) fun testEmptyDrawThenNormalDraw() {
+    // Verifies that a round with no participants followed by a round with
+    // participants completes correctly and distributes prizes normally.
+    let deployer = Test.createAccount()
+    let poolID = createTestPoolWithMediumInterval()
+
+    // Round 1: no users, fund prize pool so yield accumulates
+    fundPrizePool(poolID, amount: 30.0)
+    Test.moveTime(by: 70.0)
+    startDraw(deployer, poolID: poolID)
+    Test.assertEqual(true, isInIntermission(poolID))
+
+    // Prize carries forward
+    let totalsAfterEmptyDraw = getPoolTotals(poolID)
+    let prizeAfterEmpty = totalsAfterEmptyDraw["prizeBalance"] ?? 0.0
+    Test.assert(prizeAfterEmpty >= 30.0, message: "Prize should carry forward: \(prizeAfterEmpty)")
+
+    // Round 2: add a user, run normal full draw sequence
+    startNextRound(deployer, poolID: poolID)
+
+    let user = Test.createAccount()
+    setupUserWithFundsAndCollection(user, amount: 200.0)
+    depositToPool(user, poolID: poolID, amount: 100.0)
+
+    fundPrizePool(poolID, amount: 20.0)
+    Test.moveTime(by: 70.0)
+
+    startDraw(user, poolID: poolID)
+
+    // Should be in batch processing (not immediate intermission) since there is a user
+    Test.assertEqual(false, isInIntermission(poolID))
+
+    processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
+    commitBlocksForRandomness()
+    completeDraw(user, poolID: poolID)
+
+    Test.assertEqual(true, isInIntermission(poolID))
+
+    // Prize pool should be reduced (prizes distributed to the one user)
+    let totalsAfterNormalDraw = getPoolTotals(poolID)
+    let prizeAfterNormal = totalsAfterNormalDraw["prizeBalance"] ?? 0.0
+    Test.assert(prizeAfterNormal < prizeAfterEmpty + 20.0, message: "Prizes should have been distributed: \(prizeAfterNormal)")
+}
+
+access(all) fun testNormalDrawThenEmptyDraw() {
+    // Verifies that a normal draw followed by an empty draw does not corrupt
+    // state — the BatchSelectionData from the normal draw is fully cleaned up
+    // before the empty draw runs.
+    let deployer = Test.createAccount()
+    let poolID = createTestPoolWithMediumInterval()
+
+    // Round 1: normal draw with one user
+    let user = Test.createAccount()
+    setupUserWithFundsAndCollection(user, amount: 200.0)
+    depositToPool(user, poolID: poolID, amount: 100.0)
+    fundPrizePool(poolID, amount: 50.0)
+    Test.moveTime(by: 70.0)
+
+    startDraw(user, poolID: poolID)
+    processAllDrawBatches(user, poolID: poolID, batchSize: 1000)
+    commitBlocksForRandomness()
+    completeDraw(user, poolID: poolID)
+    Test.assertEqual(true, isInIntermission(poolID))
+
+    // User fully withdraws (prizes were auto-compounded so balance > 100).
+    // Query the actual asset balance and withdraw it all to reach zero shares,
+    // which unregisters the user from the pool.
+    let balanceInfo = getUserPoolBalance(user.address, poolID)
+    let fullBalance = balanceInfo["totalBalance"] ?? 0.0
+    Test.assert(fullBalance > 0.0, message: "User should have a balance after winning prizes: \(fullBalance)")
+    withdrawFromPool(user, poolID: poolID, amount: fullBalance)
+
+    // Round 2: user is unregistered — empty draw must not panic
+    startNextRound(deployer, poolID: poolID)
+    Test.moveTime(by: 70.0)
+    startDraw(deployer, poolID: poolID)
+    Test.assertEqual(true, isInIntermission(poolID))
+
+    // Can start a fresh round after the empty draw
+    startNextRound(deployer, poolID: poolID)
+    Test.assertEqual(false, isInIntermission(poolID))
 }
