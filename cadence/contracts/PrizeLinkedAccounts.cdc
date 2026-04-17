@@ -4113,7 +4113,6 @@ access(all) contract PrizeLinkedAccounts {
         // ============================================================
 
         /// Destroys the active round and any pending batch state, transitioning the pool into intermission.
-        /// Single authoritative teardown — called from startDraw() (empty pool) and completeDraw() (all paths).
         access(self) fun enterIntermission() {
             let usedRound <- self.activeRound <- nil
             let completedRoundID = usedRound?.getRoundID() ?? 0
