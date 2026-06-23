@@ -12,7 +12,8 @@ import "test_helpers.cdc"
 //
 // Functions under test:
 // - ShareTracker.previewAccrueYield()
-// - Pool.previewDeficitImpactOnRewards()
+// - Pool.getProjectedDistribution()
+// - Pool.getProjectedSharePrice()
 // - Pool.getProjectedUserBalance()
 // - PrizeLinkedAccounts.getProjectedUserBalance() (contract-level)
 // ============================================================================
