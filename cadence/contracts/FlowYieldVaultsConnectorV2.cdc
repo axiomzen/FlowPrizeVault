@@ -235,10 +235,6 @@ access(all) contract FlowYieldVaultsConnectorV2 {
                 return <- DeFiActionsUtils.getEmptyVault(self.vaultType)
             }
 
-            let available = managerRef.getYieldVaultBalance()
-            assert(available > 0.0, message: "Connector.withdrawAvailable: zero balance. requested: "
-                .concat(truncatedAmount.toString()))
-
             return <- managerRef.withdrawFromYieldVault(maxAmount: truncatedAmount)
         }
 
