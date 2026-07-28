@@ -3559,10 +3559,8 @@ access(all) contract PrizeLinkedAccounts {
                     panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(nominalAmount)")
             }
 
-            // Process pending yield/deficit before deposit to ensure fair share price
-            if self.needsSync() {
-                self.syncWithYieldSource()
-            }
+            // Process pending yield/deficit before deposit to ensure fair share price.
+            self.syncWithYieldSource()
 
             let now = getCurrentBlock().timestamp
 
@@ -3647,10 +3645,8 @@ access(all) contract PrizeLinkedAccounts {
                     panic("Pool is paused. No operations allowed. ReceiverID: \(receiverID), amount: \(nominalAmount)")
             }
 
-            // Process pending yield/deficit before deposit to ensure fair share price
-            if self.needsSync() {
-                self.syncWithYieldSource()
-            }
+            // Process pending yield/deficit before deposit to ensure fair share price.
+            self.syncWithYieldSource()
 
             // 1. Deposit to yield source FIRST (zero-check is centralized in depositToYieldSourceFull)
             let actualReceived = self.depositToYieldSourceFull(<- from)
@@ -3732,9 +3728,17 @@ access(all) contract PrizeLinkedAccounts {
                 let _ = self.checkAndAutoRecover()
             }
             
-            // Process pending yield/deficit before withdrawal (if in normal mode)
-            if self.emergencyState == PoolEmergencyState.Normal && self.needsSync() {
-                self.syncWithYieldSource()
+            // Querying the yield source balance is expensive (strategies may quote
+            // swap routes via EVM), so fetch it once and reuse it for both the sync
+            // and the liquidity check below. Syncing only updates internal accounting
+            // and never moves funds, so the balance cannot change in between.
+            let yieldAvailable = self.config.yieldConnector.minimumAvailable()
+
+            // Process pending yield/deficit before withdrawal (if in normal mode).
+            // syncWithYieldBalance() skips differences below MINIMUM_DISTRIBUTION_THRESHOLD,
+            // which covers the previous needsSync() gate.
+            if self.emergencyState == PoolEmergencyState.Normal {
+                self.syncWithYieldBalance(yieldBalance: yieldAvailable)
             }
             
             // Validate user has sufficient balance
@@ -3753,9 +3757,6 @@ access(all) contract PrizeLinkedAccounts {
 
             // For full withdrawals, request the full balance (may be adjusted by yield source availability)
             var withdrawAmount = isFullWithdrawal ? totalBalance : amount
-
-            // Check if yield source has sufficient liquidity
-            let yieldAvailable = self.config.yieldConnector.minimumAvailable()
 
             // For full withdrawals with minor rounding mismatch, use available amount
             if isFullWithdrawal && yieldAvailable < withdrawAmount && yieldAvailable > 0.0 {
@@ -3898,7 +3899,14 @@ access(all) contract PrizeLinkedAccounts {
         /// Called automatically during deposits and withdrawals.
         /// Can also be called manually by admin.
         access(contract) fun syncWithYieldSource() {
-            let yieldBalance = self.config.yieldConnector.minimumAvailable()
+            self.syncWithYieldBalance(yieldBalance: self.config.yieldConnector.minimumAvailable())
+        }
+
+        /// Variant of syncWithYieldSource() that takes a pre-fetched yield source balance.
+        /// Querying the yield source is expensive (strategies may quote swap routes
+        /// via EVM), so callers that already hold a fresh minimumAvailable() result
+        /// pass it here instead of paying for a second query.
+        access(contract) fun syncWithYieldBalance(yieldBalance: UFix64) {
             let allocatedFunds = self.getTotalAllocatedFunds()
             
             // Calculate absolute difference
@@ -4157,9 +4165,7 @@ access(all) contract PrizeLinkedAccounts {
             // Sync with yield source to capture any pending yield before materializing prizes.
             // This ensures yield added directly to the yield source (not via deposits) is
             // properly accounted for in allocatedPrizeYield before the draw.
-            if self.needsSync() {
-                self.syncWithYieldSource()
-            }
+            self.syncWithYieldSource()
 
             let now = getCurrentBlock().timestamp
 
