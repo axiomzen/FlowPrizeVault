@@ -1227,6 +1227,33 @@ access(all) contract PrizeLinkedAccounts {
         }
     }
     
+    /// Represents the projected state of all three yield buckets (rewards, prize, protocol)
+    /// if syncWithYieldSource() were called right now. Used by view functions to provide
+    /// real-time projections without mutating state.
+    ///
+    /// - rewardsAmount: Projected totalAssets in the ShareTracker (drives share price)
+    /// - prizeAmount: Projected allocatedPrizeYield (pending prize yield in yield source)
+    /// - protocolFeeAmount: Projected allocatedProtocolFee (pending protocol fee in yield source)
+    /// - totalShares: Current total shares (unchanged by sync — only share price moves)
+    access(all) struct ProjectedDistribution {
+        access(all) let rewardsAmount: UFix64
+        access(all) let prizeAmount: UFix64
+        access(all) let protocolFeeAmount: UFix64
+        access(all) let totalShares: UFix64
+
+        init(
+            rewardsAmount: UFix64,
+            prizeAmount: UFix64,
+            protocolFeeAmount: UFix64,
+            totalShares: UFix64
+        ) {
+            self.rewardsAmount = rewardsAmount
+            self.prizeAmount = prizeAmount
+            self.protocolFeeAmount = protocolFeeAmount
+            self.totalShares = totalShares
+        }
+    }
+    
     /// Strategy Pattern interface for yield distribution algorithms.
     /// 
     /// Implementations determine how yield is split between rewards, prize, and protocol fee.
@@ -4030,22 +4057,73 @@ access(all) contract PrizeLinkedAccounts {
             )
         }
         
-        /// Pure calculation of how much of a deficit would cascade through to the
-        /// rewards pool (reducing share price). Mirrors the deficit waterfall:
-        /// protocol fee absorbed first, then prize pool, then rewards.
-        /// Used by getProjectedUserBalance for read-only deficit preview.
+        /// Computes the projected state of all three yield buckets (rewards, prize, protocol)
+        /// if syncWithYieldSource() were called right now. This is the single source of truth
+        /// for all projected view functions — no state is mutated.
         ///
-        /// @param deficitAmount - Total deficit to preview
-        /// @return Amount that would hit rewards (share price)
-        access(self) view fun previewDeficitImpactOnRewards(deficitAmount: UFix64): UFix64 {
-            var remaining = deficitAmount
-            let absorbedByProtocol = remaining < self.allocatedProtocolFee
-                ? remaining : self.allocatedProtocolFee
-            remaining = remaining - absorbedByProtocol
-            let absorbedByPrize = remaining < self.allocatedPrizeYield
-                ? remaining : self.allocatedPrizeYield
-            remaining = remaining - absorbedByPrize
-            return remaining
+        /// Excess yield: distributes the pending difference via the distribution strategy.
+        ///   Rewards portion is reduced by virtual-share dust (via previewAccrueYield).
+        ///   Protocol portion includes the rewards dust that would be routed there.
+        /// Deficit: applies the waterfall (protocol fee → prize → rewards) to determine
+        ///   how much each bucket would lose.
+        /// Below threshold: returns current cached values unchanged.
+        ///
+        /// @return ProjectedDistribution with projected totals for each bucket
+        access(self) fun getProjectedDistribution(): PrizeLinkedAccounts.ProjectedDistribution {
+            let yieldBalance = self.config.yieldConnector.minimumAvailable()
+            let allocatedFunds = self.getTotalAllocatedFunds()
+            let difference: UFix64 = yieldBalance > allocatedFunds
+                ? yieldBalance - allocatedFunds
+                : allocatedFunds - yieldBalance
+
+            // Below threshold — no change
+            if difference < PrizeLinkedAccounts.MINIMUM_DISTRIBUTION_THRESHOLD {
+                return PrizeLinkedAccounts.ProjectedDistribution(
+                    rewardsAmount: self.shareTracker.getTotalAssets(),
+                    prizeAmount: self.allocatedPrizeYield,
+                    protocolFeeAmount: self.allocatedProtocolFee,
+                    totalShares: self.shareTracker.getTotalShares()
+                )
+            }
+
+            if yieldBalance > allocatedFunds {
+                // Excess yield — preview the distribution split
+                let plan = self.config.distributionStrategy.calculateDistribution(
+                    totalAmount: difference
+                )
+                // Rewards portion: previewAccrueYield excludes virtual-share dust.
+                // The dust would be routed to protocol fee (matching applyExcess).
+                let projectedRewards = self.shareTracker.previewAccrueYield(
+                    amount: plan.rewardsAmount
+                )
+                let rewardsDust = plan.rewardsAmount - projectedRewards
+                return PrizeLinkedAccounts.ProjectedDistribution(
+                    rewardsAmount: self.shareTracker.getTotalAssets() + projectedRewards,
+                    prizeAmount: self.allocatedPrizeYield + plan.prizeAmount,
+                    protocolFeeAmount: self.allocatedProtocolFee + plan.protocolFeeAmount + rewardsDust,
+                    totalShares: self.shareTracker.getTotalShares()
+                )
+            } else {
+                // Deficit — waterfall: protocol fee first, then prize, then rewards
+                var remaining = difference
+                let absorbedByProtocol = remaining < self.allocatedProtocolFee
+                    ? remaining : self.allocatedProtocolFee
+                remaining = remaining - absorbedByProtocol
+                let absorbedByPrize = remaining < self.allocatedPrizeYield
+                    ? remaining : self.allocatedPrizeYield
+                remaining = remaining - absorbedByPrize
+                // remaining is now the amount that would hit rewards (share price)
+                let currentTotalAssets = self.shareTracker.getTotalAssets()
+                let projectedRewards = currentTotalAssets > remaining
+                    ? currentTotalAssets - remaining
+                    : 0.0
+                return PrizeLinkedAccounts.ProjectedDistribution(
+                    rewardsAmount: projectedRewards,
+                    prizeAmount: self.allocatedPrizeYield - absorbedByPrize,
+                    protocolFeeAmount: self.allocatedProtocolFee - absorbedByProtocol,
+                    totalShares: self.shareTracker.getTotalShares()
+                )
+            }
         }
 
         /// Applies a deficit (depreciation) from the yield source across the pool.
@@ -4832,9 +4910,20 @@ access(all) contract PrizeLinkedAccounts {
         access(all) view fun getTotalRewardsAssets(): UFix64 {
             return self.shareTracker.getTotalAssets()
         }
-        
         access(all) view fun getRewardsSharePrice(): UFix64 {
             return self.shareTracker.getSharePrice()
+        }
+
+        /// Returns the projected share price accounting for unsync'd yield or deficit.
+        /// Calculates what the share price would be if syncWithYieldSource() were called now.
+        /// This is a read-only preview — no state is mutated.
+        ///
+        /// @return Projected share price (assets per share, with virtual offset)
+        access(all) fun getProjectedSharePrice(): UFix64 {
+            let projected = self.getProjectedDistribution()
+            let effectiveShares = projected.totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES
+            let effectiveAssets = projected.rewardsAmount + PrizeLinkedAccounts.VIRTUAL_ASSETS
+            return effectiveAssets / effectiveShares
         }
         
         /// Returns the user's current TWAB for the active round.
@@ -4861,46 +4950,9 @@ access(all) contract PrizeLinkedAccounts {
                 return 0.0
             }
 
-            // Compare yield source balance to what we've already accounted for
-            let yieldBalance = self.config.yieldConnector.minimumAvailable()
-            let allocatedFunds = self.getTotalAllocatedFunds()
-            let difference: UFix64 = yieldBalance > allocatedFunds
-                ? yieldBalance - allocatedFunds
-                : allocatedFunds - yieldBalance
-
-            // If difference is below dust threshold, just return current balance
-            if difference < PrizeLinkedAccounts.MINIMUM_DISTRIBUTION_THRESHOLD {
-                return self.shareTracker.getUserAssetValue(receiverID: receiverID)
-            }
-
-            var projectedTotalAssets = self.shareTracker.getTotalAssets()
-            let totalShares = self.shareTracker.getTotalShares()
-
-            if yieldBalance > allocatedFunds {
-                // Excess yield — preview the distribution split
-                let plan = self.config.distributionStrategy.calculateDistribution(
-                    totalAmount: difference
-                )
-                // Only the rewards portion increases share price
-                let projectedRewards = self.shareTracker.previewAccrueYield(
-                    amount: plan.rewardsAmount
-                )
-                projectedTotalAssets = projectedTotalAssets + projectedRewards
-            } else {
-                // Deficit — preview the waterfall impact on rewards
-                let deficitToRewards = self.previewDeficitImpactOnRewards(
-                    deficitAmount: difference
-                )
-                projectedTotalAssets = projectedTotalAssets > deficitToRewards
-                    ? projectedTotalAssets - deficitToRewards
-                    : 0.0
-            }
-
-            // Compute projected share price with virtual offset
-            let effectiveShares = totalShares + PrizeLinkedAccounts.VIRTUAL_SHARES
-            let effectiveAssets = projectedTotalAssets + PrizeLinkedAccounts.VIRTUAL_ASSETS
-            let projectedSharePrice = effectiveAssets / effectiveShares
-
+            // Delegate to getProjectedSharePrice() which handles both excess and
+            // deficit projection (threshold check, distribution split, waterfall).
+            let projectedSharePrice = self.getProjectedSharePrice()
             return userShares * projectedSharePrice
         }
 
@@ -5156,6 +5208,16 @@ access(all) contract PrizeLinkedAccounts {
         /// Returns total prize pool balance including pending yield.
         access(all) view fun getPrizePoolBalance(): UFix64 {
             return self.prizeDistributor.getPrizePoolBalance() + self.allocatedPrizeYield
+        }
+
+        /// Returns the projected prize pool balance accounting for unsync'd yield or deficit.
+        /// Calculates what the prize pool would be if syncWithYieldSource() were called now.
+        /// This is a read-only preview — no state is mutated.
+        ///
+        /// @return Projected total prize pool balance (prize vault + projected allocated prize yield)
+        access(all) fun getProjectedPrizePoolBalance(): UFix64 {
+            let projected = self.getProjectedDistribution()
+            return self.prizeDistributor.getPrizePoolBalance() + projected.prizeAmount
         }
 
         access(all) view fun getUnclaimedProtocolBalance(): UFix64 {
@@ -5722,6 +5784,30 @@ access(all) contract PrizeLinkedAccounts {
     access(all) fun getProjectedUserBalance(poolID: UInt64, receiverID: UInt64): UFix64 {
         if let poolRef = self.borrowPool(poolID: poolID) {
             return poolRef.getProjectedUserBalance(receiverID: receiverID)
+        }
+        return 0.0
+    }
+    
+    /// Returns the projected share price for a pool, accounting for unsync'd yield or deficit.
+    /// Convenience wrapper that borrows the pool and delegates to Pool.getProjectedSharePrice.
+    ///
+    /// @param poolID - Pool to query
+    /// @return Projected share price, or 1.0 if pool not found
+    access(all) fun getProjectedSharePrice(poolID: UInt64): UFix64 {
+        if let poolRef = self.borrowPool(poolID: poolID) {
+            return poolRef.getProjectedSharePrice()
+        }
+        return 1.0
+    }
+
+    /// Returns the projected prize pool balance for a pool, accounting for unsync'd yield or deficit.
+    /// Convenience wrapper that borrows the pool and delegates to Pool.getProjectedPrizePoolBalance.
+    ///
+    /// @param poolID - Pool to query
+    /// @return Projected prize pool balance, or 0.0 if pool not found
+    access(all) fun getProjectedPrizePoolBalance(poolID: UInt64): UFix64 {
+        if let poolRef = self.borrowPool(poolID: poolID) {
+            return poolRef.getProjectedPrizePoolBalance()
         }
         return 0.0
     }

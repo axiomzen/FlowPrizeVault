@@ -1104,6 +1104,20 @@ fun getProjectedBalance(_ userAddress: Address, _ poolID: UInt64): {String: UFix
     return scriptResult.returnValue! as! {String: UFix64}
 }
 
+access(all)
+fun getProjectedPrizePoolBalance(_ poolID: UInt64): {String: UFix64} {
+    let scriptResult = _executeScript("../scripts/test/get_projected_prize_pool_balance.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: UFix64}
+}
+
+access(all)
+fun getProjectedSharePrice(_ poolID: UInt64): {String: UFix64} {
+    let scriptResult = _executeScript("../scripts/test/get_projected_share_price.cdc", [poolID])
+    Test.expect(scriptResult, Test.beSucceeded())
+    return scriptResult.returnValue! as! {String: UFix64}
+}
+
 // ============================================================================
 // PRECISION TESTING HELPERS
 // ============================================================================
