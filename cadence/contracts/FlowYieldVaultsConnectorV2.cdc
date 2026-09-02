@@ -24,6 +24,7 @@ import FlowYieldVaults from 0xb1d63873c3cc9f79
 import FlowYieldVaultsClosedBeta from 0xb1d63873c3cc9f79
 import DeFiActions from 0x92195d814edf9cb0
 import DeFiActionsUtils from 0x92195d814edf9cb0
+import "PrizeLinkedAccounts"
 
 access(all) contract FlowYieldVaultsConnectorV2 {
 
@@ -141,6 +142,28 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             return 0.0
         }
 
+        /// Query the yield vault's NAV: the underlying-asset value of the position via the
+        /// ERC-4626 vault's convertToAssets, independent of how much can be withdrawn now.
+        /// Publicly accessible (read-only), same as getYieldVaultBalance().
+        ///
+        /// getYieldVaultBalance() answers "how much can we exit today"; this answers
+        /// "how much do we own". They diverge whenever the underlying vault's exit is
+        /// throttled, and solvency accounting must use this one.
+        access(all) fun getYieldVaultNAV(): UFix64 {
+            if self.yieldVaultID == nil {
+                return 0.0
+            }
+
+            let yieldVaultManager = self.yieldVaultManagerCap.borrow()
+                ?? panic("getYieldVaultNAV: failed to borrow YieldVaultManager")
+
+            if let yieldVaultRef = yieldVaultManager.borrowYieldVault(id: self.yieldVaultID!) {
+                return yieldVaultRef.getNAVBalance()
+            }
+
+            return 0.0
+        }
+
         /// Withdraw tokens from the yield vault. Requires Operate entitlement.
         access(Operate) fun withdrawFromYieldVault(maxAmount: UFix64): @{FungibleToken.Vault} {
             pre {
@@ -176,7 +199,7 @@ access(all) contract FlowYieldVaultsConnectorV2 {
     /// and uses the public capability for balance queries.
     /// Once this struct is stored inside PrizeLinkedAccounts' Pool (access(contract) field),
     /// only PrizeLinkedAccounts can trigger deposit/withdraw operations.
-    access(all) struct Connector: DeFiActions.Sink, DeFiActions.Source {
+    access(all) struct Connector: DeFiActions.Sink, DeFiActions.Source, PrizeLinkedAccounts.NAVSource {
         access(all) let managerAddress: Address
         access(self) let operateCap: Capability<auth(Operate) &YieldVaultManagerWrapper>
         access(contract) var uniqueID: DeFiActions.UniqueIdentifier?
@@ -218,6 +241,20 @@ access(all) contract FlowYieldVaultsConnectorV2 {
             if let managerRef = self.operateCap.borrow() {
                 return FlowYieldVaultsConnectorV2.truncateTo6DecimalPrecision(
                     managerRef.getYieldVaultBalance()
+                )
+            }
+            return 0.0
+        }
+
+        /// NAV of the position, truncated to 6 decimals for EVM bridge compatibility.
+        ///
+        /// Deliberately NOT part of the DeFiActions.Source interface: minimumAvailable()
+        /// must keep its documented meaning (withdrawable right now) so that callers
+        /// using it as a liquidity guard stay correct.
+        access(all) fun navAvailable(): UFix64 {
+            if let managerRef = self.operateCap.borrow() {
+                return FlowYieldVaultsConnectorV2.truncateTo6DecimalPrecision(
+                    managerRef.getYieldVaultNAV()
                 )
             }
             return 0.0

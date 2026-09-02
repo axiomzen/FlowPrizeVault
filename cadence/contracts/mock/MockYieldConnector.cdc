@@ -1,6 +1,7 @@
 import "FungibleToken"
 import "DeFiActions"
 import "DeFiActionsUtils"
+import "PrizeLinkedAccounts"
 
 /// MockYieldConnector - Simple vault connector for testing PrizeLinkedAccounts
 /// Implements DeFiActions.Sink and DeFiActions.Source interfaces to connect
@@ -496,5 +497,123 @@ access(all) contract MockYieldConnector {
             vaultType: vaultType
         )
     }
+
+    /// ThrottledLiquidityConnector - models a yield source whose position is fully
+    /// intact but whose exit is throttled, e.g. a Morpho Vault V2 whose curator has
+    /// cleared the liquidity adapter so redemptions are served from idle only.
+    ///
+    /// minimumAvailable() reports only what can be withdrawn right now (`liquidityCap`),
+    /// while navAvailable() reports the whole position. This is the shape that caused a
+    /// throttled exit to be mistaken for a 60% loss and socialised across depositors.
+    access(all) struct ThrottledLiquidityConnector: DeFiActions.Sink, DeFiActions.Source, PrizeLinkedAccounts.NAVSource {
+        access(self) let providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>
+        access(self) let receiverCap: Capability<&{FungibleToken.Receiver}>
+        access(self) let vaultType: Type
+        /// Ceiling on what minimumAvailable() will report, regardless of the real balance.
+        access(all) var liquidityCap: UFix64
+        access(contract) var uniqueID: DeFiActions.UniqueIdentifier?
+
+        init(
+            providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>,
+            receiverCap: Capability<&{FungibleToken.Receiver}>,
+            vaultType: Type,
+            liquidityCap: UFix64
+        ) {
+            self.providerCap = providerCap
+            self.receiverCap = receiverCap
+            self.vaultType = vaultType
+            self.liquidityCap = liquidityCap
+            self.uniqueID = nil
+        }
+
+        // ============ Sink ============
+
+        access(all) view fun getSinkType(): Type {
+            return self.vaultType
+        }
+
+        access(all) fun minimumCapacity(): UFix64 {
+            return UFix64.max
+        }
+
+        access(all) fun depositCapacity(from: auth(FungibleToken.Withdraw) &{FungibleToken.Vault}) {
+            if let receiver = self.receiverCap.borrow() {
+                let amount = from.balance
+                if amount > 0.0 {
+                    receiver.deposit(from: <-from.withdraw(amount: amount))
+                }
+            }
+        }
+
+        // ============ Source ============
+
+        access(all) view fun getSourceType(): Type {
+            return self.vaultType
+        }
+
+        /// Withdrawable right now: the real balance, capped by available liquidity.
+        access(all) fun minimumAvailable(): UFix64 {
+            if let provider = self.providerCap.borrow() {
+                return provider.balance < self.liquidityCap ? provider.balance : self.liquidityCap
+            }
+            return 0.0
+        }
+
+        access(FungibleToken.Withdraw) fun withdrawAvailable(maxAmount: UFix64): @{FungibleToken.Vault} {
+            if let provider = self.providerCap.borrow() {
+                let available = self.minimumAvailable()
+                let withdrawAmount = maxAmount < available ? maxAmount : available
+                if withdrawAmount > 0.0 {
+                    return <-provider.withdraw(amount: withdrawAmount)
+                }
+            }
+            return <-DeFiActionsUtils.getEmptyVault(self.vaultType)
+        }
+
+        // ============ NAVSource ============
+
+        /// The whole position, unaffected by the liquidity throttle.
+        access(all) fun navAvailable(): UFix64 {
+            if let provider = self.providerCap.borrow() {
+                return provider.balance
+            }
+            return 0.0
+        }
+
+        // ============ DeFiActions plumbing ============
+
+        access(all) fun getComponentInfo(): DeFiActions.ComponentInfo {
+            return DeFiActions.ComponentInfo(
+                type: self.getType(),
+                id: self.uniqueID?.id,
+                innerComponents: []
+            )
+        }
+
+        access(contract) view fun copyID(): DeFiActions.UniqueIdentifier? {
+            return self.uniqueID
+        }
+
+        access(contract) fun setID(_ id: DeFiActions.UniqueIdentifier?) {
+            self.uniqueID = id
+        }
+    }
+
+    /// Creates a ThrottledLiquidityConnector.
+    /// @param liquidityCap - ceiling on what minimumAvailable() reports
+    access(all) fun createThrottledLiquidityConnector(
+        providerCap: Capability<auth(FungibleToken.Withdraw) &{FungibleToken.Provider, FungibleToken.Balance}>,
+        receiverCap: Capability<&{FungibleToken.Receiver}>,
+        vaultType: Type,
+        liquidityCap: UFix64
+    ): ThrottledLiquidityConnector {
+        return ThrottledLiquidityConnector(
+            providerCap: providerCap,
+            receiverCap: receiverCap,
+            vaultType: vaultType,
+            liquidityCap: liquidityCap
+        )
+    }
+
 }
 

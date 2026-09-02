@@ -568,8 +568,8 @@
 		},
 		"mainnet": {
 			"mainnet-deployer": [
-				"FlowYieldVaultsConnectorV2",
-				"PrizeLinkedAccounts"
+				"PrizeLinkedAccounts",
+				"FlowYieldVaultsConnectorV2"
 			]
 		},
 		"testnet": {
