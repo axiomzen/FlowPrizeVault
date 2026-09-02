@@ -1247,6 +1247,20 @@ access(all) contract PrizeLinkedAccounts {
         access(all) view fun getStrategyName(): String
     }
     
+    /// A yield connector that can report the NAV of its position: the underlying-asset
+    /// value of what the pool owns, independent of how much can be withdrawn right now.
+    ///
+    /// Declared here rather than imported from a specific connector so PrizeLinkedAccounts
+    /// carries no dependency on any single yield integration -- connectors opt in by
+    /// conforming, and pools on connectors that do not conform keep prior behaviour.
+    ///
+    /// Implementations MUST NOT throttle this by current withdrawal liquidity. A vault
+    /// that has closed its exit is illiquid, not impaired, and reporting the throttled
+    /// figure here socialises a phantom loss across every depositor.
+    access(all) struct interface NAVSource {
+        access(all) fun navAvailable(): UFix64
+    }
+
     /// Fixed percentage distribution strategy.
     /// Splits yield according to pre-configured percentages that must sum to 1.0.
     /// 
@@ -3735,10 +3749,12 @@ access(all) contract PrizeLinkedAccounts {
             let yieldAvailable = self.config.yieldConnector.minimumAvailable()
 
             // Process pending yield/deficit before withdrawal (if in normal mode).
-            // syncWithYieldBalance() skips differences below MINIMUM_DISTRIBUTION_THRESHOLD,
-            // which covers the previous needsSync() gate.
+            // Solvency is marked against NAV, never against yieldAvailable: the latter is
+            // a liquidity quote, and marking against it turns a throttled exit into a
+            // permanent loss socialised across every depositor.
+            // yieldAvailable remains the right input for the liquidity checks below.
             if self.emergencyState == PoolEmergencyState.Normal {
-                self.syncWithYieldBalance(yieldBalance: yieldAvailable)
+                self.syncWithYieldBalance(yieldBalance: self.getYieldSourceNAV())
             }
             
             // Validate user has sufficient balance
@@ -3899,7 +3915,7 @@ access(all) contract PrizeLinkedAccounts {
         /// Called automatically during deposits and withdrawals.
         /// Can also be called manually by admin.
         access(contract) fun syncWithYieldSource() {
-            self.syncWithYieldBalance(yieldBalance: self.config.yieldConnector.minimumAvailable())
+            self.syncWithYieldBalance(yieldBalance: self.getYieldSourceNAV())
         }
 
         /// Variant of syncWithYieldSource() that takes a pre-fetched yield source balance.
@@ -3944,13 +3960,13 @@ access(all) contract PrizeLinkedAccounts {
         /// @return actualReceived - The actual amount credited to the yield source
         access(self) fun depositToYieldSourceFull(_ vault: @{FungibleToken.Vault}): UFix64 {
             let nominalAmount = vault.balance
-            let beforeYieldBalance = self.config.yieldConnector.minimumAvailable()
+            let beforeYieldBalance = self.getYieldSourceNAV()
 
             self.config.yieldConnector.depositCapacity(from: &vault as auth(FungibleToken.Withdraw) &{FungibleToken.Vault})
             assert(vault.balance == 0.0, message: "Yield sink could not accept full deposit. Nominal: \(nominalAmount), leftover: \(vault.balance)")
             destroy vault
 
-            let afterYieldBalance = self.config.yieldConnector.minimumAvailable()
+            let afterYieldBalance = self.getYieldSourceNAV()
             let actualReceived = afterYieldBalance - beforeYieldBalance
 
             // Centralized zero-check: every caller is protected against a buggy/paused
@@ -4861,8 +4877,10 @@ access(all) contract PrizeLinkedAccounts {
                 return 0.0
             }
 
-            // Compare yield source balance to what we've already accounted for
-            let yieldBalance = self.config.yieldConnector.minimumAvailable()
+            // Compare yield source NAV to what we've already accounted for. This is the
+            // number the API renders as the user's balance, so it must track what the user
+            // owns, not what could be liquidated this second.
+            let yieldBalance = self.getYieldSourceNAV()
             let allocatedFunds = self.getTotalAllocatedFunds()
             let difference: UFix64 = yieldBalance > allocatedFunds
                 ? yieldBalance - allocatedFunds
@@ -5112,13 +5130,28 @@ access(all) contract PrizeLinkedAccounts {
             return yieldSource.minimumAvailable()
         }
 
+        /// Returns the NAV of the yield source position: what the pool OWNS, via the
+        /// ERC-4626 vault's convertToAssets. Contrast getYieldSourceBalance(), which
+        /// returns what can be exited right now.
+        ///
+        /// The two diverge whenever the underlying vault throttles withdrawals. A closed
+        /// exit is illiquidity, not impairment, so every solvency and balance calculation
+        /// must read this, never the withdrawable quote.
+        ///
+        /// Falls back to the withdrawable quote for connectors that cannot report NAV,
+        /// which preserves existing behaviour for pools on other yield sources.
+        access(all) fun getYieldSourceNAV(): UFix64 {
+            if let navConnector = self.config.yieldConnector as? {NAVSource} {
+                return navConnector.navAvailable()
+            }
+            return self.config.yieldConnector.minimumAvailable()
+        }
+
         /// Returns true if internal accounting differs from yield source balance.
         /// Handles both excess (gains) and deficit (losses).
         /// This is used to determine if syncWithYieldSource() needs to be called.
         access(all) fun needsSync(): Bool {
-            let yieldSource = &self.config.yieldConnector as &{DeFiActions.Source}
-            let yieldBalance = yieldSource.minimumAvailable()
-            return yieldBalance != self.getTotalAllocatedFunds()
+            return self.getYieldSourceNAV() != self.getTotalAllocatedFunds()
         }
         
         // ============================================================

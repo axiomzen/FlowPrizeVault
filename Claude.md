@@ -110,7 +110,11 @@ PartialMode   // Limited deposits, no draws
 
 ## Important Invariants
 
-1. `userPoolBalance + allocatedPrizeYield + allocatedProtocolFee == yieldSourceBalance` (after sync)
+1. `userPoolBalance + allocatedPrizeYield + allocatedProtocolFee == yieldSourceNAV` (after sync)
+   - NAV is the position's underlying-asset value (`getYieldSourceNAV()`), **not** the
+     amount withdrawable right now (`getYieldSourceBalance()` / `minimumAvailable()`).
+     The two diverge when a yield source throttles withdrawals; a throttled exit is
+     illiquidity, not impairment, and syncing against it socialises a phantom loss.
 2. `normalizedWeight <= shares` (TWAB safety cap)
 3. `sharePrice = (totalAssets + 0.0001) / (totalShares + 0.0001)` (virtual offset)
 

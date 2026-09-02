@@ -1583,6 +1583,20 @@ fun createPoolWithSlippageConnector(rewards: UFix64, prize: UFix64, protocolFee:
 }
 
 access(all)
+fun createPoolWithThrottledConnector(rewards: UFix64, prize: UFix64, protocolFee: UFix64, liquidityCap: UFix64): UInt64 {
+    let deployerAccount = getDeployerAccount()
+    let createResult = _executeTransaction(
+        "../transactions/test/create_pool_with_throttled_connector.cdc",
+        [rewards, prize, protocolFee, liquidityCap],
+        deployerAccount
+    )
+    assertTransactionSucceeded(createResult, context: "Create pool with throttled liquidity connector")
+
+    let poolCount = getPoolCount()
+    return UInt64(poolCount - 1)
+}
+
+access(all)
 fun getYieldVaultBalance(poolIndex: Int, vaultPrefix: String): UFix64 {
     let scriptResult = _executeScript(
         "../scripts/test/get_yield_vault_balance_by_prefix.cdc",
