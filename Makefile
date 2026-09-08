@@ -37,6 +37,18 @@ test-all-cover:
 	flow test cadence/tests/*_test.cdc cadence/long_tests/*_test.cdc --cover
 
 # ----------------------------------------------------------------------------
+# Mainnet signing
+# ----------------------------------------------------------------------------
+
+## Check gcloud credentials and mainnet deployer key state before a signing session
+mainnet-preflight:
+	@gcloud auth application-default print-access-token >/dev/null 2>&1 \
+		&& echo "ADC: ok" \
+		|| (echo "ADC: expired. Run: gcloud auth application-default login"; exit 1)
+	@flow accounts get 0xa092c4aab33daeda --network mainnet --skip-version-check 2>/dev/null \
+		| grep -E "^Keys|^Key |Revoked|Sequence"
+
+# ----------------------------------------------------------------------------
 # Help
 # ----------------------------------------------------------------------------
 
@@ -51,6 +63,9 @@ help:
 	@echo "  make test-long     - Run only long-running tests"
 	@echo "  make test-cover    - Run fast tests with coverage report"
 	@echo "  make test-all-cover - Run all tests with coverage report"
+	@echo ""
+	@echo "Mainnet Commands:"
+	@echo "  make mainnet-preflight - Check KMS credentials and deployer key state"
 	@echo ""
 	@echo "Long-running tests are in: cadence/long_tests/"
 	@echo ""
