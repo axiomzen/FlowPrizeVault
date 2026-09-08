@@ -504,8 +504,11 @@
 		"mainnet-deployer": {
 			"address": "a092c4aab33daeda",
 			"key": {
-				"type": "file",
-				"location": "mainnet-deployer.pkey"
+				"type": "google-kms",
+				"index": 1,
+				"signatureAlgorithm": "ECDSA_P256",
+				"hashAlgorithm": "SHA2_256",
+				"resourceID": "projects/toby-production-286416/locations/us-central1/keyRings/PLA-flow-signers/cryptoKeys/PLA-mainnet-deployer/cryptoKeyVersions/1"
 			}
 		},
 		"mainnet-test-deployer": {
